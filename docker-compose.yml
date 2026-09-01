@@ -1,0 +1,78 @@
+services:
+  db:
+    image: postgres:17
+    container_name: teacher-workbench-db
+    # Credentials come from .env (see .env.example); compose fails fast with a
+    # clear message when the file is missing. The port is published on 5432
+    # so host tools can reach the database.
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:?missing - copy .env.example to .env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?missing - copy .env.example to .env}
+      - POSTGRES_DB=${POSTGRES_DB:?missing - copy .env.example to .env}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workbench -d workbench"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: teacher-workbench-backend
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:?missing - copy .env.example to .env}:${POSTGRES_PASSWORD:?missing - copy .env.example to .env}@db:5432/${POSTGRES_DB:?missing - copy .env.example to .env}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1 on purpose — deterministic, avoids localhost resolving to ::1
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health').read()",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: teacher-workbench-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      # 127.0.0.1 on purpose: nginx only listens on IPv4, "localhost" would
+      # resolve to ::1 inside the container and the check would always fail
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://127.0.0.1/",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  pgdata:
+    driver: local

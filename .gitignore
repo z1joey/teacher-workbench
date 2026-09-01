@@ -1,0 +1,26 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Demo database
+backend/*.db
+
+# Node
+node_modules/
+dist/
+
+# Misc
+.DS_Store
+
+# Local tool data
+.mimosa/
+
+# IDE
+.vscode/
+
+# Docs (local drafts)
+docs/
+
+# Secrets
+.env
