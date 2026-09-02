@@ -4,7 +4,7 @@ import { useRouter } from "vue-router"
 import api from "../api"
 import Icon from "../components/Icon.vue"
 import LineChart from "../components/LineChart.vue"
-import { dateLocale, genderLabel, qtype, statusLabel, subject, subjectColor, t } from "../strings"
+import { dateLocale, genderLabel, statusLabel, subject, subjectColor, t } from "../strings"
 import Timeline from "../components/Timeline.vue"
 
 const props = defineProps({ id: { type: String, required: true } })
@@ -12,8 +12,6 @@ const router = useRouter()
 
 const student = ref(null)
 const timeline = ref([])
-const weaknesses = ref([])
-const failed = ref([])
 const classes = ref([])
 
 const loading = ref(true)
@@ -37,8 +35,6 @@ async function load() {
     const tasks = [
       api.get(`/students/${props.id}`),
       api.get(`/students/${props.id}/timeline`),
-      api.get(`/students/${props.id}/weaknesses`),
-      api.get(`/students/${props.id}/failed-questions`),
     ]
     if (!classes.value.length) {
       tasks.push(api.get("/classes").catch(() => []))
@@ -46,9 +42,7 @@ async function load() {
     const res = await Promise.all(tasks)
     student.value = res[0]
     timeline.value = res[1]
-    weaknesses.value = res[2]
-    failed.value = res[3]
-    if (res.length > 4) classes.value = res[4]
+    if (res.length > 2) classes.value = res[2]
   } catch (e) {
     error.value = e.message
   } finally {
@@ -151,24 +145,6 @@ function onEventClick(e) {
 function addEvent() {
   router.push(`/students/${props.id}/events/new`)
 }
-
-const failedGrouped = computed(() => {
-  const groups = []
-  const index = new Map()
-  for (const f of failed.value) {
-    const key = `${f.exam_name}|${f.subject}`
-    if (!index.has(key)) {
-      const group = {
-        label: `${f.exam_name} · ${subject(f.subject)}`,
-        items: [],
-      }
-      index.set(key, group)
-      groups.push(group)
-    }
-    index.get(key).items.push(f)
-  }
-  return groups
-})
 
 // multi-subject score trend: one line per subject across exams (chronological)
 const scoreTrend = computed(() => {
@@ -341,51 +317,6 @@ function scoreClass(row) {
             </tbody>
           </table>
           <p v-if="editError" class="error-text">{{ editError }}</p>
-        </div>
-
-        <!-- weaknesses -->
-        <div class="card">
-          <h2>{{ t("detail.weaknesses") }}</h2>
-          <p v-if="!weaknesses.length" class="empty">{{ t("empty.weaknesses") }}</p>
-          <div v-for="w in weaknesses" :key="w.id" class="weakness">
-            <div class="weakness-info">
-              <div class="weakness-topic">{{ w.knowledge_point }}</div>
-              <div class="weakness-sub">
-                {{ subject(w.subject) }} ·
-                {{ t("detail.weaknessFailed", { failed: w.evidence_count, total: w.attempts }) }} ·
-                {{ fmtDate(w.first_seen) }} → {{ fmtDate(w.last_seen) }}
-              </div>
-            </div>
-            <div class="severity-bar"><div :style="{ width: Math.round(w.severity * 100) + '%' }"></div></div>
-            <span :class="w.status === 'open' ? 'badge warn' : 'badge ok'">{{ statusLabel(w.status) }}</span>
-          </div>
-        </div>
-
-        <!-- failed question drill-down -->
-        <div class="card">
-          <h2>{{ t("detail.drilldown") }}</h2>
-          <p v-if="!failed.length" class="empty">{{ t("empty.drilldown") }}</p>
-          <div v-for="g in failedGrouped" :key="g.label" style="margin-bottom: 14px">
-            <div style="font-weight: 600; margin-bottom: 4px">{{ g.label }}</div>
-            <table>
-              <thead>
-                <tr>
-                  <th>{{ t("th.qno") }}</th>
-                  <th>{{ t("th.topic") }}</th>
-                  <th>{{ t("th.qtype") }}</th>
-                  <th>{{ t("th.earned") }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(f, i) in g.items" :key="i">
-                  <td>{{ f.question_no }}</td>
-                  <td>{{ f.topic || t("common.none") }}</td>
-                  <td class="page-sub" style="margin:0">{{ qtype(f.question_type) }}</td>
-                  <td><span class="badge warn">{{ f.earned }} / {{ f.max_score }}</span></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </div>
 
         <!-- timeline + add button -->

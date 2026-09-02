@@ -179,10 +179,6 @@ const messages = {
   "th.exam": "考试",
   "th.subject": "科目",
   "th.score": "分数",
-  "th.qno": "题号",
-  "th.topic": "知识点",
-  "th.qtype": "题型",
-  "th.earned": "得分",
 
   "common.loading": "加载中…",
   "common.noMatch": "没有符合条件的学生",
@@ -192,9 +188,6 @@ const messages = {
   "detail.born": "出生日期",
   "detail.guardian": "监护人",
   "detail.scores": "考试成绩",
-  "detail.weaknesses": "知识点薄弱项",
-  "detail.weaknessFailed": "答错 {failed}/{total} 题",
-  "detail.drilldown": "错题明细",
   "detail.events": "事件记录",
   "detail.timeline": "时间线",
   "detail.trendTitle": "成绩变化趋势",
@@ -219,8 +212,6 @@ const messages = {
   "event.saving": "保存中…",
 
   "empty.scores": "暂无成绩",
-  "empty.weaknesses": "暂无薄弱项记录，继续保持！",
-  "empty.drilldown": "暂无错题记录",
   "empty.events": "暂无事件记录",
 
   "exams.title": "考试列表",
@@ -248,7 +239,6 @@ const messages = {
   "tl.class_moved": "转班",
   "tl.exam_taken": "参加考试",
   "tl.result_changed": "成绩更正",
-  "tl.weakness_flagged": "薄弱项标记",
   "tl.home_visited": "家访",
   "tl.parent_call": "家长沟通",
   "tl.talk": "谈心",
@@ -301,17 +291,6 @@ export function termLabel(v) {
   return v ?? ""
 }
 
-const QUESTION_TYPES = {
-  choice: "选择题",
-  "fill-in": "填空题",
-  calculation: "计算题",
-  word_problem: "应用题",
-  geometry: "几何题",
-}
-export function qtype(ty) {
-  return QUESTION_TYPES[ty] ?? (ty ?? "")
-}
-
 const STATUS_KEYS = new Set(["active", "entered", "open", "resolved"])
 export function statusLabel(s) {
   return STATUS_KEYS.has(s) ? t(`status.${s}`) : (s ?? "")
@@ -328,7 +307,6 @@ const EVENT_TYPES = {
   class_moved: { icon: "swap", color: "#6D5BB8" },
   exam_taken: { icon: "clipboard", color: "#2E6BA8" },
   result_changed: { icon: "pencil", color: "#B45309" },
-  weakness_flagged: { icon: "alert", color: "#B42318" },
   home_visited: { icon: "home", color: "#2F7D4F" },
   parent_call: { icon: "home", color: "#367C6B" },
   talk: { icon: "note", color: "#4F6EAD" },
@@ -363,8 +341,6 @@ export function describeEvent(type, p = {}) {
     }
     case "result_changed":
       return `${p.exam ?? ""} · ${subject(p.subject)}: ${p.old} → ${p.new}${p.reason ? " · " + p.reason : ""}`
-    case "weakness_flagged":
-      return (p.points || []).join(", ")
     case "home_visited":
       return `${p.purpose ? p.purpose + " — " : ""}${p.summary || ""}`
     case "parent_call":

@@ -127,33 +127,6 @@ class ExamSubject(Base):
     exam: Mapped[Exam] = relationship()
 
 
-class KnowledgePoint(Base):
-    __tablename__ = "knowledge_point"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    subject: Mapped[str] = mapped_column(String(50))
-    code: Mapped[str] = mapped_column(String(100), unique=True)
-    name: Mapped[str] = mapped_column(String(200))
-    parent_id: Mapped[int | None] = mapped_column(ForeignKey("knowledge_point.id"))
-
-
-class Question(Base):
-    __tablename__ = "question"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    exam_subject_id: Mapped[int] = mapped_column(ForeignKey("exam_subject.id"))
-    question_no: Mapped[str] = mapped_column(String(20))
-    knowledge_point_id: Mapped[int | None] = mapped_column(ForeignKey("knowledge_point.id"))
-    question_type: Mapped[str | None] = mapped_column(String(30))
-    max_score: Mapped[float] = mapped_column(Float)
-
-    __table_args__ = (
-        UniqueConstraint("exam_subject_id", "question_no", name="uq_question_no_per_subject"),
-    )
-
-    knowledge_point: Mapped[KnowledgePoint | None] = relationship()
-
-
 class ExamResult(Base):
     __tablename__ = "exam_result"
 
@@ -167,40 +140,6 @@ class ExamResult(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     __table_args__ = (UniqueConstraint("student_id", "exam_subject_id", name="uq_result_per_subject"),)
-
-
-class QuestionResponse(Base):
-    __tablename__ = "question_response"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("student.id"))
-    question_id: Mapped[int] = mapped_column(ForeignKey("question.id"))
-    earned: Mapped[float | None] = mapped_column(Float)
-    is_correct: Mapped[bool] = mapped_column(Boolean)
-    detail: Mapped[dict | None] = mapped_column(JSONType)  # chosen option, wrong answer text, ...
-
-    __table_args__ = (
-        UniqueConstraint("student_id", "question_id", name="uq_response_per_question"),
-        Index("ix_qresp_student", "student_id"),
-        Index("ix_qresp_question", "question_id"),
-    )
-
-
-class StudentWeakness(Base):
-    __tablename__ = "student_weakness"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("student.id"))
-    knowledge_point_id: Mapped[int] = mapped_column(ForeignKey("knowledge_point.id"))
-    evidence_count: Mapped[int] = mapped_column(Integer, default=0)  # failed questions so far
-    attempts: Mapped[int] = mapped_column(Integer, default=0)  # questions seen in this KP
-    severity: Mapped[float] = mapped_column(Float, default=0.0)  # evidence_count / attempts
-    status: Mapped[str] = mapped_column(String(20), default="open")  # open | improving | resolved
-    first_seen: Mapped[date] = mapped_column(Date)
-    last_seen: Mapped[date] = mapped_column(Date)
-    last_exam_id: Mapped[int | None] = mapped_column(ForeignKey("exam.id"))
-
-    __table_args__ = (UniqueConstraint("student_id", "knowledge_point_id", name="uq_weakness_per_kp"),)
 
 
 class HomeVisit(Base):

@@ -76,7 +76,7 @@ async function saveEdit() {
 }
 
 async function removeExam() {
-  const msg = `确定删除考试「${exam.value.name}」？\n这会连带删除本次考试的所有成绩、题目和作答。此操作不可恢复。`
+  const msg = `确定删除考试「${exam.value.name}」？\n这会连带删除本次考试的所有科目成绩记录。此操作不可恢复。`
   if (!window.confirm(msg)) return
   try {
     await api.delete(`/exams/${props.id}`)

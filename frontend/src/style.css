@@ -381,20 +381,10 @@ input:focus, textarea:focus, select:focus {
 }
 .profile-meta { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 13px; margin-top: 4px; }
 
-/* --- weakness cards --- */
-.weakness {
-  display: flex; align-items: center; gap: 14px;
-  padding: 10px 0; border-bottom: 1px solid var(--border);
-}
-.weakness:last-child { border-bottom: none; }
-.weakness-info { flex: 1; min-width: 0; }
-.weakness-topic { font-weight: 600; }
+/* --- weakness-sub: generic muted sub-label reused across home / class / profile views.
+   Per-question weakness classes (weakness-info, weakness-topic, severity-bar) were removed
+   with the knowledge-point & question-response subsystem (2026-09). */
 .weakness-sub { color: var(--muted); font-size: 12px; }
-.severity-bar {
-  width: 120px; height: 8px; border-radius: 999px;
-  background: #eff1ee; overflow: hidden; flex-shrink: 0;
-}
-.severity-bar > div { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--amber), var(--danger)); }
 
 /* --- timeline --- */
 .timeline { list-style: none; margin: 0; padding: 0; position: relative; }

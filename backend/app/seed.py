@@ -1,7 +1,10 @@
 """Create tables and load demo data. Run from backend/: python -m app.seed
 
-Demo content is Chinese-only: names, knowledge points, visits and notes are
-stored as plain text.
+Demo content is Chinese-only: names, visits and notes are stored as plain text.
+
+Note (2026-09): KnowledgePoint / Question / QuestionResponse / StudentWeakness
+tables have been REMOVED. Exam scores are generated directly at the subject
+level (ExamResult row per student per exam subject).
 """
 import random
 from datetime import date, datetime, time
@@ -16,12 +19,8 @@ from .models import (
     Exam,
     ExamResult,
     ExamSubject,
-    KnowledgePoint,
-    Question,
-    QuestionResponse,
     Student,
     StudentEvent,
-    StudentWeakness,
     Teacher,
 )
 from .security import hash_password
@@ -32,43 +31,6 @@ ACADEMIC_YEAR = "2025/2026"
 ENROLL_DATE = date(2025, 9, 1)
 
 SUBJECT_FULL_SCORE = 100.0
-PASS_RATIO = 0.6
-
-# (code, name)
-MATH_KPS = [
-    ("MATH.G7.INTEGERS", "整数运算"),
-    ("MATH.G7.FRACTION.ADD", "分数加减法"),
-    ("MATH.G7.FRACTION.MULT", "分数乘除法"),
-    ("MATH.G7.EQUATION.LINEAR", "一元一次方程"),
-    ("MATH.G7.GEOMETRY.ANGLE", "角与平行线"),
-]
-ENG_KPS = [
-    ("ENG.G7.READING.DETAIL", "阅读理解·细节题"),
-    ("ENG.G7.READING.INFER", "阅读理解·推断题"),
-    ("ENG.G7.GRAMMAR.PAST", "动词过去式"),
-    ("ENG.G7.VOCAB", "词汇运用"),
-]
-
-# (question_no, knowledge_point code, max_score, question_type)
-MATH_QUESTIONS = [
-    ("1", "MATH.G7.INTEGERS", 10, "calculation"),
-    ("2", "MATH.G7.INTEGERS", 10, "calculation"),
-    ("3", "MATH.G7.FRACTION.ADD", 10, "calculation"),
-    ("4", "MATH.G7.FRACTION.ADD", 10, "word_problem"),
-    ("5", "MATH.G7.FRACTION.MULT", 10, "calculation"),
-    ("6", "MATH.G7.FRACTION.MULT", 10, "word_problem"),
-    ("7", "MATH.G7.EQUATION.LINEAR", 10, "calculation"),
-    ("8", "MATH.G7.EQUATION.LINEAR", 10, "word_problem"),
-    ("9", "MATH.G7.GEOMETRY.ANGLE", 10, "geometry"),
-    ("10", "MATH.G7.GEOMETRY.ANGLE", 10, "geometry"),
-]
-ENG_QUESTIONS = [
-    ("1", "ENG.G7.READING.DETAIL", 20, "choice"),
-    ("2", "ENG.G7.READING.DETAIL", 20, "choice"),
-    ("3", "ENG.G7.READING.INFER", 20, "choice"),
-    ("4", "ENG.G7.GRAMMAR.PAST", 20, "fill-in"),
-    ("5", "ENG.G7.VOCAB", 20, "choice"),
-]
 
 # (name, gender)
 NAMES_7_1 = [
@@ -108,15 +70,6 @@ def seed(db: Session) -> None:
     db.add_all([c71, c72])
     db.flush()
 
-    kp_by_code: dict[str, KnowledgePoint] = {}
-    for code, name in MATH_KPS:
-        kp_by_code[code] = KnowledgePoint(subject="math", code=code, name=name)
-    for code, name in ENG_KPS:
-        kp_by_code[code] = KnowledgePoint(subject="english", code=code, name=name)
-    db.add_all(kp_by_code.values())
-    db.flush()
-    kp_name_by_id = {kp.id: kp.name for kp in kp_by_code.values()}
-
     midterm = Exam(name="期中考试", exam_date=date(2026, 4, 15))
     final = Exam(name="期末考试", exam_date=date(2026, 6, 25))
     db.add_all([midterm, final])
@@ -130,25 +83,6 @@ def seed(db: Session) -> None:
             db.add(es)
             exam_subject_by_key[(exam_key, subject)] = es
     db.flush()
-
-    questions_by_es: dict[int, list[Question]] = {}
-    question_by_key: dict[tuple[int, str], Question] = {}
-    pending_kp_codes: list[tuple[Question, str]] = []  # (question, kp code) — ids assign at flush
-    for (exam_key, subject), es in exam_subject_by_key.items():
-        blueprint = MATH_QUESTIONS if subject == "math" else ENG_QUESTIONS
-        created = []
-        for no, code, max_score, qtype in blueprint:
-            q = Question(exam_subject_id=es.id, question_no=no,
-                         knowledge_point_id=kp_by_code[code].id,
-                         question_type=qtype, max_score=max_score)
-            db.add(q)
-            created.append(q)
-            question_by_key[(es.id, no)] = q
-            pending_kp_codes.append((q, code))
-        created.sort(key=lambda q: int(q.question_no))
-        questions_by_es[es.id] = created
-    db.flush()
-    kp_code_by_qid = {q.id: code for q, code in pending_kp_codes}
 
     # --- students + enrollment -------------------------------------------
     students: list[Student] = []
@@ -181,24 +115,17 @@ def seed(db: Session) -> None:
     hao = next(s for s in students if s.name == "王浩")
     guo = next(s for s in students if s.name == "郭浩然")
 
-    # --- ability model ----------------------------------------------------
+    # --- subject-level ability + results (no per-question detail) --------
     ability = {
         s.id: {"math": random.gauss(72, 12), "english": random.gauss(70, 13)}
         for s in students
     }
-    kp_affinity = {
-        (s.id, code): random.uniform(-10, 6)
-        for s in students
-        for code in kp_by_code
-    }
-    # story overrides so the demo shows clear, explainable patterns
+    # Story: 林晓雨数学偏弱，王浩数学方程部分薄弱（表现为 math 能力下调）。
     ability[lin.id]["math"] = 58.0
-    kp_affinity[(lin.id, "MATH.G7.FRACTION.ADD")] = -22.0
-    kp_affinity[(lin.id, "MATH.G7.FRACTION.MULT")] = -14.0
-    kp_affinity[(hao.id, "MATH.G7.EQUATION.LINEAR")] = -18.0
+    ability[hao.id]["math"] = 62.0
+    # Midterm / Final trend: final is generally 3 pts higher, + noise.
+    exam_trend = {"midterm": 0.0, "final": 3.0}
 
-    # --- responses + results ----------------------------------------------
-    response_by_key: dict[tuple[int, int], QuestionResponse] = {}
     result_by_key: dict[tuple[int, str, str], ExamResult] = {}
 
     for exam_key, exam in exams_by_key.items():
@@ -206,47 +133,30 @@ def seed(db: Session) -> None:
             es = exam_subject_by_key[(exam_key, subject)]
             entering_teacher = chen if subject == "math" else zhao
             for s in students:
-                total = 0.0
-                for q in questions_by_es[es.id]:
-                    base = clamp(
-                        ability[s.id][subject] + kp_affinity.get((s.id, kp_code_by_qid[q.id]), 0.0),
-                        5.0, 100.0,
-                    )
-                    ratio = clamp(base / 100.0 + random.gauss(0, 0.10), 0.0, 1.0)
-                    earned = round(q.max_score * ratio, 1)
-                    qr = QuestionResponse(
-                        student_id=s.id, question_id=q.id, earned=earned,
-                        is_correct=earned >= PASS_RATIO * q.max_score,
-                    )
-                    db.add(qr)
-                    response_by_key[(s.id, q.id)] = qr
-                    total += earned
+                base = ability[s.id][subject] + exam_trend[exam_key] + random.gauss(0, 3.0)
+                score = round(clamp(base, 0.0, SUBJECT_FULL_SCORE), 1)
                 result = ExamResult(
                     student_id=s.id, exam_subject_id=es.id,
-                    score=round(total, 1), status="entered",
+                    score=score, status="entered",
                     entered_by=entering_teacher.id,
                 )
                 db.add(result)
                 db.flush()
                 result_by_key[(s.id, exam_key, subject)] = result
 
-    # story: 陈老师 corrects an addition error on 林晓雨's midterm math Q7
+    # story: 陈老师 corrects an addition error on 林晓雨's midterm math score
+    # (+5 points, still ≤ 100).
     lin_math_midterm = result_by_key[(lin.id, "midterm", "math")]
-    q7 = question_by_key[(exam_subject_by_key[("midterm", "math")].id, "7")]
-    qr7 = response_by_key[(lin.id, q7.id)]
     old_score = lin_math_midterm.score
-    qr7.earned = round(min(qr7.earned + 5.0, q7.max_score), 1)
-    qr7.is_correct = qr7.earned >= PASS_RATIO * q7.max_score
-    lin_math_midterm.score = round(lin_math_midterm.score + 5.0, 1)
+    lin_math_midterm.score = round(clamp(old_score + 5.0, 0.0, SUBJECT_FULL_SCORE), 1)
     add_event(db, lin.id, "result_changed", dt(date(2026, 4, 16), time(16, 30)),
               actor_teacher_id=chen.id, ref_table="exam_result",
               ref_id=lin_math_midterm.id,
               payload={"exam": midterm.name,
                        "subject": "math", "old": old_score, "new": lin_math_midterm.score,
-                       "reason": "第7题加法错误更正"})
+                       "reason": "评分册登记错误更正"})
 
-    # story: 王浩 moves 七年级2班 -> 七年级1班 on 2026-03-01 (before both exams,
-    # so his averages attribute to 7-1 even though he started in 7-2)
+    # story: 王浩 moves 七年级2班 -> 七年级1班 on 2026-03-01 (before both exams)
     old_enrollment = (
         db.query(Enrollment)
         .filter(Enrollment.student_id == hao.id, Enrollment.class_id == c72.id)
@@ -263,7 +173,7 @@ def seed(db: Session) -> None:
                        "to": c71.name,
                        "reason": "均衡编班"})
 
-    # --- timeline: exam events ---------------------------------------------
+    # --- timeline: exam events (subject scores) ---------------------------
     for exam_key, exam in exams_by_key.items():
         for s in students:
             scores = {
@@ -274,42 +184,6 @@ def seed(db: Session) -> None:
                       ref_table="exam", ref_id=exam.id,
                       payload={"exam": exam.name,
                                "scores": scores})
-
-    # --- weaknesses rollup ---------------------------------------------------
-    for s in students:
-        agg: dict[int, dict] = {}
-        for exam_key, exam in exams_by_key.items():
-            for subject in ("math", "english"):
-                es = exam_subject_by_key[(exam_key, subject)]
-                for q in questions_by_es[es.id]:
-                    qr = response_by_key[(s.id, q.id)]
-                    rec = agg.setdefault(q.knowledge_point_id, {
-                        "attempts": 0, "fails": 0, "first": None,
-                        "last": None, "final_fails": 0,
-                    })
-                    rec["attempts"] += 1
-                    if not qr.is_correct:
-                        rec["fails"] += 1
-                        rec["first"] = rec["first"] or exam.exam_date
-                        rec["last"] = exam.exam_date
-                        if exam_key == "final":
-                            rec["final_fails"] += 1
-
-        flagged_by_date: dict[date, list[dict]] = {}
-        for kp_id, rec in agg.items():
-            if rec["fails"] >= 2:
-                status = "resolved" if rec["final_fails"] == 0 else "open"
-                db.add(StudentWeakness(
-                    student_id=s.id, knowledge_point_id=kp_id,
-                    evidence_count=rec["fails"], attempts=rec["attempts"],
-                    severity=rec["fails"] / rec["attempts"], status=status,
-                    first_seen=rec["first"], last_seen=rec["last"],
-                    last_exam_id=final.id,
-                ))
-                flagged_by_date.setdefault(rec["first"], []).append(kp_name_by_id[kp_id])
-        for first_date, kp_names in flagged_by_date.items():
-            add_event(db, s.id, "weakness_flagged", dt(first_date, time(17, 0)),
-                      payload={"points": kp_names})
 
     # --- home visits + notes -------------------------------------------------
     visits = [
@@ -351,9 +225,8 @@ def run() -> None:
         print("Seed complete:")
         print(f"  students: {db.query(Student).count()}")
         print(f"  exam_results: {db.query(ExamResult).count()}")
-        print(f"  question_responses: {db.query(QuestionResponse).count()}")
-        print(f"  weaknesses: {db.query(StudentWeakness).count()}")
         print(f"  timeline_events: {db.query(StudentEvent).count()}")
+        print("  (question_responses & weakness tables removed)")
         print("  demo login: 13800000001 / 123456")
         print("  admin login: 13800000000 / admin123  → hidden /admin dashboard")
     except Exception:

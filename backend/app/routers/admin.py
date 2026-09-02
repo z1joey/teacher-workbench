@@ -16,12 +16,8 @@ from ..models import (
     ExamResult,
     ExamSubject,
     HomeVisit,
-    KnowledgePoint,
-    Question,
-    QuestionResponse,
     Student,
     StudentEvent,
-    StudentWeakness,
     Teacher,
 )
 from ..security import hash_password
@@ -30,8 +26,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 # All models that map to real DB tables — used for table-count introspection.
 ALL_MODELS = [
-    Teacher, Student, Class, Enrollment, Exam, ExamSubject, Question,
-    KnowledgePoint, ExamResult, QuestionResponse, StudentWeakness,
+    Teacher, Student, Class, Enrollment, Exam, ExamSubject, ExamResult,
     HomeVisit, StudentEvent, AuthSession,
 ]
 

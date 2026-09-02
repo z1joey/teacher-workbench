@@ -101,7 +101,7 @@ const stats = computed(() => {
           <p v-if="!data.upcoming_exams.length" class="empty">{{ t("home.noCountdown") }}</p>
           <div v-for="e in data.upcoming_exams" :key="e.id" class="countdown-item">
             <div style="min-width: 0">
-              <div class="weakness-topic">{{ e.name }}</div>
+              <div style="font-weight: 600">{{ e.name }}</div>
               <div class="weakness-sub">
                 {{ fmtDate(e.exam_date) }}
               </div>

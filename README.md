@@ -140,11 +140,11 @@ docker compose up -d --build     # 修改代码后重新构建并启动
 | GET | `/api/dashboard` | 首页聚合（统计、 upcoming 考试、待跟进、最新事件） |
 | GET `/api/profile` · PATCH `/api/profile` | 教师资料（班级/学生/足迹） · 编辑姓名/邮箱/学科 |
 | GET · POST | `/api/students` | 列表 · 新增（监护人电话必填） |
-| GET | `/api/students/{id}` | 档案、成绩、家访记录 |
-| GET | `/api/students/{id}/timeline` | 时间线（最新在前） |
+| GET | `/api/students/{id}` | 档案、成绩、家访记录（家访数据来自 `StudentEvent.event_type="home_visited"`） |
+| GET | `/api/students/{id}/timeline` | 时间线（最新在前，一切事件追加式写入 `student_event` 表） |
 | GET | `/api/students/{id}/weaknesses` | 知识点薄弱项汇总 |
 | GET | `/api/students/{id}/failed-questions?subject=` | 错题明细 |
-| POST | `/api/students/{id}/home-visits` | 记录家访（操作人 = 当前教师） |
+| GET · POST · PATCH · DELETE | `/api/students/{id}/events` · `/events/{eid}` | 事件记录（家访/谈心/辅导/家长沟通/备注/自定义）；系统事件不可编辑/不可删除 |
 | PATCH | `/api/results/{id}` | 更正成绩（写入 `result_changed` 事件） |
 | GET · POST | `/api/exams` | 考试列表 · 新建考试（同学年同名 → 409） |
 | GET | `/api/exams/trend` | 各科全校平均分趋势（趋势图数据） |
@@ -159,9 +159,13 @@ PBKDF2-HMAC-SHA256（20 万次迭代 + 每用户盐值）；token 为 `auth_sess
 
 ## 数据库设计
 
-Schema 定义在 `backend/app/models.py`（SQLAlchemy 2.0 声明式映射），共 **14 张表**，
+Schema 定义在 `backend/app/models.py`（SQLAlchemy 2.0 声明式映射），共 **10 张表**，
 部署在 PostgreSQL（`docker compose` 中的 `db` 服务），本地开发可回退 SQLite。
-半结构化数据（逐题作答明细、时间线载荷）在 PostgreSQL 上落在 **JSONB** 列。
+半结构化数据（事件载荷等）在 PostgreSQL 上落在 **JSONB** 列。
+
+> 自 2026-09 起已移除逐题作答链路与薄弱项聚合：
+> `KnowledgePoint` / `Question` / `QuestionResponse` / `StudentWeakness` 四张表
+> 不再使用；成绩直接按"学生 × 科目"粒度落在 `exam_result`。
 
 ### 实体关系总览
 
@@ -172,15 +176,12 @@ teacher（班主任）──< class ═══< enrollment >═══ student
                             时间维度：valid_from / valid_to
                             在读 = valid_to IS NULL（部分唯一索引）
 
-exam ──< exam_subject（科目 / 满分）──< question（题号 / 题型 / 满分 / 知识点）
-                                             │
-knowledge_point（科目知识点，code 唯一）──────┘
-                                             │
-student ──< question_response           逐题作答：earned / is_correct / detail JSONB
-student ──< student_weakness            student × knowledge_point 聚合（薄弱项）
-student ──< home_visit                  家访：目的 / 摘要 / 是否需跟进 / 跟进备注
-student ──< student_event               追加式时间线：event_type + occurred_at
-                                        + payload JSONB + ref_table/ref_id 回指业务行
+exam ──< exam_subject（科目 / 满分）
+             │
+student ──< exam_result             科目级成绩：score / status / entered_by
+student ──< student_event           追加式时间线：event_type + occurred_at
+                                    + payload JSONB + ref_table/ref_id 回指业务行
+                                    （家访记录 → event_type="home_visited"）
 ```
 
 ### 关键设计
@@ -196,34 +197,25 @@ student ──< student_event               追加式时间线：event_type + oc
 直接 UPDATE 会破坏历史。
 
 **2. `student_event`：追加式（append-only）时间线。** 每个业务写操作（入学、
-转班、考试、成绩更正、薄弱项标记、家访、备注）在**同一个数据库事务**里额外
-写入一条事件行（`backend/app/events.py` 的 `add_event`，见各 router）。
+转班、考试、成绩更正、家访、备注）在**同一个数据库事务**里额外写入一条
+事件行（`backend/app/events.py` 的 `add_event`，见各 router）。
 `payload`（JSONB）携带展示所需数据，`ref_table`/`ref_id` 回指业务行。
 表只增不改，学生档案页的时间线和首页"最新动态"都直接查它，无需对账。
 
-**3. 逐题成绩链路：`exam → exam_subject → question → question_response`。**
-一场考试有若干科目（`exam_subject`，含满分），每个科目下挂具体题目，每题
-标注知识点（`knowledge_point`，`code` 如 `MATH.G7.FRACTION.ADD`）。每名学生
-每题一行作答（`question_response`：得分、是否正确、`detail` JSONB）。总分是
-由逐题得分汇总出的 `exam_result`，因此"错题明细"可以下钻到题，薄弱项可以
-归因到知识点。
+**3. `exam_result`：科目级成绩直接录入。**
+一场考试有若干科目（`exam_subject`，含满分），成绩以"学生 × 科目"粒度直接
+落在 `exam_result`，不记录逐题作答或知识点维度。前端学生详情页不再展示
+"错题下钻"与"薄弱项"卡片；若后续需要恢复逐题明细，可在 `exam_subject` 下
+重新挂接 Question/QuestionResponse 表，不必改动现有 exam_result。
 
-**4. `student_weakness`：由作答推导的聚合表。** 按 student × knowledge_point
-汇总答错次数（`evidence_count`）、尝试次数（`attempts`）、严重度
-（`severity = evidence/attempts`）与状态（`open`/`resolved`），并记录首末出现
-时间。它让"薄弱项"是一个**可查询的状态**而不是每次现算的报表。当前实现里
-聚合由种子脚本推导；运行时成绩更正后实时重算（设计意图见 `docs/design.md`）
-尚未接线，是已知的 MVP 简化。
+**4. 约束与索引。** 业务唯一性大多下沉到数据库：同学年班级名唯一
+（`uq_class_name_year`）、每生每科成绩唯一（`uq_result_per_subject`）；
+热点查询路径都有复合索引（时间线的 `(student_id, occurred_at)`、
+家访的 `(student_id, visited_at)` 等）。
 
-**5. 约束与索引。** 业务唯一性大多下沉到数据库：同学年班级名唯一
-（`uq_class_name_year`）、每生每科成绩唯一（`uq_result_per_subject`）、每生
-每题作答唯一（`uq_response_per_question`）、每生每知识点薄弱项唯一
-（`uq_weakness_per_kp`）；热点查询路径都有复合索引（时间线的
-`(student_id, occurred_at)`、家访的 `(student_id, visited_at)` 等）。
-
-**6. 内容即纯文本。** 姓名班级、知识点、家访摘要、备注、时间线 payload 全部
-存纯中文文本（此前一版的双语 `{zh, en}` 约定已整体移除）；科目、题型、状态
-等枚举值存代码（如 `math`、`choice`），由前端字典渲染成中文。
+**5. 内容即纯文本。** 姓名班级、家访摘要、备注、时间线 payload 全部
+存纯中文文本（此前一版的双语 `{zh, en}` 约定已整体移除）；科目、状态
+等枚举值存代码（如 `math`），由前端字典渲染成中文。
 
 ### 建表与迁移
 

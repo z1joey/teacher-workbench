@@ -119,8 +119,7 @@ const inspectLoading = ref(false)
 
 const DISCOVERED_TABLES = [
   "teacher", "student", "class", "enrollment", "exam", "exam_subject",
-  "question", "knowledge_point", "exam_result", "question_response",
-  "student_weakness", "home_visit", "student_event", "auth_session",
+  "exam_result", "home_visit", "student_event", "auth_session",
 ]
 
 async function runInspect() {

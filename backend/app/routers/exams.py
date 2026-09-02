@@ -13,8 +13,6 @@ from ..models import (
     Exam,
     ExamResult,
     ExamSubject,
-    Question,
-    QuestionResponse,
     Teacher,
 )
 
@@ -302,13 +300,9 @@ def delete_exam(
         for row in db.query(ExamSubject.id).filter(ExamSubject.exam_id == exam_id).all()
     ]
     if subject_ids:
-        question_ids = [
-            row[0] for row in db.query(Question.id).filter(Question.exam_subject_id.in_(subject_ids)).all()
-        ]
-        if question_ids:
-            db.query(QuestionResponse).filter(QuestionResponse.question_id.in_(question_ids)).delete(synchronize_session=False)
+        # KnowledgePoint, Question, QuestionResponse tables removed; only
+        # subject-level ExamResult rows need cascade cleanup.
         db.query(ExamResult).filter(ExamResult.exam_subject_id.in_(subject_ids)).delete(synchronize_session=False)
-        db.query(Question).filter(Question.id.in_(question_ids)).delete(synchronize_session=False)
         db.query(ExamSubject).filter(ExamSubject.id.in_(subject_ids)).delete(synchronize_session=False)
     db.delete(e)
     db.commit()
