@@ -18,6 +18,7 @@ const form = ref({
 })
 const busy = ref(false)
 const error = ref("")
+const guardianOpen = ref(false)
 
 onMounted(async () => {
   try {
@@ -40,7 +41,7 @@ async function submit() {
       gender: form.value.gender || null,
       birth_date: form.value.birth_date || null,
       guardian_name: form.value.guardian_name || null,
-      guardian_phone: form.value.guardian_phone,
+      guardian_phone: form.value.guardian_phone || null,
       address: form.value.address || null,
       class_id: Number(form.value.class_id),
     }
@@ -51,10 +52,6 @@ async function submit() {
   } finally {
     busy.value = false
   }
-}
-
-function className(c) {
-  return c.name
 }
 </script>
 
@@ -76,8 +73,9 @@ function className(c) {
           <label>{{ t("new.gender") }}</label>
           <select v-model="form.gender">
             <option value="">{{ t("common.none") }}</option>
-            <option value="F">{{ t("gender.f") }}</option>
-            <option value="M">{{ t("gender.m") }}</option>
+            <option value="male">男</option>
+            <option value="female">女</option>
+            <option value="other">其他</option>
           </select>
         </div>
         <div class="field" style="flex: 1">
@@ -86,20 +84,27 @@ function className(c) {
         </div>
       </div>
 
-      <h2 style="margin-top: 8px">{{ t("new.sectionGuardian") }}</h2>
-      <div style="display: flex; gap: 12px">
-        <div class="field" style="flex: 1">
-          <label>{{ t("new.guardianName") }}</label>
-          <input v-model="form.guardian_name" type="text" />
+      <div class="collapsible-block" :class="{ open: guardianOpen }">
+        <div class="collapsible-head" @click="guardianOpen = !guardianOpen">
+          <h2 style="margin-top: 0; margin-bottom: 0">{{ t("new.sectionGuardian") }} <span class="collapsible-hint">（{{ guardianOpen ? "收起" : "可选，点击展开" }}）</span></h2>
+          <Icon :name="guardianOpen ? 'chevron-up' : 'chevron-down'" :size="16" />
         </div>
-        <div class="field" style="flex: 1">
-          <label>{{ t("new.guardianPhone") }} *</label>
-          <input v-model="form.guardian_phone" type="tel" required />
+        <div class="collapsible-body">
+          <div style="display: flex; gap: 12px">
+            <div class="field" style="flex: 1">
+              <label>{{ t("new.guardianName") }}</label>
+              <input v-model="form.guardian_name" type="text" />
+            </div>
+            <div class="field" style="flex: 1">
+              <label>{{ t("new.guardianPhone") }}</label>
+              <input v-model="form.guardian_phone" type="tel" />
+            </div>
+          </div>
+          <div class="field">
+            <label>{{ t("new.address") }}</label>
+            <input v-model="form.address" type="text" />
+          </div>
         </div>
-      </div>
-      <div class="field">
-        <label>{{ t("new.address") }}</label>
-        <input v-model="form.address" type="text" />
       </div>
 
       <h2 style="margin-top: 8px">{{ t("new.sectionClass") }}</h2>
@@ -108,7 +113,7 @@ function className(c) {
         <select v-model="form.class_id" required>
           <option :value="null" disabled>{{ t("new.classPlaceholder") }}</option>
           <option v-for="c in classes" :key="c.id" :value="c.id">
-            {{ className(c) }} · {{ c.academic_year }} ({{ c.student_count }})
+            {{ c.name }} · {{ c.academic_year }} ({{ c.student_count }})
           </option>
         </select>
       </div>

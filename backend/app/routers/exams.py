@@ -13,6 +13,8 @@ from ..models import (
     Exam,
     ExamResult,
     ExamSubject,
+    Question,
+    QuestionResponse,
     Teacher,
 )
 
@@ -27,9 +29,6 @@ class SubjectIn(BaseModel):
 class ExamIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     exam_date: date
-    term: str | None = None
-    exam_type: str = Field(default="midterm", max_length=30)
-    academic_year: str | None = None
     subjects: list[SubjectIn] = Field(min_length=1)
 
 
@@ -39,32 +38,38 @@ def create_exam(
     db: Session = Depends(get_db),
     teacher: Teacher = Depends(get_current_teacher),
 ):
-    exam_date = body.exam_date
-    if body.academic_year:
-        academic_year = body.academic_year.strip()
-    else:
-        start = exam_date.year if exam_date.month >= 8 else exam_date.year - 1
-        academic_year = f"{start}/{start + 1}"
-    if (
-        db.query(Exam)
-        .filter(Exam.name == body.name.strip(), Exam.academic_year == academic_year)
-        .first()
-        is not None
-    ):
-        raise HTTPException(status_code=409, detail="该学年已存在同名考试")
-    exam = Exam(
-        name=body.name.strip(),
-        academic_year=academic_year,
-        term=body.term,
-        exam_date=exam_date,
-        exam_type=body.exam_type,
-    )
+    name = body.name.strip()
+    if db.query(Exam).filter(Exam.name == name, Exam.exam_date == body.exam_date).first() is not None:
+        raise HTTPException(status_code=409, detail="该日期已存在同名考试")
+    exam = Exam(name=name, exam_date=body.exam_date)
     db.add(exam)
     db.flush()
     for s in body.subjects:
         db.add(ExamSubject(exam_id=exam.id, subject=s.subject.strip(), full_score=s.full_score))
     db.commit()
-    return {"id": exam.id, "name": exam.name, "academic_year": academic_year}
+    return {"id": exam.id, "name": exam.name, "exam_date": exam.exam_date.isoformat()}
+
+
+def _exam_out(e: Exam, subjects: list[ExamSubject] | None = None) -> dict:
+    if subjects is None:
+        subjects = (
+            db_read.query(ExamSubject)
+            .filter(ExamSubject.exam_id == e.id)
+            .order_by(ExamSubject.subject)
+            .all()
+        )
+    return {
+        "id": e.id,
+        "name": e.name,
+        "exam_date": e.exam_date.isoformat(),
+        "subjects": [
+            {"id": s.id, "subject": s.subject, "full_score": s.full_score}
+            for s in subjects
+        ],
+    }
+
+
+# NOTE: _exam_out uses a helper that needs a Session; keep them inline.
 
 
 @router.get("/exams")
@@ -82,10 +87,7 @@ def list_exams(db: Session = Depends(get_db)):
             {
                 "id": e.id,
                 "name": e.name,
-                "academic_year": e.academic_year,
-                "term": e.term,
                 "exam_date": e.exam_date.isoformat(),
-                "exam_type": e.exam_type,
                 "subjects": [
                     {"id": s.id, "subject": s.subject, "full_score": s.full_score}
                     for s in subjects
@@ -97,7 +99,6 @@ def list_exams(db: Session = Depends(get_db)):
 
 @router.get("/exams/trend")
 def exams_trend(db: Session = Depends(get_db), teacher: Teacher = Depends(get_current_teacher)):
-    # NOTE: declared before /exams/{exam_id} so "trend" is not captured as an id.
     exams = db.query(Exam).order_by(Exam.exam_date, Exam.id).all()
     index_of = {e.id: i for i, e in enumerate(exams)}
     rows = (
@@ -148,10 +149,7 @@ def get_exam(exam_id: int, db: Session = Depends(get_db)):
     return {
         "id": e.id,
         "name": e.name,
-        "academic_year": e.academic_year,
-        "term": e.term,
         "exam_date": e.exam_date.isoformat(),
-        "exam_type": e.exam_type,
         "subjects": [
             {"id": s.id, "subject": s.subject, "full_score": s.full_score} for s in subjects
         ],
@@ -164,7 +162,6 @@ def exam_averages(exam_id: int, db: Session = Depends(get_db)):
     if exam is None:
         raise HTTPException(status_code=404, detail="exam not found")
 
-    # School-wide average per subject (entered results only, absent excluded)
     school_rows = (
         db.query(
             ExamSubject.subject,
@@ -181,9 +178,6 @@ def exam_averages(exam_id: int, db: Session = Depends(get_db)):
         .all()
     )
 
-    # Per-class average. Class attribution uses the roster *as of the exam
-    # date* via the temporal enrollment table, so a student who moved class
-    # is counted in the class they belonged to on exam day.
     class_rows = (
         db.query(
             Class.id,
@@ -215,8 +209,6 @@ def exam_averages(exam_id: int, db: Session = Depends(get_db)):
             "id": exam.id,
             "name": exam.name,
             "exam_date": exam.exam_date.isoformat(),
-            "term": exam.term,
-            "exam_type": exam.exam_type,
         },
         "school": [
             {
@@ -240,3 +232,84 @@ def exam_averages(exam_id: int, db: Session = Depends(get_db)):
             for class_id, class_name, subject, avg, count in class_rows
         ],
     }
+
+
+class ExamUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    exam_date: date | None = None
+    subjects: list[SubjectIn] | None = None
+
+
+@router.patch("/exams/{exam_id}")
+def update_exam(
+    exam_id: int,
+    body: ExamUpdateIn,
+    db: Session = Depends(get_db),
+    teacher: Teacher = Depends(get_current_teacher),
+):
+    e = db.get(Exam, exam_id)
+    if e is None:
+        raise HTTPException(status_code=404, detail="exam not found")
+
+    if body.name is not None:
+        e.name = body.name.strip()
+    if body.exam_date is not None:
+        e.exam_date = body.exam_date
+
+    if body.subjects is not None:
+        has_results = (
+            db.query(ExamResult)
+            .join(ExamSubject, ExamSubject.id == ExamResult.exam_subject_id)
+            .filter(ExamSubject.exam_id == exam_id)
+            .first()
+            is not None
+        )
+        if has_results:
+            raise HTTPException(status_code=400, detail="考试已有成绩录入，无法修改科目结构")
+        db.query(ExamSubject).filter(ExamSubject.exam_id == exam_id).delete()
+        for s in body.subjects:
+            db.add(ExamSubject(exam_id=exam_id, subject=s.subject.strip(), full_score=s.full_score))
+
+    db.commit()
+
+    subjects = (
+        db.query(ExamSubject)
+        .filter(ExamSubject.exam_id == exam_id)
+        .order_by(ExamSubject.subject)
+        .all()
+    )
+    return {
+        "id": e.id,
+        "name": e.name,
+        "exam_date": e.exam_date.isoformat(),
+        "subjects": [
+            {"id": s.id, "subject": s.subject, "full_score": s.full_score} for s in subjects
+        ],
+    }
+
+
+@router.delete("/exams/{exam_id}")
+def delete_exam(
+    exam_id: int,
+    db: Session = Depends(get_db),
+    teacher: Teacher = Depends(get_current_teacher),
+):
+    e = db.get(Exam, exam_id)
+    if e is None:
+        raise HTTPException(status_code=404, detail="exam not found")
+    subject_ids = [
+        row[0]
+        for row in db.query(ExamSubject.id).filter(ExamSubject.exam_id == exam_id).all()
+    ]
+    if subject_ids:
+        question_ids = [
+            row[0] for row in db.query(Question.id).filter(Question.exam_subject_id.in_(subject_ids)).all()
+        ]
+        if question_ids:
+            db.query(QuestionResponse).filter(QuestionResponse.question_id.in_(question_ids)).delete(synchronize_session=False)
+        db.query(ExamResult).filter(ExamResult.exam_subject_id.in_(subject_ids)).delete(synchronize_session=False)
+        db.query(Question).filter(Question.id.in_(question_ids)).delete(synchronize_session=False)
+        db.query(ExamSubject).filter(ExamSubject.id.in_(subject_ids)).delete(synchronize_session=False)
+    db.delete(e)
+    db.commit()
+    return {"ok": True}

@@ -16,7 +16,6 @@ from .models import (
     Exam,
     ExamResult,
     ExamSubject,
-    HomeVisit,
     KnowledgePoint,
     Question,
     QuestionResponse,
@@ -93,11 +92,13 @@ def clamp(v: float, lo: float, hi: float) -> float:
 
 
 def seed(db: Session) -> None:
+    admin = Teacher(name="开发者", email="admin@school.dev", phone="13800000000",
+                    password_hash=hash_password("admin123"), subject=None, is_admin=True)
     chen = Teacher(name="陈老师", email="chen@school.edu", phone="13800000001",
                    password_hash=hash_password("123456"), subject="math")
     zhao = Teacher(name="赵老师", email="zhao@school.edu", phone="13800000002",
                    password_hash=hash_password("123456"), subject="english")
-    db.add_all([chen, zhao])
+    db.add_all([admin, chen, zhao])
     db.flush()
 
     c71 = Class(name="七年级1班", grade_level=7,
@@ -116,10 +117,8 @@ def seed(db: Session) -> None:
     db.flush()
     kp_name_by_id = {kp.id: kp.name for kp in kp_by_code.values()}
 
-    midterm = Exam(name="期中考试", academic_year=ACADEMIC_YEAR,
-                   term="第二学期", exam_date=date(2026, 4, 15), exam_type="midterm")
-    final = Exam(name="期末考试", academic_year=ACADEMIC_YEAR,
-                 term="第二学期", exam_date=date(2026, 6, 25), exam_type="final")
+    midterm = Exam(name="期中考试", exam_date=date(2026, 4, 15))
+    final = Exam(name="期末考试", exam_date=date(2026, 6, 25))
     db.add_all([midterm, final])
     db.flush()
     exams_by_key = {"midterm": midterm, "final": final}
@@ -328,13 +327,9 @@ def seed(db: Session) -> None:
          False, None),
     ]
     for student_id, teacher_id, when, purpose, summary, follow_up, note in visits:
-        db.add(HomeVisit(student_id=student_id, teacher_id=teacher_id,
-                         visited_at=when, purpose=purpose, summary=summary,
-                         follow_up_needed=follow_up, follow_up_note=note))
         add_event(db, student_id, "home_visited", when, actor_teacher_id=teacher_id,
-                  ref_table="home_visit",
                   payload={"purpose": purpose, "summary": summary,
-                           "follow_up_needed": follow_up})
+                           "follow_up_needed": follow_up, "follow_up_note": note})
 
     add_event(db, lin.id, "note_added", datetime(2026, 4, 20, 15, 0),
               actor_teacher_id=chen.id,
@@ -358,9 +353,9 @@ def run() -> None:
         print(f"  exam_results: {db.query(ExamResult).count()}")
         print(f"  question_responses: {db.query(QuestionResponse).count()}")
         print(f"  weaknesses: {db.query(StudentWeakness).count()}")
-        print(f"  home_visits: {db.query(HomeVisit).count()}")
         print(f"  timeline_events: {db.query(StudentEvent).count()}")
         print("  demo login: 13800000001 / 123456")
+        print("  admin login: 13800000000 / admin123  → hidden /admin dashboard")
     except Exception:
         db.rollback()
         raise

@@ -43,6 +43,7 @@ class Teacher(Base):
     password_hash: Mapped[str] = mapped_column(String(200))
     subject: Mapped[str | None] = mapped_column(String(50))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -55,7 +56,7 @@ class Student(Base):
     gender: Mapped[str | None] = mapped_column(String(10))
     birth_date: Mapped[date | None] = mapped_column(Date)
     guardian_name: Mapped[str | None] = mapped_column(String(100))
-    guardian_phone: Mapped[str] = mapped_column(String(40))  # required (phone is mandatory)
+    guardian_phone: Mapped[str | None] = mapped_column(String(40))
     address: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -110,10 +111,7 @@ class Exam(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100))
-    academic_year: Mapped[str] = mapped_column(String(20))
-    term: Mapped[str] = mapped_column(String(50))
     exam_date: Mapped[date] = mapped_column(Date)
-    exam_type: Mapped[str] = mapped_column(String(30))
 
 
 class ExamSubject(Base):

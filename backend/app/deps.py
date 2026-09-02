@@ -22,3 +22,9 @@ def get_current_teacher(
     if teacher is None or not teacher.is_active:
         raise HTTPException(status_code=401, detail="账号不可用")
     return teacher
+
+
+def get_admin_teacher(teacher: Teacher = Depends(get_current_teacher)) -> Teacher:
+    if not teacher.is_admin:
+        raise HTTPException(status_code=403, detail="无权访问")
+    return teacher

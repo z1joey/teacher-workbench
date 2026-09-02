@@ -23,6 +23,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: z1joey/teacher-workbench-backend:latest
     container_name: teacher-workbench-backend
     ports:
       - "8001:8001"
@@ -50,6 +51,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    image: z1joey/teacher-workbench-frontend:latest
     container_name: teacher-workbench-frontend
     ports:
       - "80:80"

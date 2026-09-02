@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_teacher
-from ..models import Class, Enrollment, ExamResult, HomeVisit, Student, StudentEvent, Teacher
+from ..models import Class, Enrollment, ExamResult, Student, StudentEvent, Teacher
 
 router = APIRouter(tags=["profile"])
 
@@ -16,6 +16,7 @@ def teacher_out(t: Teacher) -> dict:
         "phone": t.phone,
         "email": t.email,
         "subject": t.subject,
+        "is_admin": t.is_admin,
     }
 
 
@@ -59,7 +60,12 @@ def get_profile(db: Session = Depends(get_db), teacher: Teacher = Depends(get_cu
             }
         )
     stats = {
-        "home_visits": db.query(HomeVisit).filter(HomeVisit.teacher_id == teacher.id).count(),
+        "home_visits": (
+            db.query(StudentEvent)
+            .filter(StudentEvent.actor_teacher_id == teacher.id,
+                    StudentEvent.event_type == "home_visited")
+            .count()
+        ),
         "results_entered": db.query(ExamResult).filter(ExamResult.entered_by == teacher.id).count(),
         "notes_added": (
             db.query(StudentEvent)

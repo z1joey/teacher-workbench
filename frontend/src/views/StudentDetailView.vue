@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch } from "vue"
+import { useRouter } from "vue-router"
 import api from "../api"
 import Icon from "../components/Icon.vue"
 import LineChart from "../components/LineChart.vue"
@@ -7,11 +8,14 @@ import { dateLocale, genderLabel, qtype, statusLabel, subject, subjectColor, t }
 import Timeline from "../components/Timeline.vue"
 
 const props = defineProps({ id: { type: String, required: true } })
+const router = useRouter()
 
 const student = ref(null)
 const timeline = ref([])
 const weaknesses = ref([])
 const failed = ref([])
+const classes = ref([])
+
 const loading = ref(true)
 const error = ref("")
 
@@ -20,30 +24,31 @@ const editingId = ref(null)
 const editValue = ref(null)
 const editError = ref("")
 
-// home visit form — the visiting teacher is the logged-in user
-const showVisitForm = ref(false)
-const visitSaving = ref(false)
-const visitError = ref("")
-const visitForm = ref(emptyVisitForm())
-
-function emptyVisitForm() {
-  return { purpose: "", summary: "", follow_up_needed: false, follow_up_note: "" }
-}
+// profile edit
+const profileEditing = ref(false)
+const profileSaving = ref(false)
+const profileError = ref("")
+const profileForm = ref({})
 
 async function load() {
   loading.value = true
   error.value = ""
   try {
-    const [s, tl, w, f] = await Promise.all([
+    const tasks = [
       api.get(`/students/${props.id}`),
       api.get(`/students/${props.id}/timeline`),
       api.get(`/students/${props.id}/weaknesses`),
       api.get(`/students/${props.id}/failed-questions`),
-    ])
-    student.value = s
-    timeline.value = tl
-    weaknesses.value = w
-    failed.value = f
+    ]
+    if (!classes.value.length) {
+      tasks.push(api.get("/classes").catch(() => []))
+    }
+    const res = await Promise.all(tasks)
+    student.value = res[0]
+    timeline.value = res[1]
+    weaknesses.value = res[2]
+    failed.value = res[3]
+    if (res.length > 4) classes.value = res[4]
   } catch (e) {
     error.value = e.message
   } finally {
@@ -52,6 +57,68 @@ async function load() {
 }
 onMounted(load)
 watch(() => props.id, load)
+
+function startProfileEdit() {
+  profileEditing.value = true
+  profileError.value = ""
+  profileForm.value = {
+    name: student.value.name,
+    gender: student.value.gender || "",
+    guardian_name: student.value.guardian_name || "",
+    guardian_phone: student.value.guardian_phone || "",
+    birth_date: student.value.birth_date || "",
+    address: student.value.address || "",
+    status: student.value.status || "active",
+    class_id: student.value.class?.id ?? null,
+  }
+}
+function cancelProfileEdit() {
+  profileEditing.value = false
+  profileForm.value = {}
+  profileError.value = ""
+}
+
+async function saveProfileEdit() {
+  profileError.value = ""
+  if (!(profileForm.value.name || "").trim()) {
+    profileError.value = "姓名不能为空"
+    return
+  }
+  profileSaving.value = true
+  try {
+    await api.patch(`/students/${props.id}`, {
+      name: profileForm.value.name.trim(),
+      gender: profileForm.value.gender || null,
+      guardian_name: profileForm.value.guardian_name.trim() || null,
+      guardian_phone: profileForm.value.guardian_phone.trim(),
+      birth_date: profileForm.value.birth_date || null,
+      address: profileForm.value.address.trim() || null,
+      status: profileForm.value.status,
+      class_id: profileForm.value.class_id || null,
+    })
+    cancelProfileEdit()
+    await load()
+  } catch (e) {
+    profileError.value = e.message
+  } finally {
+    profileSaving.value = false
+  }
+}
+
+async function removeStudent() {
+  const msg = `确定删除学生「${student.value.name}」？\n\n如果该学生已有历史成绩/家访记录，将自动停用账号（数据保留）。否则会被彻底删除。`
+  if (!window.confirm(msg)) return
+  try {
+    const res = await api.delete(`/students/${props.id}`)
+    const tip = res.action === "deactivated"
+      ? `学生「${student.value.name}」已停用账号。`
+      : `学生「${student.value.name}」已删除。`
+    alert(tip)
+    router.replace("/students")
+  } catch (e) {
+    alert(`删除失败：${e.message}`)
+  }
+}
 
 function startEdit(row) {
   editingId.value = row.result_id
@@ -76,23 +143,13 @@ async function saveEdit(row) {
   }
 }
 
-async function submitVisit() {
-  if (!visitForm.value.summary.trim()) {
-    visitError.value = t("visit.summaryRequired")
-    return
-  }
-  visitSaving.value = true
-  visitError.value = ""
-  try {
-    await api.post(`/students/${props.id}/home-visits`, visitForm.value)
-    visitForm.value = emptyVisitForm()
-    showVisitForm.value = false
-    await load()
-  } catch (e) {
-    visitError.value = e.message
-  } finally {
-    visitSaving.value = false
-  }
+function onEventClick(e) {
+  // Only manual events (non-system, with actor_teacher_id) are editable
+  if (e.is_system) return
+  router.push(`/students/${props.id}/events/${e.id}`)
+}
+function addEvent() {
+  router.push(`/students/${props.id}/events/new`)
 }
 
 const failedGrouped = computed(() => {
@@ -165,21 +222,77 @@ function scoreClass(row) {
     <router-link to="/students" class="back-link"><Icon name="chevron-left" :size="14" /> {{ t("detail.back") }}</router-link>
 
     <div class="card" style="margin-top: 12px">
-      <div class="profile-head">
-        <div class="avatar">{{ student.name.charAt(0) }}</div>
-        <div>
-          <h1 style="margin-bottom: 0">{{ student.name }}</h1>
-          <div class="profile-meta">
-            <span class="badge">{{ student.class ? student.class.name : "—" }}</span>
-            <span>{{ student.admission_no }}</span>
-            <span>{{ genderLabel(student.gender) }}</span>
-            <span>{{ t("detail.born") }} {{ fmtDate(student.birth_date) }}</span>
-            <span class="badge ok">{{ statusLabel(student.status) }}</span>
+      <div v-if="!profileEditing" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px">
+        <div class="profile-head">
+          <div class="avatar">{{ student.name.charAt(0) }}</div>
+          <div>
+            <h1 style="margin-bottom: 0">{{ student.name }}</h1>
+            <div class="profile-meta">
+              <span class="badge">{{ student.class ? student.class.name : "—" }}</span>
+              <span>{{ student.admission_no }}</span>
+              <span>{{ genderLabel(student.gender) }}</span>
+              <span>{{ t("detail.born") }} {{ fmtDate(student.birth_date) }}</span>
+              <span class="badge" :class="student.status === 'active' ? 'ok' : 'muted'">{{ statusLabel(student.status) }}</span>
+            </div>
+            <div class="profile-meta">
+              <span>{{ t("detail.guardian") }}: {{ student.guardian_name || "—" }} · {{ student.guardian_phone || "—" }}</span>
+              <span>{{ student.address || "" }}</span>
+            </div>
           </div>
-          <div class="profile-meta">
-            <span>{{ t("detail.guardian") }}: {{ student.guardian_name || "—" }} · {{ student.guardian_phone || "—" }}</span>
-            <span>{{ student.address || "" }}</span>
-          </div>
+        </div>
+        <div style="display: flex; gap: 8px">
+          <button class="small" @click="startProfileEdit">{{ t("action.edit") }}</button>
+          <button class="small logout-btn" @click="removeStudent">{{ t("action.delete") }}</button>
+        </div>
+      </div>
+
+      <!-- inline profile edit -->
+      <div v-else>
+        <h2 style="margin: 0 0 10px">{{ t("action.edit") }} · {{ student.name }}</h2>
+        <div class="form-row">
+          <label>姓名
+            <input v-model="profileForm.name" type="text" />
+          </label>
+          <label>性别
+            <select v-model="profileForm.gender">
+              <option value="">（未填写）</option>
+              <option value="male">男</option>
+              <option value="female">女</option>
+              <option value="other">其他</option>
+            </select>
+          </label>
+          <label>状态
+            <select v-model="profileForm.status">
+              <option value="active">活跃</option>
+              <option value="inactive">停用</option>
+            </select>
+          </label>
+          <label>班级
+            <select v-model="profileForm.class_id">
+              <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
+            </select>
+          </label>
+        </div>
+        <div class="form-row">
+          <label>监护人姓名
+            <input v-model="profileForm.guardian_name" type="text" placeholder="家长姓名" />
+          </label>
+          <label>监护人电话
+            <input v-model="profileForm.guardian_phone" type="tel" placeholder="联系方式" />
+          </label>
+          <label>出生日期
+            <input v-model="profileForm.birth_date" type="date" />
+          </label>
+          <label>住址
+            <input v-model="profileForm.address" type="text" placeholder="住址" />
+          </label>
+        </div>
+        <p v-if="profileError" class="error-text" style="margin: 6px 0">{{ profileError }}</p>
+        <div style="display: flex; gap: 8px; margin-top: 6px">
+          <button class="primary small" :disabled="profileSaving" @click="saveProfileEdit">
+            {{ profileSaving ? "保存中..." : t("action.save") }}
+          </button>
+          <button class="small" @click="cancelProfileEdit">{{ t("action.cancel") }}</button>
         </div>
       </div>
     </div>
@@ -275,60 +388,14 @@ function scoreClass(row) {
           </div>
         </div>
 
-        <!-- home visits -->
+        <!-- timeline + add button -->
         <div class="card">
           <div style="display: flex; justify-content: space-between; align-items: center">
-            <h2 style="margin: 0">{{ t("detail.visits") }}</h2>
-            <button class="small primary" @click="showVisitForm = !showVisitForm">
-              {{ showVisitForm ? t("visit.close") : t("visit.record") }}
-            </button>
+            <h2 style="margin: 0">{{ t("detail.timeline") }}</h2>
+            <button class="small primary" @click="addEvent">+</button>
           </div>
-
-          <form v-if="showVisitForm" style="margin-top: 14px" @submit.prevent="submitVisit">
-      <div class="field">
-              <label>{{ t("visit.purpose") }}</label>
-              <input v-model="visitForm.purpose" type="text" />
-            </div>
-            <div class="field">
-              <label>{{ t("visit.summary") }} *</label>
-              <textarea v-model="visitForm.summary" rows="3"></textarea>
-            </div>
-            <div class="field checkbox-row">
-              <input id="fu" v-model="visitForm.follow_up_needed" type="checkbox" />
-              <label for="fu">{{ t("visit.followUp") }}</label>
-            </div>
-            <div v-if="visitForm.follow_up_needed" class="field">
-              <label>{{ t("visit.followUpNote") }}</label>
-              <input v-model="visitForm.follow_up_note" type="text" />
-            </div>
-            <p v-if="visitError" class="error-text">{{ visitError }}</p>
-            <button type="submit" class="primary" :disabled="visitSaving">
-              {{ visitSaving ? t("visit.saving") : t("visit.save") }}
-            </button>
-          </form>
-
-          <p v-if="!student.home_visits.length" class="empty" style="margin-top: 14px">
-            {{ t("empty.visits") }}
-          </p>
-          <div
-            v-for="v in student.home_visits"
-            :key="v.id"
-            style="padding: 10px 0; border-bottom: 1px solid var(--border)"
-          >
-            <div style="font-weight: 600">{{ v.purpose || t("detail.visits") }}</div>
-            <div class="weakness-sub" style="margin: 2px 0 6px">{{ fmtDateTime(v.visited_at) }}</div>
-            <div>{{ v.summary }}</div>
-            <div v-if="v.follow_up_needed" style="margin-top: 6px">
-              <span class="badge warn">{{ t("visit.followUp") }}: {{ v.follow_up_note || "…" }}</span>
-            </div>
-          </div>
+          <Timeline :events="timeline" :clickable="true" @select="onEventClick" />
         </div>
-      </div>
-
-      <!-- timeline -->
-      <div class="card">
-        <h2>{{ t("detail.timeline") }}</h2>
-        <Timeline :events="timeline" />
       </div>
     </div>
   </template>

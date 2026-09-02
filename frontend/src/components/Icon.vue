@@ -15,6 +15,8 @@ const PATHS = {
   enroll: `<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/>`,
   check: `<path d="M20 6 9 17l-5-5"/>`,
   "chevron-left": `<path d="M14.5 5.5 8 12l6.5 6.5"/>`,
+  "chevron-up": `<path d="m5.5 14.5 6.5-6.5 6.5 6.5"/>`,
+  "chevron-down": `<path d="m5.5 9.5 6.5 6.5 6.5-6.5"/>`,
 }
 
 defineProps({

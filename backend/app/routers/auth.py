@@ -35,6 +35,7 @@ def teacher_out(t: Teacher) -> dict:
         "phone": t.phone,
         "email": t.email,
         "subject": t.subject,
+        "is_admin": t.is_admin,
     }
 
 

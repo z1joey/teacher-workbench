@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_teacher
-from ..models import Class, Exam, HomeVisit, Student, StudentEvent, Teacher
+from ..models import Class, Exam, Student, StudentEvent, Teacher
 
 router = APIRouter(tags=["dashboard"])
 
@@ -19,13 +19,16 @@ def dashboard(
         "students": db.query(Student).filter(Student.status == "active").count(),
         "classes": db.query(Class).count(),
         "exams": db.query(Exam).count(),
-        "home_visits": db.query(HomeVisit).count(),
+        "home_visits": db.query(StudentEvent).filter(StudentEvent.event_type == "home_visited").count(),
     }
     follow_ups = (
-        db.query(HomeVisit, Student.name)
-        .join(Student, Student.id == HomeVisit.student_id)
-        .filter(HomeVisit.follow_up_needed.is_(True))
-        .order_by(HomeVisit.visited_at.desc())
+        db.query(StudentEvent, Student.name)
+        .join(Student, Student.id == StudentEvent.student_id)
+        .filter(
+            StudentEvent.event_type == "home_visited",
+            StudentEvent.payload.contains({"follow_up_needed": True}),
+        )
+        .order_by(StudentEvent.occurred_at.desc())
         .limit(5)
         .all()
     )
@@ -51,19 +54,19 @@ def dashboard(
                 "id": exam.id,
                 "name": exam.name,
                 "exam_date": exam.exam_date.isoformat(),
-                "exam_type": exam.exam_type,
             }
             for exam in upcoming
         ],
         "follow_ups": [
             {
-                "student_id": visit.student_id,
+                "student_id": ev.student_id,
                 "student_name": student_name,
-                "visited_at": visit.visited_at.isoformat(),
-                "purpose": visit.purpose,
-                "follow_up_note": visit.follow_up_note,
+                "visited_at": ev.occurred_at.isoformat(),
+                "purpose": (ev.payload or {}).get("purpose"),
+                "summary": (ev.payload or {}).get("summary"),
+                "follow_up_note": (ev.payload or {}).get("follow_up_note"),
             }
-            for visit, student_name in follow_ups
+            for ev, student_name in follow_ups
         ],
         "recent_events": [
             {

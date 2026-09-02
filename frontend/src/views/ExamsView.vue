@@ -2,7 +2,7 @@
 import { ref, onMounted } from "vue"
 import Icon from "../components/Icon.vue"
 import api from "../api"
-import { exatypeLabel, subject, termLabel, t } from "../strings"
+import { subject, t } from "../strings"
 
 const exams = ref([])
 const loading = ref(true)
@@ -41,14 +41,13 @@ function fmtDate(d) {
       <div>
         <h2 style="margin-bottom: 2px">
           {{ e.name }}
-          <span class="badge muted" style="margin-left: 6px">{{ exatypeLabel(e.exam_type) }}</span>
         </h2>
         <span class="page-sub" style="margin: 0">
-          {{ fmtDate(e.exam_date) }} · {{ termLabel(e.term) }} · {{ e.academic_year }}
+          {{ fmtDate(e.exam_date) }}
         </span>
       </div>
-      <router-link :to="`/exams/${e.id}`">
-        <button class="primary small">{{ t("exams.viewAverages") }}</button>
+      <router-link :to="`/exams/${e.id}`" title="查看 / 编辑 / 删除">
+        <button class="small icon-btn">…</button>
       </router-link>
     </div>
     <div style="display: flex; gap: 8px; margin-top: 10px">

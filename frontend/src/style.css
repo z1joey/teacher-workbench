@@ -280,6 +280,7 @@ button {
   font: inherit;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
   padding: 8px 14px;
   border-radius: 8px;
@@ -288,12 +289,27 @@ button {
   color: var(--text);
   cursor: pointer;
   font-weight: 500;
+  height: 32px;
+  line-height: 1;
+  box-sizing: border-box;
   transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 button:hover { background: #f4f6f3; border-color: #cfd8d0; }
 button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 button.primary:hover { background: var(--primary-deep); border-color: var(--primary-deep); }
-button.small { padding: 4px 10px; font-size: 13px; }
+button.small { padding: 4px 10px; font-size: 13px; height: 28px; line-height: 1; }
+button.primary.small { background: var(--primary); border-color: var(--primary); color: #fff; }
+button.small.logout-btn { width: auto; }
+button.icon-btn {
+  padding: 0 8px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  font-size: 16px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+button.icon-btn:hover { background: var(--border); border-color: var(--border); color: var(--text); }
 button:disabled { opacity: 0.6; cursor: default; }
 
 input[type="text"], input[type="number"], input[type="tel"], input[type="email"],
@@ -310,6 +326,36 @@ input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(47, 91, 68, 0.14);
+}
+
+.collapsible-block {
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  margin: 16px 0 14px;
+  padding: 4px 0;
+}
+.collapsible-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  padding: 6px 2px;
+  color: var(--text);
+}
+.collapsible-head:hover { color: var(--primary-deep); }
+.collapsible-hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+.collapsible-body {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.2s ease;
+  padding-top: 0;
+}
+.collapsible-block.open .collapsible-body {
+  max-height: 600px;
+  opacity: 1;
+  padding-top: 12px;
 }
 
 .field { margin-bottom: 12px; }
@@ -370,6 +416,28 @@ input:focus, textarea:focus, select:focus {
 .timeline-actor { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .timeline-desc { margin: 4px 0 6px; color: var(--text); font-size: 13px; overflow-wrap: break-word; }
 .timeline-time { color: var(--muted); font-size: 12px; }
+.timeline-item.clickable { cursor: pointer; }
+.timeline-item.clickable .timeline-card { transition: background 0.15s, border-color 0.15s; }
+.timeline-item.clickable:hover .timeline-card { background: #f0f4ef; border-color: var(--primary); }
+
+/* --- event detail modal --- */
+.event-detail-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+}
+.event-detail-modal {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 12px 32px rgba(0,0,0,0.2);
+  width: 480px; max-width: 92vw; max-height: 85vh; overflow-y: auto;
+  padding: 20px 24px;
+}
+.event-detail-modal h3 { margin: 0 0 4px; }
+.event-detail-meta { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+.event-detail-body { font-size: 14px; line-height: 1.6; }
+.event-detail-body .row { display: flex; gap: 8px; margin-bottom: 6px; }
+.event-detail-body .row .label { color: var(--muted); min-width: 64px; flex-shrink: 0; }
+.event-detail-close { margin-top: 14px; float: right; }
 
 /* --- exam detail --- */
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px; }

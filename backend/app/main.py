@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import Base, engine
 from .deps import get_current_teacher
-from .routers import auth, classes, dashboard, exams, misc, profile, students
+from .routers import admin, auth, classes, dashboard, exams, misc, profile, students
 
 Base.metadata.create_all(bind=engine)
 
@@ -23,6 +23,7 @@ app.include_router(exams.router, prefix="/api", dependencies=[Depends(get_curren
 app.include_router(misc.router, prefix="/api", dependencies=[Depends(get_current_teacher)])
 app.include_router(dashboard.router, prefix="/api", dependencies=[Depends(get_current_teacher)])
 app.include_router(profile.router, prefix="/api", dependencies=[Depends(get_current_teacher)])
+app.include_router(admin.router, prefix="/api")
 
 
 @app.get("/api/health")

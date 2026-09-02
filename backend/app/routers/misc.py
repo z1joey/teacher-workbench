@@ -9,7 +9,7 @@ router = APIRouter(tags=["teachers"])
 
 @router.get("/teachers")
 def list_teachers(db: Session = Depends(get_db)):
-    teachers = db.query(Teacher).order_by(Teacher.id).all()
+    teachers = db.query(Teacher).filter(Teacher.is_admin.is_(False)).order_by(Teacher.id).all()
     return [
         {"id": t.id, "name": t.name, "subject": t.subject, "email": t.email}
         for t in teachers

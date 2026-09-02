@@ -49,12 +49,14 @@ function className(c) {
   </div>
 
   <div class="card">
-    <input
-      v-model="query"
-      type="text"
-      :placeholder="t('students.search')"
-      style="max-width: 380px"
-    />
+    <div style="text-align: center; margin-bottom: 12px">
+      <input
+        v-model="query"
+        type="text"
+        :placeholder="t('students.search')"
+        style="max-width: 380px"
+      />
+    </div>
 
     <p v-if="error" class="error-text">{{ error }}</p>
     <p v-else-if="loading" class="empty">{{ t("common.loading") }}</p>
@@ -68,6 +70,7 @@ function className(c) {
           <th>{{ t("th.gender") }}</th>
           <th>{{ t("th.class") }}</th>
           <th>{{ t("th.status") }}</th>
+          <th style="width: 44px"></th>
         </tr>
       </thead>
       <tbody>
@@ -81,7 +84,10 @@ function className(c) {
           <td><strong>{{ s.name }}</strong></td>
           <td>{{ genderLabel(s.gender) }}</td>
           <td><span class="badge">{{ className(s.class) }}</span></td>
-          <td><span class="badge ok">{{ statusLabel(s.status) }}</span></td>
+          <td><span class="badge" :class="s.status === 'active' ? 'ok' : 'muted'">{{ statusLabel(s.status) }}</span></td>
+          <td style="text-align: right" @click.stop>
+            <button class="small icon-btn" :title="t('action.edit') + ' / ' + t('action.delete')" @click="router.push(`/students/${s.id}`)">…</button>
+          </td>
         </tr>
       </tbody>
     </table>

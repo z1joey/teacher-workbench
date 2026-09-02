@@ -1,30 +1,90 @@
 <script setup>
-import { ref, computed, onMounted } from "vue"
+import { ref, computed, onMounted, watch } from "vue"
+import { useRouter } from "vue-router"
 import api from "../api"
+import Icon from "../components/Icon.vue"
 import LineChart from "../components/LineChart.vue"
 import { subject, subjectColor, t } from "../strings"
 
 const props = defineProps({ id: { type: String, required: true } })
+const router = useRouter()
 
+const exam = ref(null)
 const averages = ref(null)
 const trendData = ref(null)
 const loading = ref(true)
 const error = ref("")
 
+// edit state
+const editing = ref(false)
+const editSaving = ref(false)
+const editError = ref("")
+const editForm = ref({})
+
 onMounted(async () => {
   try {
-    const [av, tr] = await Promise.all([
+    const [av, tr, ex] = await Promise.all([
       api.get(`/exams/${props.id}/averages`),
       api.get("/exams/trend"),
+      api.get(`/exams/${props.id}`),
     ])
     averages.value = av
     trendData.value = tr
+    exam.value = ex
   } catch (e) {
     error.value = e.message
   } finally {
     loading.value = false
   }
 })
+watch(() => props.id, onMounted)
+
+function startEdit() {
+  editing.value = true
+  editError.value = ""
+  editForm.value = {
+    name: exam.value.name,
+    exam_date: exam.value.exam_date,
+  }
+}
+function cancelEdit() {
+  editing.value = false
+  editForm.value = {}
+  editError.value = ""
+}
+
+async function saveEdit() {
+  editError.value = ""
+  if (!(editForm.value.name || "").trim()) {
+    editError.value = "考试名称不能为空"
+    return
+  }
+  editSaving.value = true
+  try {
+    const updated = await api.patch(`/exams/${props.id}`, {
+      name: editForm.value.name.trim(),
+      exam_date: editForm.value.exam_date,
+    })
+    exam.value = updated
+    await onMounted()  // refresh averages (name/date may affect attribution)
+    editing.value = false
+  } catch (e) {
+    editError.value = e.message
+  } finally {
+    editSaving.value = false
+  }
+}
+
+async function removeExam() {
+  const msg = `确定删除考试「${exam.value.name}」？\n这会连带删除本次考试的所有成绩、题目和作答。此操作不可恢复。`
+  if (!window.confirm(msg)) return
+  try {
+    await api.delete(`/exams/${props.id}`)
+    router.replace("/exams")
+  } catch (e) {
+    alert(`删除失败：${e.message}`)
+  }
+}
 
 const trendChart = computed(() => {
   if (!trendData.value || !trendData.value.exams.length) return null
@@ -70,13 +130,51 @@ function pct(score, full) {
   <p v-if="error" class="error-text">{{ error }}</p>
   <p v-else-if="loading" class="empty">{{ t("common.loading") }}</p>
 
-  <template v-else-if="averages">
-    <h1>
-      {{ averages.exam.name }} · {{ t("exam.averages") }}
-    </h1>
-    <p class="page-sub">
-      {{ fmtDate(averages.exam.exam_date) }} · {{ t("exam.attributionNote") }}
-    </p>
+  <template v-else-if="averages && exam">
+    <router-link to="/exams" class="back-link"><Icon name="chevron-left" :size="14" /> {{ t("detail.back") }}</router-link>
+
+    <div class="card" style="margin-top: 12px">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 10px">
+        <div>
+          <h1 style="margin-bottom: 4px">{{ exam.name }} · {{ t("exam.averages") }}</h1>
+          <p class="page-sub" style="margin: 0">
+            {{ fmtDate(exam.exam_date) }} · {{ t("exam.attributionNote") }}
+          </p>
+          <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap">
+            <span v-for="s in exam.subjects" :key="s.id" class="badge">
+              {{ subject(s.subject) }} · {{ t("exams.fullScore") }} {{ s.full_score }}
+            </span>
+          </div>
+        </div>
+        <div v-if="!editing" style="display: flex; gap: 8px">
+          <button class="small" @click="startEdit">{{ t("action.edit") }}</button>
+          <button class="small logout-btn" @click="removeExam">{{ t("action.delete") }}</button>
+        </div>
+      </div>
+
+      <!-- inline edit form -->
+      <div v-if="editing" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border)">
+        <h3 style="margin: 0 0 8px">{{ t("action.edit") }} · {{ exam.name }}</h3>
+        <div class="form-row">
+          <label>考试名称
+            <input v-model="editForm.name" type="text" />
+          </label>
+          <label>日期
+            <input v-model="editForm.exam_date" type="date" />
+          </label>
+        </div>
+        <p v-if="editError" class="error-text" style="margin: 6px 0">{{ editError }}</p>
+        <div style="display: flex; gap: 8px; margin-top: 8px">
+          <button class="primary small" :disabled="editSaving" @click="saveEdit">
+            {{ editSaving ? "保存中..." : t("action.save") }}
+          </button>
+          <button class="small" @click="cancelEdit">{{ t("action.cancel") }}</button>
+        </div>
+        <p class="page-sub" style="margin-top: 10px; color: var(--muted)">
+          提示：科目结构在有成绩录入时不可修改。如需改科目，请先删除本次考试。
+        </p>
+      </div>
+    </div>
 
     <div class="card">
       <h2>{{ t("exam.trendTitle") }}</h2>

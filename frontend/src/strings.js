@@ -2,12 +2,59 @@
 // 把后端存储的枚举代码（math、choice、open…）渲染成中文，subjectColor 与
 // EVENT_TYPES 供图表和时间线取色/取图标。
 const messages = {
-  "app.title": "教师工作台",
+  "app.title": "高老师工作台",
   "nav.home": "首页",
   "nav.students": "学生",
   "nav.classes": "班级",
   "nav.exams": "考试",
+  "nav.admin": "管理",
   "auth.logout": "退出登录",
+
+  "admin.title": "开发者后台",
+  "admin.subtitle": "系统概览、数据探查与账号管理",
+  "admin.refresh": "刷新",
+  "admin.sectionOverview": "数据库概览",
+  "admin.sectionTeachers": "教师账号",
+  "admin.sectionSessions": "活动会话",
+  "admin.sectionInspect": "数据探查",
+  "admin.sectionDanger": "危险操作",
+  "admin.dbDriver": "数据库驱动",
+  "admin.dbTables": "数据表行数",
+  "admin.teachersTotal": "教师总数",
+  "admin.teachersAdmins": "管理员",
+  "admin.teachersActive": "活跃教师",
+  "admin.sessionsActive": "活动会话",
+  "admin.table": "表名",
+  "admin.rows": "行数",
+  "admin.teacherId": "ID",
+  "admin.teacherName": "姓名",
+  "admin.teacherPhone": "手机号",
+  "admin.teacherSubject": "学科",
+  "admin.teacherStatus": "状态",
+  "admin.teacherAdmin": "管理员",
+  "admin.teacherActions": "操作",
+  "admin.teacherSave": "保存",
+  "admin.teacherResetPwd": "重置密码",
+  "admin.teacherDelete": "删除",
+  "admin.teacherConfirmDelete": "确认删除该教师账号？此操作不可恢复。",
+  "admin.teacherSelfDemote": "不能取消自己的管理员权限",
+  "admin.newPassword": "新密码（至少 6 位）",
+  "admin.password": "密码",
+  "admin.sessionToken": "Token",
+  "admin.sessionTeacher": "用户",
+  "admin.sessionCreated": "创建时间",
+  "admin.sessionKill": "终止",
+  "admin.sessionKillAll": "清空所有会话",
+  "admin.inspectTable": "选择数据表",
+  "admin.inspectLimit": "行数",
+  "admin.inspectRun": "预览",
+  "admin.inspectNoData": "暂无数据",
+  "admin.resetDb": "重置数据库",
+  "admin.resetDbWarn": "这将删除所有表中的所有数据并重新创建空表。确认继续？",
+  "admin.resetDbDone": "数据库已重置。",
+  "admin.loading": "加载中…",
+  "admin.saved": "已保存",
+  "admin.error": "操作失败",
 
   "classes.title": "班级管理",
   "classes.subtitle": "全校班级与学生名单",
@@ -148,7 +195,7 @@ const messages = {
   "detail.weaknesses": "知识点薄弱项",
   "detail.weaknessFailed": "答错 {failed}/{total} 题",
   "detail.drilldown": "错题明细",
-  "detail.visits": "家访记录",
+  "detail.events": "事件记录",
   "detail.timeline": "时间线",
   "detail.trendTitle": "成绩变化趋势",
   "detail.trendSub": "各科成绩随考试变化 · 悬停查看详情",
@@ -157,22 +204,24 @@ const messages = {
   "action.edit": "编辑",
   "action.save": "保存",
   "action.cancel": "取消",
+  "action.delete": "删除",
+  "action.deleteConfirm": "确认删除？此操作不可恢复。",
 
-  "visit.record": "+ 记录家访",
-  "visit.close": "收起",
-  "visit.teacher": "家访教师",
-  "visit.purpose": "家访目的",
-  "visit.summary": "家访摘要",
-  "visit.summaryRequired": "请填写家访摘要",
-  "visit.followUp": "需要跟进",
-  "visit.followUpNote": "跟进备注",
-  "visit.save": "保存家访",
-  "visit.saving": "保存中…",
+  "event.record": "+ 记录事件",
+  "event.close": "收起",
+  "event.type": "事件类型",
+  "event.purpose": "事件目的",
+  "event.summary": "事件摘要",
+  "event.summaryRequired": "请填写事件摘要",
+  "event.followUp": "需要跟进",
+  "event.followUpNote": "跟进备注",
+  "event.save": "保存事件",
+  "event.saving": "保存中…",
 
   "empty.scores": "暂无成绩",
   "empty.weaknesses": "暂无薄弱项记录，继续保持！",
   "empty.drilldown": "暂无错题记录",
-  "empty.visits": "暂无家访记录",
+  "empty.events": "暂无事件记录",
 
   "exams.title": "考试列表",
   "exams.viewAverages": "查看平均分",
@@ -201,6 +250,9 @@ const messages = {
   "tl.result_changed": "成绩更正",
   "tl.weakness_flagged": "薄弱项标记",
   "tl.home_visited": "家访",
+  "tl.parent_call": "家长沟通",
+  "tl.talk": "谈心",
+  "tl.tutoring": "辅导",
   "tl.note_added": "教师备注",
   "tl.joined": "加入 {class}",
 }
@@ -278,6 +330,9 @@ const EVENT_TYPES = {
   result_changed: { icon: "pencil", color: "#B45309" },
   weakness_flagged: { icon: "alert", color: "#B42318" },
   home_visited: { icon: "home", color: "#2F7D4F" },
+  parent_call: { icon: "home", color: "#367C6B" },
+  talk: { icon: "note", color: "#4F6EAD" },
+  tutoring: { icon: "board", color: "#854D0E" },
   note_added: { icon: "note", color: "#5C6B63" },
 }
 
@@ -290,7 +345,8 @@ export function eventTypeColor(type) {
 }
 
 export function eventTypeLabel(type) {
-  return t(`tl.${type}`)
+  const key = `tl.${type}`
+  return messages[key] ?? type
 }
 
 export function describeEvent(type, p = {}) {
@@ -311,9 +367,13 @@ export function describeEvent(type, p = {}) {
       return (p.points || []).join(", ")
     case "home_visited":
       return `${p.purpose ? p.purpose + " — " : ""}${p.summary || ""}`
+    case "parent_call":
+      return `${p.purpose ? p.purpose + " — " : ""}${p.summary || ""}`
+    case "talk":
+    case "tutoring":
     case "note_added":
-      return p.note ?? ""
+      return p.summary ?? p.note ?? ""
     default:
-      return JSON.stringify(p)
+      return p.summary ?? JSON.stringify(p)
   }
 }

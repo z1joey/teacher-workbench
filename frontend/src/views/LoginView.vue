@@ -29,7 +29,7 @@ async function submit() {
     const res = await api.post(path, body)
     setToken(res.token)
     await loadMe()
-    router.push("/")
+    router.push(res.teacher?.is_admin ? "/admin" : "/")
   } catch (e) {
     error.value = e.message
   } finally {

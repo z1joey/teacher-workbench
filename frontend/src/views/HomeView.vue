@@ -8,7 +8,6 @@ import {
   eventTypeColor,
   eventTypeIcon,
   eventTypeLabel,
-  exatypeLabel,
   t,
 } from "../strings"
 
@@ -104,27 +103,12 @@ const stats = computed(() => {
             <div style="min-width: 0">
               <div class="weakness-topic">{{ e.name }}</div>
               <div class="weakness-sub">
-                {{ fmtDate(e.exam_date) }} · {{ exatypeLabel(e.exam_type) }}
+                {{ fmtDate(e.exam_date) }}
               </div>
             </div>
             <span class="badge" :class="daysUntil(e.exam_date) <= 1 ? 'warn' : ''">
               {{ countdownLabel(e.exam_date) }}
             </span>
-          </div>
-        </div>
-
-        <div class="card">
-          <h2>{{ t("home.quickActions") }}</h2>
-          <div class="quick-actions">
-            <router-link to="/students/new">
-              <button class="primary"><Icon name="plus" :size="15" /> {{ t("home.addStudent") }}</button>
-            </router-link>
-            <router-link to="/exams">
-              <button><Icon name="clipboard" :size="15" /> {{ t("home.viewExams") }}</button>
-            </router-link>
-            <router-link to="/students">
-              <button><Icon name="users" :size="15" /> {{ t("home.viewStudents") }}</button>
-            </router-link>
           </div>
         </div>
 
