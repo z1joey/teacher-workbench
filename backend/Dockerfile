@@ -40,4 +40,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
 # Bring the schema to alembic head (migrating legacy volumes in place), then
 # start the server. Seeding stays manual:
 #   docker compose exec backend python -m app.seed
-CMD ["sh", "-c", "python -m app.bootstrap_db && uvicorn app.main:app --host 0.0.0.0 --port 8001"]
+CMD ["sh", "-c", "python -m app.bootstrap_db && exec uvicorn app.main:app --host 0.0.0.0 --port 8001"]

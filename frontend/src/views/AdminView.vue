@@ -288,7 +288,7 @@ const overviewCards = computed(() => {
           </tr>
           <tr v-else>
             <td>#{{ u.id }}</td>
-            <td colspan="4">
+            <td colspan="5">
               <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
                 <div class="field checkbox-row">
                   <input type="checkbox" v-model="editForm.is_active" id="edit-active" />

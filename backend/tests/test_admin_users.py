@@ -158,10 +158,8 @@ def test_delete_referenced_user_409_and_clean_user_ok(client):
 def test_admin_cannot_deactivate_self(client):
     tc, ids = client
     _login(tc, "13600000000")
-    # KNOWN GAP (final review): admin can deactivate self; should be 400.
-    # Locked to the current not-a-crash behavior for now.
     assert tc.patch(f"/api/admin/users/{ids['admin']}",
-                    json={"is_active": False}).json() == {"ok": True}
+                    json={"is_active": False}).status_code == 400
 
 
 def test_stats_keys(client):

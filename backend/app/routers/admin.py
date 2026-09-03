@@ -94,12 +94,17 @@ def update_user(
     u = db.get(User, user_id)
     if u is None:
         raise HTTPException(status_code=404, detail="账号不存在")
+    # Don't allow an admin to lock themselves out — demoting their role or
+    # deactivating their account both make every subsequent request 401/403
+    # with no in-app recovery.
+    if user_id == me.id:
+        if body.role is not None and body.role != "admin":
+            raise HTTPException(status_code=400, detail="不能降级自己的角色")
+        if body.is_active is False:
+            raise HTTPException(status_code=400, detail="不能停用自己的账号")
     if body.role is not None:
         if body.role not in ("admin", "teacher"):
             raise HTTPException(status_code=400, detail="角色不合法")
-        # Don't allow an admin to demote themselves — would lock them out.
-        if user_id == me.id and body.role != "admin":
-            raise HTTPException(status_code=400, detail="不能降级自己的角色")
         u.role = body.role
     if body.is_active is not None:
         u.is_active = body.is_active
