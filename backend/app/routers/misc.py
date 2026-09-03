@@ -2,15 +2,22 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import Teacher
+from ..models import TeacherProfile, User
 
 router = APIRouter(tags=["teachers"])
 
 
 @router.get("/teachers")
 def list_teachers(db: Session = Depends(get_db)):
-    teachers = db.query(Teacher).filter(Teacher.is_admin.is_(False)).order_by(Teacher.id).all()
+    """Teacher-role users — drives homeroom-teacher dropdowns."""
+    rows = (
+        db.query(User, TeacherProfile.subject)
+        .outerjoin(TeacherProfile, TeacherProfile.user_id == User.id)
+        .filter(User.role == "teacher")
+        .order_by(User.id)
+        .all()
+    )
     return [
-        {"id": t.id, "name": t.name, "subject": t.subject, "email": t.email}
-        for t in teachers
+        {"id": u.id, "name": u.name, "subject": subject, "email": u.email}
+        for u, subject in rows
     ]

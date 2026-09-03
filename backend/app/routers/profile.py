@@ -1,22 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_teacher
-from ..models import Class, Enrollment, ExamResult, Student, StudentEvent, Teacher
+from ..deps import get_current_user
+from ..models import Class, Enrollment, ExamResult, Student, StudentEvent, TeacherProfile, User
 
 router = APIRouter(tags=["profile"])
 
 
-def teacher_out(t: Teacher) -> dict:
+def user_out(u: User) -> dict:
     return {
-        "id": t.id,
-        "name": t.name,
-        "phone": t.phone,
-        "email": t.email,
-        "subject": t.subject,
-        "is_admin": t.is_admin,
+        "id": u.id,
+        "name": u.name,
+        "phone": u.phone,
+        "email": u.email,
+        "subject": u.profile.subject if u.profile else None,
+        "role": u.role,
     }
 
 
@@ -27,10 +27,10 @@ class ProfileIn(BaseModel):
 
 
 @router.get("/profile")
-def get_profile(db: Session = Depends(get_db), teacher: Teacher = Depends(get_current_teacher)):
+def get_profile(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     classes = (
         db.query(Class)
-        .filter(Class.homeroom_teacher_id == teacher.id)
+        .filter(Class.homeroom_teacher_id == user.id)
         .order_by(Class.name)
         .all()
     )
@@ -62,29 +62,33 @@ def get_profile(db: Session = Depends(get_db), teacher: Teacher = Depends(get_cu
     stats = {
         "home_visits": (
             db.query(StudentEvent)
-            .filter(StudentEvent.actor_teacher_id == teacher.id,
+            .filter(StudentEvent.actor_teacher_id == user.id,
                     StudentEvent.event_type == "home_visited")
             .count()
         ),
-        "results_entered": db.query(ExamResult).filter(ExamResult.entered_by == teacher.id).count(),
+        "results_entered": db.query(ExamResult).filter(ExamResult.entered_by == user.id).count(),
         "notes_added": (
             db.query(StudentEvent)
-            .filter(StudentEvent.actor_teacher_id == teacher.id,
+            .filter(StudentEvent.actor_teacher_id == user.id,
                     StudentEvent.event_type == "note_added")
             .count()
         ),
     }
-    return {"teacher": teacher_out(teacher), "classes": out_classes, "stats": stats}
+    return {"user": user_out(user), "classes": out_classes, "stats": stats}
 
 
 @router.patch("/profile")
 def update_profile(
     body: ProfileIn,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
-    teacher.name = body.name.strip()
-    teacher.email = (body.email or "").strip() or None
-    teacher.subject = (body.subject or "").strip() or None
+    user.name = body.name.strip()
+    user.email = (body.email or "").strip() or None
+    if user.role == "teacher":
+        if user.profile is None:
+            user.profile = TeacherProfile(subject=(body.subject or "").strip() or None)
+        else:
+            user.profile.subject = (body.subject or "").strip() or None
     db.commit()
-    return teacher_out(teacher)
+    return user_out(user)

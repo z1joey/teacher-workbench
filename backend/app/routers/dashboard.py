@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_teacher
-from ..models import Class, Exam, Student, StudentEvent, Teacher
+from ..deps import get_current_user
+from ..models import Class, Exam, Student, StudentEvent, User
 
 router = APIRouter(tags=["dashboard"])
 
@@ -13,7 +13,7 @@ router = APIRouter(tags=["dashboard"])
 @router.get("/dashboard")
 def dashboard(
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     counts = {
         "students": db.query(Student).filter(Student.status == "active").count(),
@@ -47,7 +47,7 @@ def dashboard(
         .all()
     )
     return {
-        "teacher": {"id": teacher.id, "name": teacher.name},
+        "user": {"id": user.id, "name": user.name},
         "counts": counts,
         "upcoming_exams": [
             {

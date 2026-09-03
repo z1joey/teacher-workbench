@@ -31,7 +31,7 @@ from app.events import add_event  # noqa: E402
 from app.main import app as raw_app  # noqa: E402
 from app.models import (  # noqa: E402
     AuthSession, Class, Enrollment, Exam, ExamResult, ExamSubject,
-    Student, StudentEvent, Teacher,
+    Student, StudentEvent, TeacherProfile, User,
 )
 from app.security import hash_password  # noqa: E402
 
@@ -79,8 +79,8 @@ def seeded(session):
     Everything flows via add_event(..., "home_visited", ...) — the real path.
     """
     # 1 教师
-    chen = Teacher(name="陈老师", phone="13800000001",
-                   password_hash=hash_password("123456"), is_admin=False)
+    chen = User(name="陈老师", phone="13800000001",
+                password_hash=hash_password("123456"), role="teacher")
     session.add(chen); session.flush()
 
     # 1 班级
@@ -121,7 +121,7 @@ def seeded(session):
 
     # Auth session for Teacher Chen → Bearer Token
     tok = "t" * 64
-    session.add(AuthSession(token=tok, teacher_id=chen.id))
+    session.add(AuthSession(token=tok, user_id=chen.id))
 
     session.commit()
     return {"chen": chen, "lin": lin, "token": tok, "c1": c1}

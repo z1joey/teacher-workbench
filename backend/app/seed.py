@@ -21,7 +21,8 @@ from .models import (
     ExamSubject,
     Student,
     StudentEvent,
-    Teacher,
+    TeacherProfile,
+    User,
 )
 from .security import hash_password
 
@@ -54,13 +55,18 @@ def clamp(v: float, lo: float, hi: float) -> float:
 
 
 def seed(db: Session) -> None:
-    admin = Teacher(name="开发者", email="admin@school.dev", phone="13800000000",
-                    password_hash=hash_password("admin123"), subject=None, is_admin=True)
-    chen = Teacher(name="陈老师", email="chen@school.edu", phone="13800000001",
-                   password_hash=hash_password("123456"), subject="math")
-    zhao = Teacher(name="赵老师", email="zhao@school.edu", phone="13800000002",
-                   password_hash=hash_password("123456"), subject="english")
+    admin = User(name="开发者", email="admin@school.dev", phone="13800000000",
+                 password_hash=hash_password("admin123"), role="admin")
+    chen = User(name="陈老师", email="chen@school.edu", phone="13800000001",
+                password_hash=hash_password("123456"), role="teacher")
+    zhao = User(name="赵老师", email="zhao@school.edu", phone="13800000002",
+                password_hash=hash_password("123456"), role="teacher")
     db.add_all([admin, chen, zhao])
+    db.flush()
+    db.add_all([
+        TeacherProfile(user_id=chen.id, subject="math"),
+        TeacherProfile(user_id=zhao.id, subject="english"),
+    ])
     db.flush()
 
     c71 = Class(name="七年级1班", grade_level=7,

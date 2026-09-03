@@ -6,13 +6,13 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_teacher
-from ..models import Class, Enrollment, Exam, ExamResult, ExamSubject, Student, Teacher
+from ..deps import get_current_user
+from ..models import Class, Enrollment, Exam, ExamResult, ExamSubject, Student, User
 
 router = APIRouter(tags=["classes"])
 
 
-def class_out(c: Class, teacher: Teacher | None, students: list[Student]) -> dict:
+def class_out(c: Class, teacher: User | None, students: list[Student]) -> dict:
     return {
         "id": c.id,
         "name": c.name,
@@ -45,8 +45,11 @@ class ClassIn(BaseModel):
     homeroom_teacher_id: int | None = None
 
 
-def _validate_teacher(db: Session, teacher_id: int | None) -> None:
-    if teacher_id is not None and db.get(Teacher, teacher_id) is None:
+def _validate_homeroom(db: Session, teacher_id: int | None) -> None:
+    if teacher_id is None:
+        return
+    u = db.get(User, teacher_id)
+    if u is None or u.role != "teacher":
         raise HTTPException(status_code=400, detail="teacher not found")
 
 
@@ -62,7 +65,7 @@ def _check_duplicate(db: Session, name: str, academic_year: str, exclude_id: int
 def list_classes(db: Session = Depends(get_db)):
     out = []
     for c in db.query(Class).order_by(Class.grade_level, Class.name).all():
-        teacher = db.get(Teacher, c.homeroom_teacher_id) if c.homeroom_teacher_id else None
+        teacher = db.get(User, c.homeroom_teacher_id) if c.homeroom_teacher_id else None
         out.append(class_out(c, teacher, current_students(db, c.id)))
     return out
 
@@ -71,9 +74,9 @@ def list_classes(db: Session = Depends(get_db)):
 def create_class(
     body: ClassIn,
     db: Session = Depends(get_db),
-    current: Teacher = Depends(get_current_teacher),
+    current: User = Depends(get_current_user),
 ):
-    _validate_teacher(db, body.homeroom_teacher_id)
+    _validate_homeroom(db, body.homeroom_teacher_id)
     _check_duplicate(db, body.name.strip(), body.academic_year.strip())
     c = Class(
         name=body.name.strip(),
@@ -83,7 +86,7 @@ def create_class(
     )
     db.add(c)
     db.commit()
-    teacher = db.get(Teacher, c.homeroom_teacher_id) if c.homeroom_teacher_id else None
+    teacher = db.get(User, c.homeroom_teacher_id) if c.homeroom_teacher_id else None
     return class_out(c, teacher, [])
 
 
@@ -92,7 +95,7 @@ def get_class(class_id: int, db: Session = Depends(get_db)):
     c = db.get(Class, class_id)
     if c is None:
         raise HTTPException(status_code=404, detail="class not found")
-    teacher = db.get(Teacher, c.homeroom_teacher_id) if c.homeroom_teacher_id else None
+    teacher = db.get(User, c.homeroom_teacher_id) if c.homeroom_teacher_id else None
 
     # per-exam, per-subject class averages; roster attribution uses the
     # enrollment valid at each exam date (same rule as the exam averages page)
@@ -177,19 +180,19 @@ def update_class(
     class_id: int,
     body: ClassIn,
     db: Session = Depends(get_db),
-    current: Teacher = Depends(get_current_teacher),
+    current: User = Depends(get_current_user),
 ):
     c = db.get(Class, class_id)
     if c is None:
         raise HTTPException(status_code=404, detail="class not found")
-    _validate_teacher(db, body.homeroom_teacher_id)
+    _validate_homeroom(db, body.homeroom_teacher_id)
     _check_duplicate(db, body.name.strip(), body.academic_year.strip(), exclude_id=class_id)
     c.name = body.name.strip()
     c.grade_level = body.grade_level
     c.academic_year = body.academic_year.strip()
     c.homeroom_teacher_id = body.homeroom_teacher_id
     db.commit()
-    teacher = db.get(Teacher, c.homeroom_teacher_id) if c.homeroom_teacher_id else None
+    teacher = db.get(User, c.homeroom_teacher_id) if c.homeroom_teacher_id else None
     return class_out(c, teacher, current_students(db, class_id))
 
 
@@ -197,7 +200,7 @@ def update_class(
 def delete_class(
     class_id: int,
     db: Session = Depends(get_db),
-    current: Teacher = Depends(get_current_teacher),
+    current: User = Depends(get_current_user),
 ):
     c = db.get(Class, class_id)
     if c is None:
