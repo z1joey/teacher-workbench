@@ -1,6 +1,8 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import type_coerce
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -21,12 +23,20 @@ def dashboard(
         "exams": db.query(Exam).count(),
         "home_visits": db.query(StudentEvent).filter(StudentEvent.event_type == "home_visited").count(),
     }
+    # SQLite（本地开发）把 JSON 存成文本，contains() 渲染为 LIKE 即可匹配；
+    # PostgreSQL 的 JSONB 下 contains() 会渲染成非法 SQL，必须用 @> 包含运算符。
+    if db.bind.dialect.name == "postgresql":
+        follow_up_filter = StudentEvent.payload.op("@>")(
+            type_coerce({"follow_up_needed": True}, JSONB)
+        )
+    else:
+        follow_up_filter = StudentEvent.payload.contains({"follow_up_needed": True})
     follow_ups = (
         db.query(StudentEvent, Student.name)
         .join(Student, Student.id == StudentEvent.student_id)
         .filter(
             StudentEvent.event_type == "home_visited",
-            StudentEvent.payload.contains({"follow_up_needed": True}),
+            follow_up_filter,
         )
         .order_by(StudentEvent.occurred_at.desc())
         .limit(5)

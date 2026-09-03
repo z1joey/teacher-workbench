@@ -120,6 +120,40 @@ body {
   font-size: 13px; font-weight: 700;
 }
 
+/* --- global student search (nav, dead-center) --- */
+.nav-search {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 340px; display: flex; justify-content: center; min-width: 0;
+}
+.nav-search-inner { position: relative; width: 100%; }
+.nav-search-icon {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); pointer-events: none;
+}
+/* .topnav prefix outranks the global input[type=text] rule later in this file */
+.topnav .nav-search input { height: 34px; padding: 6px 12px 6px 30px; }
+.nav-search input:focus {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.22);
+}
+.nav-search-menu {
+  display: none;
+  position: absolute; top: calc(100% + 8px); left: 0; right: 0;
+  background: var(--card); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); overflow: hidden; z-index: 30;
+}
+/* CSS-driven visibility — no dependence on JS focus events */
+.nav-search-inner:focus-within .nav-search-menu { display: block; }
+.nav-search-item {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 10px 14px; cursor: pointer; font-size: 14px;
+}
+.nav-search-item:hover { background: #f6f8f5; }
+.nav-search-meta { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.nav-search-empty { padding: 12px 14px; color: var(--muted); font-size: 13px; text-align: center; }
+
 /* --- auth pages --- */
 .auth-wrap { display: flex; justify-content: center; padding-top: 7vh; }
 .auth-card { width: 400px; border-top: 3px solid var(--board); }
@@ -143,6 +177,7 @@ body {
   border-top: 1px dashed var(--border);
   color: var(--muted); font-size: 13px;
 }
+.auth-hint { color: var(--muted); font-size: 12px; margin: 4px 0 0; }
 
 /* --- home page --- */
 .quick-actions { display: flex; flex-direction: column; gap: 10px; }
@@ -259,6 +294,29 @@ td { padding: 10px; border-bottom: 1px solid var(--border); }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: #f6f8f5; }
+
+.group-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 20px;
+}
+.group-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  font-size: 15px;
+  text-align: left;
+}
+.group-head:hover { background: transparent; border-color: transparent; }
+.group-head .chev { margin-left: auto; color: var(--muted); transition: transform 0.15s; }
+.group-head .chev.open { transform: rotate(180deg); }
 
 a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -440,9 +498,16 @@ input:focus, textarea:focus, select:focus {
 .stat .stat-sub { color: var(--muted); font-size: 12px; }
 
 /* --- small screens --- */
+@media (max-width: 1000px) {
+  /* not enough side room for dead-centering — fall back to flow layout */
+  .nav-search { position: static; left: auto; top: auto; transform: none; flex: 1; width: auto; }
+}
+
 @media (max-width: 720px) {
   .topnav { flex-wrap: wrap; height: auto; padding: 10px 16px; gap: 8px 16px; }
-  .nav-links { order: 3; width: 100%; overflow-x: auto; padding-bottom: 4px; }
+  .nav-links { order: 1; flex: 1; min-width: 0; overflow-x: auto; padding-bottom: 4px; }
+  .nav-user { order: 2; }
+  .nav-search { order: 3; width: 100%; flex: none; }
   .nav-links a.router-link-active::after { bottom: 2px; }
   .content { padding: 20px 16px 48px; }
 }

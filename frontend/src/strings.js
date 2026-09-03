@@ -85,6 +85,9 @@ const messages = {
   "login.phone": "手机号",
   "login.email": "邮箱（可选）",
   "login.password": "密码",
+  "login.password2": "确认密码 *",
+  "login.passwordMismatch": "两次输入的密码不一致",
+  "login.minimalHint": "只需手机号即可注册，姓名和邮箱可登录后在个人中心补充。",
   "login.submit": "登录",
   "login.submitRegister": "注册并登录",
   "login.demoHint": "演示账号",
@@ -173,6 +176,7 @@ const messages = {
   "students.title": "学生",
   "students.subtitle": "共 {count} 名学生 · 点击行打开学生工作台",
   "students.search": "搜索姓名、学号或班级…",
+  "students.ungrouped": "未分班",
 
   "th.admissionNo": "学号",
   "th.name": "姓名",

@@ -51,6 +51,16 @@ def test_register_cannot_mint_admin(db):
     assert out["user"]["role"] == "teacher"
 
 
+def test_register_without_name_defaults_to_phone(db):
+    # Minimal signup: no name (or blank) — the phone becomes the display name.
+    # (register() commits, so keep these phones unique across the module's
+    # shared in-memory DB.)
+    out = register(body=RegisterIn(phone="13900000021", password="123456"), db=db)
+    assert out["user"]["name"] == "13900000021"
+    out2 = register(body=RegisterIn(name="  ", phone="13900000022", password="123456"), db=db)
+    assert out2["user"]["name"] == "13900000022"
+
+
 def test_login_returns_role(db):
     _seed_user(db, "13900000011", "teacher")
     out = login(body=LoginIn(phone="13900000011", password="123456"), db=db)

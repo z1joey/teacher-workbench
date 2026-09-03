@@ -14,7 +14,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 class RegisterIn(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    # Minimal signup: name is optional (defaults to the phone number as the
+    # display name until the teacher fills one in on the profile page).
+    name: str | None = Field(default=None, max_length=100)
     phone: str
     password: str = Field(min_length=6, max_length=64)
     email: str | None = None
@@ -57,7 +59,7 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
     if db.query(User).filter(User.phone == phone).first() is not None:
         raise HTTPException(status_code=409, detail="该手机号已注册")
     user = User(
-        name=body.name.strip(),
+        name=(body.name or "").strip() or phone,
         phone=phone,
         email=(body.email or "").strip() or None,
         password_hash=hash_password(body.password),

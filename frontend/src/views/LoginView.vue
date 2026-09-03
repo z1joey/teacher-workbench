@@ -8,24 +8,23 @@ import { t } from "../strings"
 
 const router = useRouter()
 const mode = ref("login") // login | register
-const form = ref({ name: "", phone: "", password: "", email: "" })
+const form = ref({ phone: "", password: "", password2: "" })
 const error = ref("")
 const busy = ref(false)
 
 async function submit() {
   error.value = ""
+  if (mode.value === "register" && form.value.password !== form.value.password2) {
+    error.value = t("login.passwordMismatch")
+    return
+  }
   busy.value = true
   try {
     const path = mode.value === "login" ? "/auth/login" : "/auth/register"
     const body =
       mode.value === "login"
         ? { phone: form.value.phone, password: form.value.password }
-        : {
-            name: form.value.name,
-            phone: form.value.phone,
-            password: form.value.password,
-            email: form.value.email || null,
-          }
+        : { phone: form.value.phone, password: form.value.password }
     const res = await api.post(path, body)
     setToken(res.token)
     await loadMe()
@@ -61,22 +60,19 @@ function fillDemo() {
       </div>
 
       <form @submit.prevent="submit">
-        <div v-if="mode === 'register'" class="field">
-          <label>{{ t("login.name") }} *</label>
-          <input v-model="form.name" type="text" required />
-        </div>
         <div class="field">
           <label>{{ t("login.phone") }} *</label>
           <input v-model="form.phone" type="tel" required />
-        </div>
-        <div v-if="mode === 'register'" class="field">
-          <label>{{ t("login.email") }}</label>
-          <input v-model="form.email" type="email" />
         </div>
         <div class="field">
           <label>{{ t("login.password") }} *</label>
           <input v-model="form.password" type="password" required minlength="6" />
         </div>
+        <div v-if="mode === 'register'" class="field">
+          <label>{{ t("login.password2") }}</label>
+          <input v-model="form.password2" type="password" required minlength="6" />
+        </div>
+        <p v-if="mode === 'register'" class="auth-hint">{{ t("login.minimalHint") }}</p>
         <p v-if="error" class="error-text">{{ error }}</p>
         <button type="submit" class="primary" style="width: 100%; margin-top: 6px" :disabled="busy">
           {{ (mode === "login" ? t("login.submit") : t("login.submitRegister")) + (busy ? "…" : "") }}
