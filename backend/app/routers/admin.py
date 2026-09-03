@@ -120,7 +120,9 @@ def delete_user(
     u = db.get(User, user_id)
     if u is None:
         raise HTTPException(status_code=404, detail="账号不存在")
-    # FKs have no cascades — only hard-delete unreferenced accounts.
+    # Evidence FKs (class.homeroom_teacher_id, exam_result.entered_by,
+    # student_event.actor_teacher_id) have no cascades — only hard-delete
+    # unreferenced accounts; referenced ones hit the 409 guard above.
     referenced = (
         db.query(Class.id).filter(Class.homeroom_teacher_id == user_id).first()
         or db.query(ExamResult.id).filter(ExamResult.entered_by == user_id).first()
@@ -128,6 +130,10 @@ def delete_user(
     )
     if referenced is not None:
         raise HTTPException(status_code=409, detail="该账号仍有关联记录，无法删除")
+    # Owned data goes with the account. The profile must be bulk-deleted
+    # first: the ORM dependency rule would otherwise try to blank-out the
+    # teacher_profile PK column (user_id) when deleting the user and 500.
+    db.query(TeacherProfile).filter(TeacherProfile.user_id == user_id).delete()
     db.query(AuthSession).filter(AuthSession.user_id == user_id).delete()
     db.delete(u)
     db.commit()
