@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import bearer_scheme, get_current_teacher
-from ..models import AuthSession, Teacher
+from ..deps import bearer_scheme, get_current_user
+from ..models import AuthSession, User
 from ..security import hash_password, new_token, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -17,6 +17,7 @@ class RegisterIn(BaseModel):
     phone: str
     password: str = Field(min_length=6, max_length=64)
     email: str | None = None
+    # NOTE: deliberately no `role` — self-registration always mints teachers.
 
 
 class LoginIn(BaseModel):
@@ -28,20 +29,20 @@ def normalize_phone(phone: str) -> str:
     return phone.replace(" ", "").replace("-", "")
 
 
-def teacher_out(t: Teacher) -> dict:
+def user_out(u: User) -> dict:
     return {
-        "id": t.id,
-        "name": t.name,
-        "phone": t.phone,
-        "email": t.email,
-        "subject": t.subject,
-        "is_admin": t.is_admin,
+        "id": u.id,
+        "name": u.name,
+        "phone": u.phone,
+        "email": u.email,
+        "subject": u.profile.subject if u.profile else None,
+        "role": u.role,
     }
 
 
-def create_session(db: Session, teacher_id: int) -> str:
+def create_session(db: Session, user_id: int) -> str:
     token = new_token()
-    db.add(AuthSession(token=token, teacher_id=teacher_id))
+    db.add(AuthSession(token=token, user_id=user_id))
     return token
 
 
@@ -52,29 +53,30 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="手机号格式不正确")
     if body.email and "@" not in body.email:
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
-    if db.query(Teacher).filter(Teacher.phone == phone).first() is not None:
+    if db.query(User).filter(User.phone == phone).first() is not None:
         raise HTTPException(status_code=409, detail="该手机号已注册")
-    teacher = Teacher(
+    user = User(
         name=body.name.strip(),
         phone=phone,
         email=(body.email or "").strip() or None,
         password_hash=hash_password(body.password),
+        role="teacher",
     )
-    db.add(teacher)
+    db.add(user)
     db.flush()
-    token = create_session(db, teacher.id)
+    token = create_session(db, user.id)
     db.commit()
-    return {"token": token, "teacher": teacher_out(teacher)}
+    return {"token": token, "user": user_out(user)}
 
 
 @router.post("/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
-    teacher = db.query(Teacher).filter(Teacher.phone == normalize_phone(body.phone)).first()
-    if teacher is None or not verify_password(body.password, teacher.password_hash):
+    user = db.query(User).filter(User.phone == normalize_phone(body.phone)).first()
+    if user is None or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="手机号或密码错误")
-    token = create_session(db, teacher.id)
+    token = create_session(db, user.id)
     db.commit()
-    return {"token": token, "teacher": teacher_out(teacher)}
+    return {"token": token, "user": user_out(user)}
 
 
 @router.post("/logout")
@@ -91,5 +93,5 @@ def logout(
 
 
 @router.get("/me")
-def me(teacher: Teacher = Depends(get_current_teacher)):
-    return teacher_out(teacher)
+def me(user: User = Depends(get_current_user)):
+    return user_out(user)
