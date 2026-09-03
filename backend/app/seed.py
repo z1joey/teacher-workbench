@@ -8,7 +8,10 @@ level (ExamResult row per student per exam subject).
 """
 import random
 from datetime import date, datetime, time
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy.orm import Session
 
 from .database import Base, SessionLocal, engine
@@ -25,6 +28,15 @@ from .models import (
     User,
 )
 from .security import hash_password
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+
+
+def _alembic_config() -> Config:
+    cfg = Config(str(BACKEND_DIR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    return cfg
+
 
 random.seed(2026)
 
@@ -223,16 +235,17 @@ def seed(db: Session) -> None:
 
 def run() -> None:
     Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    # Migrations — not create_all — own the schema now.
+    command.upgrade(_alembic_config(), "head")
     db = SessionLocal()
     try:
         seed(db)
         db.commit()
         print("Seed complete:")
+        print(f"  users: {db.query(User).count()}")
         print(f"  students: {db.query(Student).count()}")
         print(f"  exam_results: {db.query(ExamResult).count()}")
         print(f"  timeline_events: {db.query(StudentEvent).count()}")
-        print("  (question_responses & weakness tables removed)")
         print("  demo login: 13800000001 / 123456")
         print("  admin login: 13800000000 / admin123  → hidden /admin dashboard")
     except Exception:
