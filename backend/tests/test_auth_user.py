@@ -52,13 +52,15 @@ def test_register_cannot_mint_admin(db):
 
 
 def test_login_returns_role(db):
-    out = login(body=LoginIn(phone="13900000001", password="123456"), db=db)
+    _seed_user(db, "13900000011", "teacher")
+    out = login(body=LoginIn(phone="13900000011", password="123456"), db=db)
     assert out["user"]["role"] == "teacher"
 
 
 def test_login_wrong_password_401(db):
+    _seed_user(db, "13900000012", "teacher")
     with pytest.raises(HTTPException) as ei:
-        login(body=LoginIn(phone="13900000001", password="wrong-pass"), db=db)
+        login(body=LoginIn(phone="13900000012", password="wrong-pass"), db=db)
     assert ei.value.status_code == 401
 
 
