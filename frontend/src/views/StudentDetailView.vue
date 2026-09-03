@@ -273,61 +273,57 @@ function scoreClass(row) {
       </div>
     </div>
 
-    <div class="two-col">
-      <div>
-        <!-- scores -->
-        <div class="card">
-          <h2>{{ t("detail.scores") }}</h2>
-          <p v-if="!student.scores.length" class="empty">{{ t("empty.scores") }}</p>
-          <template v-else>
-            <p class="page-sub" style="margin-top: 0">{{ t("detail.trendSub") }}</p>
-            <LineChart
-              :labels="scoreTrend.labels"
-              :series="scoreTrend.series"
-              :y-max="scoreTrend.yMax"
-            />
-          </template>
-          <table v-if="student.scores.length" style="margin-top: 12px">
-            <thead>
-              <tr>
-                <th>{{ t("th.exam") }}</th>
-                <th>{{ t("th.subject") }}</th>
-                <th>{{ t("th.score") }}</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in student.scores" :key="row.result_id">
-                <td>{{ row.exam_name }}
-                  <span class="page-sub" style="margin:0">({{ fmtDate(row.exam_date) }})</span>
-                </td>
-                <td><span class="badge">{{ subject(row.subject) }}</span></td>
-                <td>
-                  <span :class="scoreClass(row)">{{ scoreLabel(row) }}</span>
-                </td>
-                <td style="text-align: right">
-                  <template v-if="editingId === row.result_id">
-                    <input v-model="editValue" type="number" step="0.1" style="width: 90px; margin-right: 6px" />
-                    <button class="small primary" @click="saveEdit(row)">{{ t("action.save") }}</button>
-                    <button class="small" @click="cancelEdit">{{ t("action.cancel") }}</button>
-                  </template>
-                  <button v-else class="small" @click="startEdit(row)">{{ t("action.edit") }}</button>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <p v-if="editError" class="error-text">{{ editError }}</p>
-        </div>
+    <!-- scores -->
+    <div class="card">
+      <h2>{{ t("detail.scores") }}</h2>
+      <p v-if="!student.scores.length" class="empty">{{ t("empty.scores") }}</p>
+      <template v-else>
+        <p class="page-sub" style="margin-top: 0">{{ t("detail.trendSub") }}</p>
+        <LineChart
+          :labels="scoreTrend.labels"
+          :series="scoreTrend.series"
+          :y-max="scoreTrend.yMax"
+        />
+      </template>
+      <table v-if="student.scores.length" style="margin-top: 12px">
+        <thead>
+          <tr>
+            <th>{{ t("th.exam") }}</th>
+            <th>{{ t("th.subject") }}</th>
+            <th>{{ t("th.score") }}</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in student.scores" :key="row.result_id">
+            <td>{{ row.exam_name }}
+              <span class="page-sub" style="margin:0">({{ fmtDate(row.exam_date) }})</span>
+            </td>
+            <td><span class="badge">{{ subject(row.subject) }}</span></td>
+            <td>
+              <span :class="scoreClass(row)">{{ scoreLabel(row) }}</span>
+            </td>
+            <td style="text-align: right">
+              <template v-if="editingId === row.result_id">
+                <input v-model="editValue" type="number" step="0.1" style="width: 90px; margin-right: 6px" />
+                <button class="small primary" @click="saveEdit(row)">{{ t("action.save") }}</button>
+                <button class="small" @click="cancelEdit">{{ t("action.cancel") }}</button>
+              </template>
+              <button v-else class="small" @click="startEdit(row)">{{ t("action.edit") }}</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="editError" class="error-text">{{ editError }}</p>
+    </div>
 
-        <!-- timeline + add button -->
-        <div class="card">
-          <div style="display: flex; justify-content: space-between; align-items: center">
-            <h2 style="margin: 0">{{ t("detail.timeline") }}</h2>
-            <button class="small primary" @click="addEvent">+</button>
-          </div>
-          <Timeline :events="timeline" :clickable="true" @select="onEventClick" />
-        </div>
+    <!-- timeline + add button -->
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center">
+        <h2 style="margin: 0">{{ t("detail.timeline") }}</h2>
+        <button class="small primary" @click="addEvent">+</button>
       </div>
+      <Timeline :events="timeline" :clickable="true" @select="onEventClick" />
     </div>
   </template>
 </template>
