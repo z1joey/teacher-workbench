@@ -76,17 +76,17 @@ def upgrade() -> None:
 
     # Domain FKs re-point to "user" (column names intentionally unchanged).
     if _is_pg():
-        op.drop_constraint("class_homeroom_teacher_id_fkey", "class", type_="fk")
+        op.drop_constraint("class_homeroom_teacher_id_fkey", "class", type_="foreignkey")
         op.create_foreign_key(
             "fk_class_homeroom_teacher_id_user", "class", "user",
             ["homeroom_teacher_id"], ["id"],
         )
-        op.drop_constraint("exam_result_entered_by_fkey", "exam_result", type_="fk")
+        op.drop_constraint("exam_result_entered_by_fkey", "exam_result", type_="foreignkey")
         op.create_foreign_key(
             "fk_exam_result_entered_by_user", "exam_result", "user",
             ["entered_by"], ["id"],
         )
-        op.drop_constraint("student_event_actor_teacher_id_fkey", "student_event", type_="fk")
+        op.drop_constraint("student_event_actor_teacher_id_fkey", "student_event", type_="foreignkey")
         op.create_foreign_key(
             "fk_student_event_actor_teacher_id_user", "student_event", "user",
             ["actor_teacher_id"], ["id"],
@@ -119,7 +119,7 @@ def downgrade() -> None:
     op.execute(
         "INSERT INTO teacher (id, name, phone, email, password_hash, subject, is_active, is_admin, created_at) "
         'SELECT u.id, u.name, u.phone, u.email, u.password_hash, tp.subject, u.is_active, '
-        "CASE WHEN u.role = 'admin' THEN 1 ELSE 0 END, u.created_at "
+        "CASE WHEN u.role = 'admin' THEN TRUE ELSE FALSE END, u.created_at "
         'FROM "user" u LEFT JOIN teacher_profile tp ON tp.user_id = u.id'
     )
     if _is_pg():
@@ -129,17 +129,17 @@ def downgrade() -> None:
         )
 
     if _is_pg():
-        op.drop_constraint("fk_class_homeroom_teacher_id_user", "class", type_="fk")
+        op.drop_constraint("fk_class_homeroom_teacher_id_user", "class", type_="foreignkey")
         op.create_foreign_key(
             "class_homeroom_teacher_id_fkey", "class", "teacher",
             ["homeroom_teacher_id"], ["id"],
         )
-        op.drop_constraint("fk_exam_result_entered_by_user", "exam_result", type_="fk")
+        op.drop_constraint("fk_exam_result_entered_by_user", "exam_result", type_="foreignkey")
         op.create_foreign_key(
             "exam_result_entered_by_fkey", "exam_result", "teacher",
             ["entered_by"], ["id"],
         )
-        op.drop_constraint("fk_student_event_actor_teacher_id_user", "student_event", type_="fk")
+        op.drop_constraint("fk_student_event_actor_teacher_id_user", "student_event", type_="foreignkey")
         op.create_foreign_key(
             "student_event_actor_teacher_id_fkey", "student_event", "teacher",
             ["actor_teacher_id"], ["id"],
