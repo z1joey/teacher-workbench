@@ -10,6 +10,9 @@ def test_seed_creates_users_with_roles(tmp_path, monkeypatch):
 
     from app import seed as seed_mod
 
+    # Idempotency contract: the seed script must be safely re-runnable on an
+    # already-seeded DB — the /admin/db/reset flow tells users to re-run it.
+    seed_mod.run()
     seed_mod.run()
 
     from sqlalchemy import inspect

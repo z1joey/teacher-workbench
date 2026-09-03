@@ -14,7 +14,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy.orm import Session
 
-from .database import Base, SessionLocal, engine
+from .database import SessionLocal, engine
 from .events import add_event
 from .models import (
     Class,
@@ -234,7 +234,10 @@ def seed(db: Session) -> None:
 
 
 def run() -> None:
-    Base.metadata.drop_all(engine)
+    # True schema reset through Alembic: downgrade to base removes all tables
+    # INCLUDING the alembic_version stamp, so re-seeding an already-stamped DB
+    # actually rebuilds instead of upgrading to a no-op.
+    command.downgrade(_alembic_config(), "base")
     # Migrations — not create_all — own the schema now.
     command.upgrade(_alembic_config(), "head")
     db = SessionLocal()
