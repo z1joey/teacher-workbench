@@ -5,7 +5,12 @@ WORKDIR /build
 
 # Copy requirements first for layer caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+
+# pip 镜像源可注入：国内本地构建传
+# --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# CI 不传则留空，pip 走官方源，行为不变
+ARG PIP_INDEX_URL=""
+RUN pip install --no-cache-dir --user ${PIP_INDEX_URL:+-i $PIP_INDEX_URL} -r requirements.txt
 
 # Runtime stage
 FROM python:3.14-slim

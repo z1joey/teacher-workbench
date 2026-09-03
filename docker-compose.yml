@@ -2,6 +2,7 @@ services:
   db:
     image: postgres:17
     container_name: teacher-workbench-db
+    restart: unless-stopped
     # Credentials come from .env (see .env.example); compose fails fast with a
     # clear message when the file is missing. The port is published on 5432
     # so host tools can reach the database.
@@ -14,7 +15,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U workbench -d workbench"]
+      # $$ 让 $ 由容器内 shell 展开，跟随实际的 POSTGRES_USER/DB，不硬编码
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 12
@@ -23,8 +25,11 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: z1joey/teacher-workbench-backend:latest
+    # 默认 z1joey/...:latest（本地开发构建标签）；CI 部署时 deploy.yml 通过
+    # SSH 注入 DOCKERHUB_USERNAME 与 IMAGE_TAG，由这两个变量决定实际镜像
+    image: ${DOCKERHUB_USERNAME:-z1joey}/teacher-workbench-backend:${IMAGE_TAG:-latest}
     container_name: teacher-workbench-backend
+    restart: unless-stopped
     ports:
       - "8001:8001"
     environment:
@@ -51,8 +56,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    image: z1joey/teacher-workbench-frontend:latest
+    image: ${DOCKERHUB_USERNAME:-z1joey}/teacher-workbench-frontend:${IMAGE_TAG:-latest}
     container_name: teacher-workbench-frontend
+    restart: unless-stopped
     ports:
       - "80:80"
     depends_on:

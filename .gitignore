@@ -18,8 +18,9 @@ dist/
 
 # IDE
 .vscode/
+.trae
 
-# Docs (local drafts)
+# Docs (local drafts — 部署说明/密钥清单等仅留本地，不入库)
 docs/
 
 # Secrets

@@ -6,8 +6,15 @@ WORKDIR /build
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# npm 镜像源可注入：国内本地构建传
+# --build-arg NPM_REGISTRY=https://registry.npmmirror.com
+# CI 不传则留空，npm 走官方源，行为不变
+ARG NPM_REGISTRY=""
+RUN if [ -n "$NPM_REGISTRY" ]; then \
+      npm --registry="$NPM_REGISTRY" ci; \
+    else \
+      npm ci; \
+    fi
 
 # Copy source
 COPY . .
