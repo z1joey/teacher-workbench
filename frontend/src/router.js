@@ -53,15 +53,15 @@ router.beforeEach(async (to) => {
   if (!loggedIn && to.path !== "/login") return "/login"
   if (loggedIn && to.path === "/login") {
     if (!me.value) await loadMe()
-    return me.value?.is_admin ? "/admin" : "/"
+    return me.value?.role === "admin" ? "/admin" : "/"
   }
   if (!me.value) await loadMe()
   if (!me.value) return // auth failed, api layer will bounce to /login
 
-  // Admin gate #1 — non-admins who guess /admin get bounced.
-  if (to.path.startsWith("/admin") && !me.value.is_admin) return "/"
+  // Admin gate #1 — teacher-role users who guess /admin get bounced.
+  if (to.path.startsWith("/admin") && me.value.role !== "admin") return "/"
 
   // Admin gate #2 — admins are not teachers, so they get bounced away from
   // teacher workflow pages to their standalone dashboard.
-  if (me.value.is_admin && isTeacherRoute(to.path)) return "/admin"
+  if (me.value.role === "admin" && isTeacherRoute(to.path)) return "/admin"
 })

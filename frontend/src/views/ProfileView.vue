@@ -38,8 +38,8 @@ async function load() {
 }
 
 function startEdit() {
-  const teacher = profile.value.teacher
-  editForm.value = { name: teacher.name, email: teacher.email || "", subject: teacher.subject || "" }
+  const user = profile.value.user
+  editForm.value = { name: user.name, email: user.email || "", subject: user.subject || "" }
   saved.value = false
   editing.value = true
 }
@@ -53,7 +53,7 @@ async function saveProfile() {
       email: editForm.value.email || null,
       subject: editForm.value.subject || null,
     })
-    profile.value.teacher = updated
+    profile.value.user = updated
     if (me.value) me.value = { ...me.value, ...updated } // keep the nav name in sync
     editing.value = false
     saved.value = true
@@ -93,13 +93,13 @@ const activity = computed(() => {
         <!-- teacher card -->
         <div class="card">
           <div class="profile-head">
-            <div class="avatar">{{ profile.teacher.name.charAt(0) }}</div>
+            <div class="avatar">{{ profile.user.name.charAt(0) }}</div>
             <div style="flex: 1">
-              <h1 style="margin-bottom: 0">{{ profile.teacher.name }}</h1>
+              <h1 style="margin-bottom: 0">{{ profile.user.name }}</h1>
               <div class="profile-meta">
-                <span class="badge">{{ t("profile.loginPhone") }}: {{ profile.teacher.phone }}</span>
-                <span v-if="profile.teacher.email">{{ t("profile.email") }}: {{ profile.teacher.email }}</span>
-                <span v-if="profile.teacher.subject">{{ t("profile.subject") }}: {{ subject(profile.teacher.subject) }}</span>
+                <span class="badge">{{ t("profile.loginPhone") }}: {{ profile.user.phone }}</span>
+                <span v-if="profile.user.email">{{ t("profile.email") }}: {{ profile.user.email }}</span>
+                <span v-if="profile.user.subject">{{ t("profile.subject") }}: {{ subject(profile.user.subject) }}</span>
               </div>
             </div>
             <button v-if="!editing" class="small" @click="startEdit">{{ t("profile.editInfo") }}</button>

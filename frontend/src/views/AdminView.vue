@@ -17,49 +17,52 @@ async function loadStats() {
   loadingStats.value = false
 }
 
-// --- Teachers ---
-const teachers = ref([])
-const loadingTeachers = ref(true)
-const editingTeacherId = ref(null)
+// --- Accounts ---
+const users = ref([])
+const loadingUsers = ref(true)
+const editingUserId = ref(null)
 const editForm = ref({})
 const newPassword = ref("")
+const roleFilter = ref("")
 const saving = ref(false)
 const flash = ref("")
 
-async function loadTeachers() {
-  loadingTeachers.value = true
+async function loadUsers() {
+  loadingUsers.value = true
   try {
-    teachers.value = await api.get("/admin/teachers")
+    const qs = roleFilter.value ? `?role=${roleFilter.value}` : ""
+    users.value = await api.get(`/admin/users${qs}`)
   } catch {}
-  loadingTeachers.value = false
+  loadingUsers.value = false
 }
 
-function startEdit(t) {
-  editingTeacherId.value = t.id
-  editForm.value = { is_active: t.is_active, is_admin: t.is_admin }
+function startEdit(u) {
+  editingUserId.value = u.id
+  editForm.value = { is_active: u.is_active, role: u.role }
   newPassword.value = ""
 }
 
 function cancelEdit() {
-  editingTeacherId.value = null
+  editingUserId.value = null
   editForm.value = {}
   newPassword.value = ""
 }
 
-async function saveTeacher() {
-  if (!editingTeacherId.value) return
-  if (editForm.value.is_admin === false && editingTeacherId.value === me.value?.id) {
-    flash.value = t("admin.teacherSelfDemote")
+async function saveUser() {
+  if (!editingUserId.value) return
+  if (editForm.value.role !== "admin" && editingUserId.value === me.value?.id) {
+    flash.value = t("admin.userSelfDemote")
     return
   }
   saving.value = true
   try {
     const body = { ...editForm.value }
     if (newPassword.value) body.password = newPassword.value
-    await api.patch(`/admin/teachers/${editingTeacherId.value}`, body)
+    await api.patch(`/admin/users/${editingUserId.value}`, body)
     flash.value = t("admin.saved")
     cancelEdit()
-    await loadTeachers()
+    await loadUsers()
+    await loadStats()
     setTimeout(() => (flash.value = ""), 2000)
   } catch (e) {
     flash.value = e.message || t("admin.error")
@@ -68,11 +71,12 @@ async function saveTeacher() {
   }
 }
 
-async function deleteTeacher(id) {
-  if (!confirm(t("admin.teacherConfirmDelete"))) return
+async function deleteUser(id) {
+  if (!confirm(t("admin.userConfirmDelete"))) return
   try {
-    await api.delete(`/admin/teachers/${id}`)
-    await loadTeachers()
+    await api.delete(`/admin/users/${id}`)
+    await loadUsers()
+    await loadStats()
   } catch (e) {
     alert(e.message || t("admin.error"))
   }
@@ -118,8 +122,8 @@ const inspectResult = ref(null)
 const inspectLoading = ref(false)
 
 const DISCOVERED_TABLES = [
-  "teacher", "student", "class", "enrollment", "exam", "exam_subject",
-  "exam_result", "home_visit", "student_event", "auth_session",
+  "user", "teacher_profile", "student", "class", "enrollment", "exam",
+  "exam_subject", "exam_result", "student_event", "auth_session",
 ]
 
 async function runInspect() {
@@ -148,7 +152,7 @@ async function resetDb() {
     await api.post("/admin/db/reset")
     alert(t("admin.resetDbDone"))
     await loadStats()
-    await loadTeachers()
+    await loadUsers()
     await loadSessions()
   } catch (e) {
     alert(e.message || t("admin.error"))
@@ -160,7 +164,7 @@ async function resetDb() {
 onMounted(async () => {
   selectedTable.value = DISCOVERED_TABLES[0]
   allTables.value = DISCOVERED_TABLES
-  await Promise.all([loadStats(), loadTeachers(), loadSessions()])
+  await Promise.all([loadStats(), loadUsers(), loadSessions()])
 })
 
 const tableRows = computed(() => {
@@ -173,9 +177,9 @@ const tableRows = computed(() => {
 const overviewCards = computed(() => {
   if (!stats.value) return []
   return [
-    { label: t("admin.teachersTotal"), value: stats.value.teachers_total },
-    { label: t("admin.teachersAdmins"), value: stats.value.teachers_admins },
-    { label: t("admin.teachersActive"), value: stats.value.teachers_active },
+    { label: t("admin.usersTotal"), value: stats.value.users_total },
+    { label: t("admin.usersAdmins"), value: stats.value.users_admins },
+    { label: t("admin.usersActive"), value: stats.value.users_active },
     { label: t("admin.sessionsActive"), value: stats.value.sessions_active },
   ]
 })
@@ -190,7 +194,7 @@ const overviewCards = computed(() => {
   <div class="card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
       <h2>{{ t("admin.sectionOverview") }}</h2>
-      <button class="small" @click="Promise.all([loadStats(), loadTeachers(), loadSessions()])">
+      <button class="small" @click="Promise.all([loadStats(), loadUsers(), loadSessions()])">
         <Icon name="swap" :size="13" /> {{ t("admin.refresh") }}
       </button>
     </div>
@@ -226,10 +230,17 @@ const overviewCards = computed(() => {
     </template>
   </div>
 
-  <!-- Teachers -->
+  <!-- Accounts -->
   <div class="card">
-    <h2>{{ t("admin.sectionTeachers") }}</h2>
-    <div v-if="loadingTeachers" class="empty">{{ t("admin.loading") }}</div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+      <h2>{{ t("admin.sectionAccounts") }}</h2>
+      <select v-model="roleFilter" class="small" style="padding: 4px 8px;" @change="loadUsers">
+        <option value="">{{ t("admin.userFilterAll") }}</option>
+        <option value="teacher">{{ t("admin.roleTeacher") }}</option>
+        <option value="admin">{{ t("admin.roleAdmin") }}</option>
+      </select>
+    </div>
+    <div v-if="loadingUsers" class="empty">{{ t("admin.loading") }}</div>
     <table v-else>
       <thead>
         <tr>
@@ -237,37 +248,38 @@ const overviewCards = computed(() => {
           <th>{{ t("admin.teacherName") }}</th>
           <th>{{ t("admin.teacherPhone") }}</th>
           <th>{{ t("admin.teacherSubject") }}</th>
+          <th>{{ t("admin.userRole") }}</th>
           <th>{{ t("admin.teacherStatus") }}</th>
-          <th>{{ t("admin.teacherAdmin") }}</th>
           <th>{{ t("admin.teacherActions") }}</th>
         </tr>
       </thead>
       <tbody>
-        <template v-for="t2 in teachers" :key="t2.id">
-          <tr v-if="editingTeacherId !== t2.id">
-            <td>#{{ t2.id }}</td>
-            <td>{{ t2.name }}</td>
-            <td>{{ t2.phone }}</td>
-            <td>{{ t2.subject || "—" }}</td>
+        <template v-for="u in users" :key="u.id">
+          <tr v-if="editingUserId !== u.id">
+            <td>#{{ u.id }}</td>
+            <td>{{ u.name }}</td>
+            <td>{{ u.phone }}</td>
+            <td>{{ u.subject || "—" }}</td>
             <td>
-              <span class="badge" :class="t2.is_active ? 'ok' : 'muted'">
-                {{ t2.is_active ? "活跃" : "停用" }}
+              <span class="badge" :class="u.role === 'admin' ? '' : 'muted'">
+                {{ u.role === "admin" ? "ADMIN" : t("admin.roleTeacher") }}
               </span>
             </td>
             <td>
-              <span v-if="t2.is_admin" class="badge">ADMIN</span>
-              <span v-else class="badge muted">—</span>
+              <span class="badge" :class="u.is_active ? 'ok' : 'muted'">
+                {{ u.is_active ? "活跃" : "停用" }}
+              </span>
             </td>
             <td>
               <div style="display: flex; gap: 6px;">
-                <button class="small" @click="startEdit(t2)">
+                <button class="small" @click="startEdit(u)">
                   <Icon name="pencil" :size="12" />
                 </button>
                 <button
-                  v-if="t2.id !== me?.id"
+                  v-if="u.id !== me?.id"
                   class="small"
                   style="color: var(--danger); border-color: #eecac5;"
-                  @click="deleteTeacher(t2.id)"
+                  @click="deleteUser(u.id)"
                 >
                   {{ t("admin.teacherDelete") }}
                 </button>
@@ -275,30 +287,31 @@ const overviewCards = computed(() => {
             </td>
           </tr>
           <tr v-else>
-            <td>#{{ t2.id }}</td>
+            <td>#{{ u.id }}</td>
             <td colspan="4">
               <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
                 <div class="field checkbox-row">
                   <input type="checkbox" v-model="editForm.is_active" id="edit-active" />
                   <label for="edit-active">{{ t("admin.teacherStatus") }}: 活跃</label>
                 </div>
-                <div class="field checkbox-row">
-                  <input type="checkbox" v-model="editForm.is_admin" id="edit-admin"
-                    :disabled="t2.id === me?.id" />
-                  <label for="edit-admin">{{ t("admin.teacherAdmin") }}</label>
+                <div class="field">
+                  <select v-model="editForm.role" id="edit-role" :disabled="u.id === me?.id">
+                    <option value="teacher">{{ t("admin.roleTeacher") }}</option>
+                    <option value="admin">{{ t("admin.roleAdmin") }}</option>
+                  </select>
                 </div>
                 <div class="field">
                   <input
                     type="password"
                     v-model="newPassword"
-                    :placeholder="t2.password ? t('admin.newPassword') : t('admin.newPassword')"
+                    :placeholder="t('admin.newPassword')"
                   />
                 </div>
               </div>
             </td>
             <td>
               <div style="display: flex; gap: 6px;">
-                <button class="small primary" :disabled="saving" @click="saveTeacher">
+                <button class="small primary" :disabled="saving" @click="saveUser">
                   {{ t("admin.teacherSave") }}
                 </button>
                 <button class="small" @click="cancelEdit">取消</button>
@@ -338,7 +351,7 @@ const overviewCards = computed(() => {
           <tr v-for="s in sessions" :key="s.token">
             <td><code>{{ s.token }}</code></td>
             <td>
-              <router-link :to="`/profile`">{{ s.teacher_name }}</router-link>
+              <router-link :to="`/profile`">{{ s.user_name }}</router-link>
             </td>
             <td>{{ new Date(s.created_at).toLocaleString() }}</td>
             <td>
