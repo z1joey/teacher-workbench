@@ -1,13 +1,10 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import Base, engine
-from .deps import get_current_teacher
+from .deps import get_current_user
 from .routers import admin, auth, classes, dashboard, exams, misc, profile, students
 
-Base.metadata.create_all(bind=engine)
-
-app = FastAPI(title="Teacher Workbench API", version="0.2.0")
+app = FastAPI(title="Teacher Workbench API", version="0.3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -17,12 +14,12 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api")
-app.include_router(students.router, prefix="/api", dependencies=[Depends(get_current_teacher)])
-app.include_router(classes.router, prefix="/api", dependencies=[Depends(get_current_teacher)])
-app.include_router(exams.router, prefix="/api", dependencies=[Depends(get_current_teacher)])
-app.include_router(misc.router, prefix="/api", dependencies=[Depends(get_current_teacher)])
-app.include_router(dashboard.router, prefix="/api", dependencies=[Depends(get_current_teacher)])
-app.include_router(profile.router, prefix="/api", dependencies=[Depends(get_current_teacher)])
+app.include_router(students.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(classes.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(exams.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(misc.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(dashboard.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(profile.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(admin.router, prefix="/api")
 
 

@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_teacher
+from ..deps import get_current_user
 from ..events import add_event
 from ..models import (
     Class,
@@ -15,7 +15,7 @@ from ..models import (
     ExamSubject,
     Student,
     StudentEvent,
-    Teacher,
+    User,
     utcnow,
 )
 
@@ -67,7 +67,7 @@ class StudentIn(BaseModel):
 def create_student(
     body: StudentIn,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     cls = db.get(Class, body.class_id)
     if cls is None:
@@ -90,7 +90,7 @@ def create_student(
     db.flush()
     db.add(Enrollment(student_id=student.id, class_id=cls.id,
                       valid_from=date.today(), reason="admitted"))
-    add_event(db, student.id, "enrolled", utcnow(), actor_teacher_id=teacher.id,
+    add_event(db, student.id, "enrolled", utcnow(), actor_teacher_id=user.id,
               payload={"class": cls.name})
     db.commit()
     return {"id": student.id, "admission_no": student.admission_no, "name": student.name}
@@ -160,8 +160,8 @@ def student_timeline(student_id: int, db: Session = Depends(get_db)):
     if db.get(Student, student_id) is None:
         raise HTTPException(status_code=404, detail="student not found")
     rows = (
-        db.query(StudentEvent, Teacher.name)
-        .outerjoin(Teacher, Teacher.id == StudentEvent.actor_teacher_id)
+        db.query(StudentEvent, User.name)
+        .outerjoin(User, User.id == StudentEvent.actor_teacher_id)
         .filter(StudentEvent.student_id == student_id)
         .order_by(StudentEvent.occurred_at.desc(), StudentEvent.id.desc())
         .all()
@@ -205,7 +205,7 @@ def create_event_record(
     student_id: int,
     body: EventRecordIn,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     if db.get(Student, student_id) is None:
         raise HTTPException(status_code=404, detail="student not found")
@@ -217,7 +217,7 @@ def create_event_record(
         student_id,
         body.event_type,
         now,
-        actor_teacher_id=teacher.id,
+        actor_teacher_id=user.id,
         payload={
             "summary": body.summary,
             "purpose": body.purpose,
@@ -234,13 +234,13 @@ def create_event_record(
 def list_student_events(
     student_id: int,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     if db.get(Student, student_id) is None:
         raise HTTPException(status_code=404, detail="student not found")
     rows = (
-        db.query(StudentEvent, Teacher.name)
-        .outerjoin(Teacher, Teacher.id == StudentEvent.actor_teacher_id)
+        db.query(StudentEvent, User.name)
+        .outerjoin(User, User.id == StudentEvent.actor_teacher_id)
         .filter(
             StudentEvent.student_id == student_id,
             StudentEvent.actor_teacher_id.isnot(None),
@@ -264,13 +264,13 @@ def list_student_events(
 @router.get("/teachers/me/event-types")
 def my_event_types(
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     """Return the teacher's recently used custom event types (distinct, recent top N)."""
     rows = (
         db.query(StudentEvent.event_type)
         .filter(
-            StudentEvent.actor_teacher_id == teacher.id,
+            StudentEvent.actor_teacher_id == user.id,
             StudentEvent.event_type.notin_(list(SYSTEM_EVENT_TYPES)),
             StudentEvent.event_type.notin_(list(MANUAL_EVENT_TYPES)),
         )
@@ -298,11 +298,11 @@ def get_event(
     student_id: int,
     event_id: int,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     row = (
-        db.query(StudentEvent, Teacher.name)
-        .outerjoin(Teacher, Teacher.id == StudentEvent.actor_teacher_id)
+        db.query(StudentEvent, User.name)
+        .outerjoin(User, User.id == StudentEvent.actor_teacher_id)
         .filter(StudentEvent.id == event_id, StudentEvent.student_id == student_id)
         .first()
     )
@@ -317,14 +317,14 @@ def update_event(
     event_id: int,
     body: EventRecordIn,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     ev = db.get(StudentEvent, event_id)
     if ev is None or ev.student_id != student_id:
         raise HTTPException(status_code=404, detail="event not found")
     if ev.event_type in SYSTEM_EVENT_TYPES:
         raise HTTPException(status_code=400, detail="system events cannot be modified")
-    if ev.actor_teacher_id is not None and ev.actor_teacher_id != teacher.id:
+    if ev.actor_teacher_id is not None and ev.actor_teacher_id != user.id:
         raise HTTPException(status_code=403, detail="cannot edit another teacher's event")
     ev.event_type = body.event_type
     ev.occurred_at = body.occurred_at or ev.occurred_at
@@ -345,14 +345,14 @@ def delete_event(
     student_id: int,
     event_id: int,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     ev = db.get(StudentEvent, event_id)
     if ev is None or ev.student_id != student_id:
         raise HTTPException(status_code=404, detail="event not found")
     if ev.event_type in SYSTEM_EVENT_TYPES:
         raise HTTPException(status_code=400, detail="system events cannot be deleted")
-    if ev.actor_teacher_id is not None and ev.actor_teacher_id != teacher.id:
+    if ev.actor_teacher_id is not None and ev.actor_teacher_id != user.id:
         raise HTTPException(status_code=403, detail="cannot delete another teacher's event")
     db.delete(ev)
     db.commit()
@@ -369,7 +369,7 @@ def update_result(
     result_id: int,
     body: ScoreUpdateIn,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     result = db.get(ExamResult, result_id)
     if result is None:
@@ -384,13 +384,13 @@ def update_result(
 
     result.score = body.score
     result.updated_at = utcnow()
-    result.entered_by = teacher.id
+    result.entered_by = user.id
     add_event(
         db,
         result.student_id,
         "result_changed",
         utcnow(),
-        actor_teacher_id=teacher.id,
+        actor_teacher_id=user.id,
         ref_table="exam_result",
         ref_id=result.id,
         payload={
@@ -421,7 +421,7 @@ def update_student(
     student_id: int,
     body: StudentUpdateIn,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     s = db.get(Student, student_id)
     if s is None:
@@ -473,7 +473,7 @@ def update_student(
                     student_id,
                     "class_moved",
                     utcnow(),
-                    actor_teacher_id=teacher.id,
+                    actor_teacher_id=user.id,
                     payload={"from": old_name, "to": new_cls.name},
                 )
 
@@ -493,7 +493,7 @@ def update_student(
 def delete_student(
     student_id: int,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     s = db.get(Student, student_id)
     if s is None:
@@ -515,7 +515,7 @@ def delete_student(
         s.status = "inactive"
         for e in db.query(Enrollment).filter(Enrollment.student_id == student_id, Enrollment.valid_to.is_(None)).all():
             e.valid_to = date.today()
-        add_event(db, student_id, "note_added", utcnow(), actor_teacher_id=teacher.id,
+        add_event(db, student_id, "note_added", utcnow(), actor_teacher_id=user.id,
                   payload={"note": "账号停用"})
         db.commit()
         return {"ok": True, "action": "deactivated"}

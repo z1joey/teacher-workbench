@@ -25,8 +25,10 @@ ENV PATH=/root/.local/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# Copy application code
+# Copy application code and migration assets
 COPY app/ ./app/
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 
 # Expose backend port
 EXPOSE 8001
@@ -35,9 +37,7 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/health').read()"
 
-# Seed database and start server.
-# Seeding is NOT automatic: with a persistent PostgreSQL the seed script would
-# wipe real data on every restart. Tables are created on app startup
-# (Base.metadata.create_all); load demo data explicitly with
+# Bring the schema to alembic head (migrating legacy volumes in place), then
+# start the server. Seeding stays manual:
 #   docker compose exec backend python -m app.seed
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["sh", "-c", "python -m app.bootstrap_db && exec uvicorn app.main:app --host 0.0.0.0 --port 8001"]

@@ -63,26 +63,28 @@ def _patched_app():
             ExamSubject,
             Student,
             StudentEvent,
-            Teacher,
+            TeacherProfile,
+            User,
         )
 
         # 1 admin + 1 teacher
-        admin = Teacher(
+        admin = User(
             name="Super Admin",
             phone="10000000001",
             email="admin@example.com",
             password_hash=hash_password("123456"),
-            is_admin=True,
+            role="admin",
         )
-        teacher = Teacher(
+        teacher = User(
             name="Ms. Chen",
             phone="10000000002",
             email="chen@example.com",
             password_hash=hash_password("123456"),
-            subject="语文",
-            is_admin=False,
+            role="teacher",
         )
         db.add_all([admin, teacher])
+        db.flush()
+        db.add(TeacherProfile(user_id=teacher.id, subject="语文"))
         db.flush()
 
         klass = Class(
@@ -150,8 +152,8 @@ def _patched_app():
         # Two bearer sessions
         tok_admin = "tt_admin_" + "a" * 48
         tok_teacher = "tt_tch_" + "b" * 48
-        db.add(AuthSession(token=tok_admin, teacher_id=admin.id))
-        db.add(AuthSession(token=tok_teacher, teacher_id=teacher.id))
+        db.add(AuthSession(token=tok_admin, user_id=admin.id))
+        db.add(AuthSession(token=tok_teacher, user_id=teacher.id))
 
         db.commit()
     finally:

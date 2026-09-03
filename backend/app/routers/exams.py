@@ -6,14 +6,14 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_teacher
+from ..deps import get_current_user
 from ..models import (
     Class,
     Enrollment,
     Exam,
     ExamResult,
     ExamSubject,
-    Teacher,
+    User,
 )
 
 router = APIRouter(tags=["exams"])
@@ -34,7 +34,7 @@ class ExamIn(BaseModel):
 def create_exam(
     body: ExamIn,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     name = body.name.strip()
     if db.query(Exam).filter(Exam.name == name, Exam.exam_date == body.exam_date).first() is not None:
@@ -96,7 +96,7 @@ def list_exams(db: Session = Depends(get_db)):
 
 
 @router.get("/exams/trend")
-def exams_trend(db: Session = Depends(get_db), teacher: Teacher = Depends(get_current_teacher)):
+def exams_trend(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     exams = db.query(Exam).order_by(Exam.exam_date, Exam.id).all()
     index_of = {e.id: i for i, e in enumerate(exams)}
     rows = (
@@ -243,7 +243,7 @@ def update_exam(
     exam_id: int,
     body: ExamUpdateIn,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     e = db.get(Exam, exam_id)
     if e is None:
@@ -290,7 +290,7 @@ def update_exam(
 def delete_exam(
     exam_id: int,
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: User = Depends(get_current_user),
 ):
     e = db.get(Exam, exam_id)
     if e is None:

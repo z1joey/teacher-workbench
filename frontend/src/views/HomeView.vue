@@ -65,7 +65,7 @@ const stats = computed(() => {
   <p v-else-if="!data" class="empty">{{ t("common.loading") }}</p>
 
   <template v-else>
-    <h1>{{ t("home.greeting", { name: data.teacher.name }) }}</h1>
+    <h1>{{ t("home.greeting", { name: data.user.name }) }}</h1>
     <p class="page-sub">{{ t("home.today", { date: today }) }}</p>
 
     <div class="stat-grid">

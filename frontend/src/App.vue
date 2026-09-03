@@ -36,7 +36,7 @@ async function logout() {
 // Computed: admin-specific nav vs teacher nav.
 // Admins are developers, not teachers — they get a stripped-down nav and
 // are redirected away from all teacher-only pages.
-const isAdmin = () => me.value?.is_admin === true
+const isAdmin = () => me.value?.role === "admin"
 </script>
 
 <template>

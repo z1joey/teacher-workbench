@@ -8,10 +8,13 @@ level (ExamResult row per student per exam subject).
 """
 import random
 from datetime import date, datetime, time
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from sqlalchemy.orm import Session
 
-from .database import Base, SessionLocal, engine
+from .database import SessionLocal, engine
 from .events import add_event
 from .models import (
     Class,
@@ -21,9 +24,19 @@ from .models import (
     ExamSubject,
     Student,
     StudentEvent,
-    Teacher,
+    TeacherProfile,
+    User,
 )
 from .security import hash_password
+
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+
+
+def _alembic_config() -> Config:
+    cfg = Config(str(BACKEND_DIR / "alembic.ini"))
+    cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
+    return cfg
+
 
 random.seed(2026)
 
@@ -54,13 +67,18 @@ def clamp(v: float, lo: float, hi: float) -> float:
 
 
 def seed(db: Session) -> None:
-    admin = Teacher(name="开发者", email="admin@school.dev", phone="13800000000",
-                    password_hash=hash_password("admin123"), subject=None, is_admin=True)
-    chen = Teacher(name="陈老师", email="chen@school.edu", phone="13800000001",
-                   password_hash=hash_password("123456"), subject="math")
-    zhao = Teacher(name="赵老师", email="zhao@school.edu", phone="13800000002",
-                   password_hash=hash_password("123456"), subject="english")
+    admin = User(name="开发者", email="admin@school.dev", phone="13800000000",
+                 password_hash=hash_password("admin123"), role="admin")
+    chen = User(name="陈老师", email="chen@school.edu", phone="13800000001",
+                password_hash=hash_password("123456"), role="teacher")
+    zhao = User(name="赵老师", email="zhao@school.edu", phone="13800000002",
+                password_hash=hash_password("123456"), role="teacher")
     db.add_all([admin, chen, zhao])
+    db.flush()
+    db.add_all([
+        TeacherProfile(user_id=chen.id, subject="math"),
+        TeacherProfile(user_id=zhao.id, subject="english"),
+    ])
     db.flush()
 
     c71 = Class(name="七年级1班", grade_level=7,
@@ -216,17 +234,21 @@ def seed(db: Session) -> None:
 
 
 def run() -> None:
-    Base.metadata.drop_all(engine)
-    Base.metadata.create_all(engine)
+    # True schema reset through Alembic: downgrade to base removes all tables
+    # INCLUDING the alembic_version stamp, so re-seeding an already-stamped DB
+    # actually rebuilds instead of upgrading to a no-op.
+    command.downgrade(_alembic_config(), "base")
+    # Migrations — not create_all — own the schema now.
+    command.upgrade(_alembic_config(), "head")
     db = SessionLocal()
     try:
         seed(db)
         db.commit()
         print("Seed complete:")
+        print(f"  users: {db.query(User).count()}")
         print(f"  students: {db.query(Student).count()}")
         print(f"  exam_results: {db.query(ExamResult).count()}")
         print(f"  timeline_events: {db.query(StudentEvent).count()}")
-        print("  (question_responses & weakness tables removed)")
         print("  demo login: 13800000001 / 123456")
         print("  admin login: 13800000000 / admin123  → hidden /admin dashboard")
     except Exception:
