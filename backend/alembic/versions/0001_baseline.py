@@ -7,6 +7,7 @@ Create Date: 2026-09-03
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
 
 revision = "0001"
 down_revision = None
@@ -131,7 +132,7 @@ def upgrade() -> None:
         sa.Column("actor_teacher_id", sa.Integer(), nullable=True),
         sa.Column("ref_table", sa.String(length=50), nullable=True),
         sa.Column("ref_id", sa.BigInteger(), nullable=True),
-        sa.Column("payload", sa.JSON(), nullable=False),
+        sa.Column("payload", sa.JSON().with_variant(JSONB(), "postgresql"), nullable=False),
         sa.ForeignKeyConstraint(["student_id"], ["student.id"]),
         sa.ForeignKeyConstraint(["actor_teacher_id"], ["teacher.id"]),
         sa.PrimaryKeyConstraint("id"),
