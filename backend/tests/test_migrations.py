@@ -25,8 +25,12 @@ def test_upgrade_head_then_downgrade_base(alembic_cfg):
     url = alembic_cfg.get_main_option("sqlalchemy.url")
     command.upgrade(alembic_cfg, "head")
     tables = set(inspect(create_engine(url)).get_table_names())
-    assert {"teacher", "student", "class", "enrollment", "exam", "exam_subject",
-            "exam_result", "home_visit", "student_event", "auth_session"} <= tables
+    # Head is 0002: teacher is split into "user" + teacher_profile, home_visit
+    # is dropped; every other legacy table survives untouched.
+    assert {"user", "teacher_profile", "student", "class", "enrollment", "exam",
+            "exam_subject", "exam_result", "student_event", "auth_session"} <= tables
+    assert "teacher" not in tables
+    assert "home_visit" not in tables
 
     command.downgrade(alembic_cfg, "base")
     tables_after = set(inspect(create_engine(url)).get_table_names())

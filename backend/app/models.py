@@ -6,6 +6,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     BigInteger,
+    CheckConstraint,
     Date,
     DateTime,
     Float,
@@ -33,18 +34,40 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-class Teacher(Base):
-    __tablename__ = "teacher"
+class User(Base):
+    """Login account. `role` picks the permission set; role-specific data
+    lives in per-role tables (teacher_profile today, guardian etc. later).
+    See docs/superpowers/specs/2026-09-03-user-role-model-design.md."""
+
+    __tablename__ = "user"  # reserved word in PostgreSQL — SQLAlchemy quotes it
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(100))
     phone: Mapped[str] = mapped_column(String(40), unique=True)  # login credential — required
     email: Mapped[str | None] = mapped_column(String(200), unique=True)  # optional
     password_hash: Mapped[str] = mapped_column(String(200))
-    subject: Mapped[str | None] = mapped_column(String(50))
+    role: Mapped[str] = mapped_column(String(20))  # 'admin' | 'teacher'
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    profile: Mapped[TeacherProfile | None] = relationship(back_populates="user")
+
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'teacher')", name="ck_user_role_valid"),
+    )
+
+
+class TeacherProfile(Base):
+    """Teacher-only attributes, 1:1 with user."""
+
+    __tablename__ = "teacher_profile"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
+    )
+    subject: Mapped[str | None] = mapped_column(String(50))
+
+    user: Mapped[User] = relationship(back_populates="profile")
 
 
 class Student(Base):
@@ -72,11 +95,11 @@ class Class(Base):
     name: Mapped[str] = mapped_column(String(50))
     grade_level: Mapped[int] = mapped_column(Integer)
     academic_year: Mapped[str] = mapped_column(String(20))
-    homeroom_teacher_id: Mapped[int | None] = mapped_column(ForeignKey("teacher.id"))
+    homeroom_teacher_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
 
     __table_args__ = (UniqueConstraint("name", "academic_year", name="uq_class_name_year"),)
 
-    homeroom_teacher: Mapped[Teacher | None] = relationship()
+    homeroom_teacher: Mapped[User | None] = relationship()
 
 
 class Enrollment(Base):
@@ -135,26 +158,11 @@ class ExamResult(Base):
     exam_subject_id: Mapped[int] = mapped_column(ForeignKey("exam_subject.id"))
     score: Mapped[float | None] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(20), default="entered")  # entered | absent
-    entered_by: Mapped[int | None] = mapped_column(ForeignKey("teacher.id"))
+    entered_by: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
     __table_args__ = (UniqueConstraint("student_id", "exam_subject_id", name="uq_result_per_subject"),)
-
-
-class HomeVisit(Base):
-    __tablename__ = "home_visit"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("student.id"))
-    teacher_id: Mapped[int | None] = mapped_column(ForeignKey("teacher.id"))
-    visited_at: Mapped[datetime] = mapped_column(DateTime)
-    purpose: Mapped[str | None] = mapped_column(String(200))
-    summary: Mapped[str] = mapped_column(Text)
-    follow_up_needed: Mapped[bool] = mapped_column(Boolean, default=False)
-    follow_up_note: Mapped[str | None] = mapped_column(Text)
-
-    __table_args__ = (Index("ix_visit_student_time", "student_id", "visited_at"),)
 
 
 class StudentEvent(Base):
@@ -167,7 +175,7 @@ class StudentEvent(Base):
     student_id: Mapped[int] = mapped_column(ForeignKey("student.id"))
     event_type: Mapped[str] = mapped_column(String(40))
     occurred_at: Mapped[datetime] = mapped_column(DateTime)
-    actor_teacher_id: Mapped[int | None] = mapped_column(ForeignKey("teacher.id"))
+    actor_teacher_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     ref_table: Mapped[str | None] = mapped_column(String(50))
     ref_id: Mapped[int | None] = mapped_column(BigInteger)
     payload: Mapped[dict] = mapped_column(JSONType, default=dict)
@@ -184,5 +192,5 @@ class AuthSession(Base):
     __tablename__ = "auth_session"
 
     token: Mapped[str] = mapped_column(String(64), primary_key=True)
-    teacher_id: Mapped[int] = mapped_column(ForeignKey("teacher.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
