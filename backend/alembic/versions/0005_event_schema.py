@@ -251,12 +251,14 @@ def upgrade() -> None:
                 payload["score"] = r["score"]
                 payload["absent"] = False
             event_id = uuid.uuid4()
+            created = _as_datetime(r["created_at"]) or now  # legacy entry time
             event_rows.append({
                 "id": event_id, "type": "score",
                 "title": f"{x['name']}·{subject['subject']}",
                 "description": None, "start_time": start,
                 "end_time": None, "location": None, "payload": payload,
-                "created_at": now, "updated_at": now,
+                "created_at": created,
+                "updated_at": _as_datetime(r["updated_at"]) or created,
             })
             person_event_rows.append({
                 "person_id": student_person[r["student_id"]], "event_id": event_id,

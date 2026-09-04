@@ -208,6 +208,9 @@ def test_upgrade_rebuilds_event_schema(migrated):
         for sc in scores:
             assert sc.title == f"期中考试·{sc.payload['subject']}"  # "·" separator
             assert sc.start_time == datetime(2025, 11, 18, 9, 0)   # same date as sitting
+            # exam_result.created_at/updated_at survive as the entry timestamp
+            assert sc.created_at == datetime(2025, 11, 18, 20, 0)
+            assert sc.updated_at == datetime(2025, 11, 18, 20, 0)
         math_s1 = next(sc for sc in scores
                        if sc.payload["subject"] == "math" and sc.attendees[0].id == s1.id)
         assert math_s1.payload == {"subject": "math", "max_score": 120.0,
