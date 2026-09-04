@@ -15,6 +15,9 @@ const PATHS = {
   enroll: `<path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/>`,
   check: `<path d="M20 6 9 17l-5-5"/>`,
   search: `<circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/>`,
+  menu: `<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>`,
+  cake: `<path d="M4 20h16"/><path d="M5 20v-5h14v5"/><path d="M7 15v-3a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v3"/><path d="M12 10V7"/><path d="M10.5 5.5c0-.8 1.5-1 1.5-2"/>`,
+
   "chevron-left": `<path d="M14.5 5.5 8 12l6.5 6.5"/>`,
   "chevron-up": `<path d="m5.5 14.5 6.5-6.5 6.5 6.5"/>`,
   "chevron-down": `<path d="m5.5 9.5 6.5 6.5 6.5-6.5"/>`,

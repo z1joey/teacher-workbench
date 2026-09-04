@@ -16,11 +16,15 @@ const route = useRoute()
 const router = useRouter()
 const loggingOut = ref(false)
 
+// Small screens collapse the section links behind a burger toggle.
+const mobileNavOpen = ref(false)
+
 onMounted(loadMe)
 // after login the token appears without a remount — pick the user up then
 watch(
   () => route.path,
   (path) => {
+    mobileNavOpen.value = false // navigation closes the collapsed menu
     if (path !== "/login" && getToken() && !me.value) loadMe()
   }
 )
@@ -114,7 +118,17 @@ function searchDismiss() {
 
       <!-- Teacher nav — search-first: brand removed so the search box sits centered -->
       <template v-else>
-        <div class="nav-links">
+        <button
+          class="nav-burger"
+          type="button"
+          :aria-expanded="mobileNavOpen"
+          aria-controls="nav-links"
+          :aria-label="t('nav.menu')"
+          @click="mobileNavOpen = !mobileNavOpen"
+        >
+          <Icon name="menu" :size="18" />
+        </button>
+        <div id="nav-links" class="nav-links" :class="{ open: mobileNavOpen }">
           <router-link to="/">{{ t("nav.home") }}</router-link>
           <router-link to="/students">{{ t("nav.students") }}</router-link>
           <router-link to="/classes">{{ t("nav.classes") }}</router-link>

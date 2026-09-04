@@ -175,6 +175,8 @@ class StudentEvent(Base):
     student_id: Mapped[int] = mapped_column(ForeignKey("student.id"))
     event_type: Mapped[str] = mapped_column(String(40))
     occurred_at: Mapped[datetime] = mapped_column(DateTime)
+    # "once" (default) or "yearly" — birthday events recur every year
+    recurrence: Mapped[str] = mapped_column(String(20), default="once", server_default="once")
     actor_teacher_id: Mapped[int | None] = mapped_column(ForeignKey("user.id"))
     ref_table: Mapped[str | None] = mapped_column(String(50))
     ref_id: Mapped[int | None] = mapped_column(BigInteger)

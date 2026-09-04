@@ -22,6 +22,46 @@ const editingId = ref(null)
 const editValue = ref(null)
 const editError = ref("")
 
+// the score table collapses to the most recent entries once exams pile up
+const SCORE_ROWS_VISIBLE = 6
+const SUBJECT_ORDER = ["chinese", "math", "english", "physics", "chemistry"]
+const showAllScores = ref(false)
+const hiddenScoreCount = computed(() =>
+  Math.max(0, (student.value?.scores.length ?? 0) - SCORE_ROWS_VISIBLE)
+)
+const visibleScores = computed(() => {
+  if (!student.value || showAllScores.value || hiddenScoreCount.value === 0) {
+    return student.value?.scores ?? []
+  }
+  return student.value.scores.slice(-SCORE_ROWS_VISIBLE) // newest exams
+})
+// one row per exam: subjects in 语/数/英 order, scores aligned to that order
+const examScoreGroups = computed(() => {
+  const groups = []
+  const byExam = new Map()
+  for (const row of visibleScores.value) {
+    let g = byExam.get(row.exam_id)
+    if (!g) {
+      g = { exam_id: row.exam_id, exam_name: row.exam_name, exam_date: row.exam_date, results: [] }
+      byExam.set(row.exam_id, g)
+      groups.push(g)
+    }
+    g.results.push(row)
+  }
+  for (const g of groups) {
+    g.results.sort((a, b) => {
+      const ia = SUBJECT_ORDER.indexOf(a.subject)
+      const ib = SUBJECT_ORDER.indexOf(b.subject)
+      return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+    })
+  }
+  return groups
+})
+
+function subjectInitial(sub) {
+  return subject(sub).charAt(0)
+}
+
 // profile edit
 const profileEditing = ref(false)
 const profileSaving = ref(false)
@@ -31,6 +71,7 @@ const profileForm = ref({})
 async function load() {
   loading.value = true
   error.value = ""
+  showAllScores.value = false
   try {
     const tasks = [
       api.get(`/students/${props.id}`),
@@ -100,7 +141,7 @@ async function saveProfileEdit() {
 }
 
 async function removeStudent() {
-  const msg = `确定删除学生「${student.value.name}」？\n\n如果该学生已有历史成绩/家访记录，将自动停用账号（数据保留）。否则会被彻底删除。`
+  const msg = `确定删除学生「${student.value.name}」？\n\n如果该学生已有历史成绩/跟进记录，将自动停用账号（数据保留）。否则会被彻底删除。`
   if (!window.confirm(msg)) return
   try {
     const res = await api.delete(`/students/${props.id}`)
@@ -179,14 +220,12 @@ function fmtDateTime(ts) {
     year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
   })
 }
-function scoreLabel(row) {
-  return row.status === "entered" && row.score != null
-    ? `${row.score} / ${row.full_score}`
-    : statusLabel(row.status)
-}
 function scoreClass(row) {
+  // color by percentage of full score, not absolute value — a 90/150 exam
+  // warns just like a 54/100 one
   if (row.status !== "entered" || row.score == null) return "badge muted"
-  return row.score / row.full_score < 0.6 ? "badge warn" : "badge ok"
+  const ratio = row.score / row.full_score
+  return ratio < 0.6 ? "badge warn" : "badge ok"
 }
 </script>
 
@@ -289,37 +328,49 @@ function scoreClass(row) {
         <thead>
           <tr>
             <th>{{ t("th.exam") }}</th>
-            <th>{{ t("th.subject") }}</th>
             <th>{{ t("th.score") }}</th>
-            <th></th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in student.scores" :key="row.result_id">
-            <td>{{ row.exam_name }}
-              <span class="page-sub" style="margin:0">({{ fmtDate(row.exam_date) }})</span>
+          <tr v-for="g in examScoreGroups" :key="g.exam_id">
+            <td>{{ g.exam_name }}
+              <span class="page-sub" style="margin:0">({{ fmtDate(g.exam_date) }})</span>
             </td>
-            <td><span class="badge">{{ subject(row.subject) }}</span></td>
             <td>
-              <span :class="scoreClass(row)">{{ scoreLabel(row) }}</span>
-            </td>
-            <td style="text-align: right">
-              <template v-if="editingId === row.result_id">
-                <input v-model="editValue" type="number" step="0.1" style="width: 90px; margin-right: 6px" />
-                <button class="small primary" @click="saveEdit(row)">{{ t("action.save") }}</button>
-                <button class="small" @click="cancelEdit">{{ t("action.cancel") }}</button>
-              </template>
-              <button v-else class="small" @click="startEdit(row)">{{ t("action.edit") }}</button>
+              <span v-for="row in g.results" :key="row.result_id" class="score-seg">
+                <template v-if="editingId === row.result_id">
+                  <input v-model="editValue" type="number" step="0.1" style="width: 70px" />
+                  <button class="small primary" @click="saveEdit(row)">{{ t("action.save") }}</button>
+                  <button class="small" @click="cancelEdit">{{ t("action.cancel") }}</button>
+                </template>
+                <button
+                  v-else
+                  class="score-pill"
+                  :title="`${subject(row.subject)} ${row.score}/${row.full_score} · 点击修改`"
+                  @click="startEdit(row)"
+                >
+                  <b class="score-pill-subject">{{ subjectInitial(row.subject) }}</b>
+                  <span :class="scoreClass(row)">{{ row.score }}</span>
+                </button>
+              </span>
             </td>
           </tr>
         </tbody>
       </table>
+      <button
+        v-if="hiddenScoreCount > 0 || showAllScores"
+        class="small scores-toggle"
+        @click="showAllScores = !showAllScores"
+      >
+        <Icon :name="showAllScores ? 'chevron-up' : 'chevron-down'" :size="14" />
+        {{ showAllScores ? t("detail.scoresCollapse") : t("detail.scoresExpand", { n: hiddenScoreCount }) }}
+      </button>
       <p v-if="editError" class="error-text">{{ editError }}</p>
     </div>
 
     <!-- timeline + add button -->
     <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px">
         <h2 style="margin: 0">{{ t("detail.timeline") }}</h2>
         <button class="small primary" @click="addEvent">+</button>
       </div>

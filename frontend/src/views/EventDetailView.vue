@@ -19,6 +19,7 @@ const customEventTypes = ref([])
 const loading = ref(true)
 const saving = ref(false)
 const error = ref("")
+const notFound = ref(false)
 
 const EVENT_TYPE_OPTIONS = [
   { value: "home_visited", label: "家访" },
@@ -62,7 +63,8 @@ onMounted(async () => {
       }
     }
   } catch (e) {
-    error.value = e.message
+    if (/not found/i.test(e.message || "")) notFound.value = true
+    else error.value = e.message
   } finally {
     loading.value = false
   }
@@ -131,7 +133,20 @@ function goBack() {
 </script>
 
 <template>
-  <p v-if="error" class="error-text">{{ error }}</p>
+  <div v-if="notFound" class="nf-wrap">
+    <div class="nf-board">
+      <Icon name="alert" :size="30" />
+      <p class="nf-title">{{ t("nf.eventGone") }}</p>
+      <p class="nf-sub">{{ t("nf.eventGoneSub") }}</p>
+    </div>
+    <div class="nf-actions">
+      <router-link :to="`/students/${props.studentId}`">
+        <button class="primary">{{ t("nf.backTimeline") }}</button>
+      </router-link>
+    </div>
+  </div>
+
+  <p v-else-if="error" class="error-text">{{ error }}</p>
   <p v-else-if="loading" class="empty">{{ t("common.loading") }}</p>
 
   <template v-else-if="student">

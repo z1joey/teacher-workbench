@@ -15,7 +15,7 @@ from alembic.config import Config
 from sqlalchemy.orm import Session
 
 from .database import SessionLocal, engine
-from .events import add_event
+from .events import add_event, next_birthday_date
 from .models import (
     Class,
     Enrollment,
@@ -88,11 +88,24 @@ def seed(db: Session) -> None:
     db.add_all([c71, c72])
     db.flush()
 
-    midterm = Exam(name="期中考试", exam_date=date(2026, 4, 15))
-    final = Exam(name="期末考试", exam_date=date(2026, 6, 25))
-    db.add_all([midterm, final])
-    db.flush()
-    exams_by_key = {"midterm": midterm, "final": final}
+    # A full school year of assessments so score trends have shape:
+    # six scored exams plus one upcoming (not yet graded, no results).
+    EXAM_PLAN = [
+        ("oct", "10月月考", date(2025, 10, 15)),
+        ("premid", "期中考试", date(2025, 11, 18)),
+        ("prefinal", "期末考试", date(2026, 1, 22)),
+        ("mar", "3月月考", date(2026, 3, 17)),
+        ("midterm", "期中考试", date(2026, 4, 15)),
+        ("final", "期末考试", date(2026, 6, 25)),
+        ("next", "期中考试", date(2026, 9, 17)),  # upcoming — no results
+    ]
+    exams_by_key: dict[str, Exam] = {}
+    for exam_key, exam_name, exam_date in EXAM_PLAN:
+        exam = Exam(name=exam_name, exam_date=exam_date)
+        db.add(exam)
+        db.flush()
+        exams_by_key[exam_key] = exam
+    midterm, final = exams_by_key["midterm"], exams_by_key["final"]
 
     exam_subject_by_key: dict[tuple[str, str], ExamSubject] = {}
     for exam_key, exam in exams_by_key.items():
@@ -129,6 +142,16 @@ def seed(db: Session) -> None:
     make_students(NAMES_7_2, c72, 101)
     db.flush()
 
+    # recurring birthday events (auto-created on real signups too)
+    for s in students:
+        if not s.birth_date:
+            continue
+        bday = next_birthday_date(s.birth_date)
+        add_event(db, s.id, "birthday", dt(bday, time(9, 0)),
+                  recurrence="yearly",
+                  payload={"birth_date": s.birth_date.isoformat()})
+    db.flush()
+
     lin = next(s for s in students if s.name == "林晓雨")
     hao = next(s for s in students if s.name == "王浩")
     guo = next(s for s in students if s.name == "郭浩然")
@@ -141,17 +164,38 @@ def seed(db: Session) -> None:
     # Story: 林晓雨数学偏弱，王浩数学方程部分薄弱（表现为 math 能力下调）。
     ability[lin.id]["math"] = 58.0
     ability[hao.id]["math"] = 62.0
-    # Midterm / Final trend: final is generally 3 pts higher, + noise.
-    exam_trend = {"midterm": 0.0, "final": 3.0}
+
+    # Trends so the per-subject lines tell a story: a gentle class-wide rise
+    # across the year plus a per-student slope. 王浩 dips during his 频繁迟到
+    # stretch (before the 2026-03-01 class move + home visit), then recovers.
+    SCORED_EXAMS = ["oct", "premid", "prefinal", "mar", "midterm", "final"]
+    exam_trend = {"oct": 0.0, "premid": 1.0, "prefinal": 1.5,
+                  "mar": 2.0, "midterm": 3.0, "final": 4.0}
+    slope = {
+        s.id: {"math": random.uniform(-2.0, 2.6), "english": random.uniform(-2.0, 2.6)}
+        for s in students
+    }
+    slope[lin.id]["math"] = 2.8      # weak start, climbing all year (提升计划)
+    slope[guo.id]["english"] = 3.0   # steady english riser
+    slope[hao.id]["math"] = 0.8
+    hao_dip = {"premid": -6.5, "prefinal": -5.5, "mar": -2.0}  # attendance slump
 
     result_by_key: dict[tuple[int, str, str], ExamResult] = {}
 
-    for exam_key, exam in exams_by_key.items():
+    for exam_key in SCORED_EXAMS:
+        exam = exams_by_key[exam_key]
         for subject in ("math", "english"):
             es = exam_subject_by_key[(exam_key, subject)]
             entering_teacher = chen if subject == "math" else zhao
             for s in students:
-                base = ability[s.id][subject] + exam_trend[exam_key] + random.gauss(0, 3.0)
+                base = (
+                    ability[s.id][subject]
+                    + exam_trend[exam_key]
+                    + slope[s.id][subject] * SCORED_EXAMS.index(exam_key)
+                    + random.gauss(0, 3.0)
+                )
+                if s.id == hao.id and subject == "math":
+                    base += hao_dip.get(exam_key, 0.0)
                 score = round(clamp(base, 0.0, SUBJECT_FULL_SCORE), 1)
                 result = ExamResult(
                     student_id=s.id, exam_subject_id=es.id,
@@ -174,7 +218,8 @@ def seed(db: Session) -> None:
                        "subject": "math", "old": old_score, "new": lin_math_midterm.score,
                        "reason": "评分册登记错误更正"})
 
-    # story: 王浩 moves 七年级2班 -> 七年级1班 on 2026-03-01 (before both exams)
+    # story: 王浩 moves 七年级2班 -> 七年级1班 on 2026-03-01 (spring semester;
+    # his 3月月考 onwards are recorded with the new class)
     old_enrollment = (
         db.query(Enrollment)
         .filter(Enrollment.student_id == hao.id, Enrollment.class_id == c72.id)
@@ -192,7 +237,8 @@ def seed(db: Session) -> None:
                        "reason": "均衡编班"})
 
     # --- timeline: exam events (subject scores) ---------------------------
-    for exam_key, exam in exams_by_key.items():
+    for exam_key in SCORED_EXAMS:
+        exam = exams_by_key[exam_key]
         for s in students:
             scores = {
                 subject: result_by_key[(s.id, exam_key, subject)].score

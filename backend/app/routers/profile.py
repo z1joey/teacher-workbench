@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
+from ..events import MANUAL_EVENT_TYPES
 from ..models import Class, Enrollment, ExamResult, Student, StudentEvent, TeacherProfile, User
 
 router = APIRouter(tags=["profile"])
@@ -60,10 +61,10 @@ def get_profile(db: Session = Depends(get_db), user: User = Depends(get_current_
             }
         )
     stats = {
-        "home_visits": (
+        "interactions": (
             db.query(StudentEvent)
             .filter(StudentEvent.actor_teacher_id == user.id,
-                    StudentEvent.event_type == "home_visited")
+                    StudentEvent.event_type.in_(MANUAL_EVENT_TYPES))
             .count()
         ),
         "results_entered": db.query(ExamResult).filter(ExamResult.entered_by == user.id).count(),

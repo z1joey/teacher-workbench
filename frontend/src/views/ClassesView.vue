@@ -1,9 +1,9 @@
 <script setup>
-import { ref, onMounted } from "vue"
+import { ref, onMounted, onBeforeUnmount, nextTick, watch } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import api from "../api"
-import { genderLabel, t } from "../strings"
+import { dateLocale, eventTypeLabel, subject, t } from "../strings"
 
 const router = useRouter()
 
@@ -28,6 +28,7 @@ function defaultYear() {
 }
 
 onMounted(async () => {
+  window.addEventListener("resize", measureAll)
   try {
     const [cs, ts] = await Promise.all([api.get("/classes"), api.get("/teachers")])
     classes.value = cs
@@ -36,8 +37,12 @@ onMounted(async () => {
     error.value = e.message
   } finally {
     loading.value = false
+    await nextTick()
+    measureAll()
   }
 })
+
+onBeforeUnmount(() => window.removeEventListener("resize", measureAll))
 
 async function load() {
   classes.value = await api.get("/classes")
@@ -74,6 +79,73 @@ async function createClass() {
 function className(c) {
   return c.name
 }
+
+const SUBJECT_ORDER = ["chinese", "math", "english", "physics", "chemistry"]
+
+// per-subject class averages of the latest exam, with delta vs the previous one
+function avgSummary(c) {
+  const trend = c.avg_trend || []
+  if (!trend.length) return []
+  const last = trend[trend.length - 1]
+  const prev = trend.length > 1 ? trend[trend.length - 2] : null
+  const subs = Object.keys(last.averages).sort((a, b) => {
+    const ia = SUBJECT_ORDER.indexOf(a)
+    const ib = SUBJECT_ORDER.indexOf(b)
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+  })
+  return subs.map((sub) => {
+    const avg = last.averages[sub]
+    const p = prev ? prev.averages[sub] : null
+    const delta = p != null && avg != null ? Math.round((avg - p) * 10) / 10 : null
+    return { sub, initial: subject(sub).charAt(0), avg, delta }
+  })
+}
+
+function shortDate(ts) {
+  return new Date(ts).toLocaleDateString(dateLocale(), { month: "short", day: "numeric" })
+}
+
+// chips cap at two rows, events cap at five — both expandable
+const expandedChips = ref({})
+const expandedEvents = ref({})
+const chipsOverflow = ref({})
+const cardEls = ref({})
+
+function setChipsRef(cid) {
+  return (el) => {
+    if (el) {
+      cardEls.value[cid] = { ...(cardEls.value[cid] || {}), chips: el }
+      measure(cid)
+    }
+  }
+}
+
+function setEventsRef(cid) {
+  return (el) => {
+    if (el) {
+      cardEls.value[cid] = { ...(cardEls.value[cid] || {}), events: el }
+    }
+  }
+}
+
+function measure(cid) {
+  const el = cardEls.value[cid]?.chips
+  if (el) chipsOverflow.value[cid] = el.scrollHeight > el.clientHeight + 1
+}
+
+function measureAll() {
+  for (const cid of Object.keys(cardEls.value)) measure(Number(cid))
+}
+
+function visibleEvents(c) {
+  const evs = c.recent_events || []
+  return expandedEvents.value[c.id] ? evs : evs.slice(0, 5)
+}
+
+watch(classes, async () => {
+  await nextTick()
+  measureAll()
+})
 </script>
 
 <template>
@@ -140,18 +212,56 @@ function className(c) {
             </div>
             <button class="small icon-btn" title="查看 / 编辑 / 删除">…</button>
           </div>
-          <div v-if="c.students.length" class="student-chips">
+          <div v-if="c.avg_trend && c.avg_trend.length" class="class-avg-row">
+            <span class="weakness-sub">{{ t("classes.avgLabel") }}</span>
+            <span v-for="a in avgSummary(c)" :key="a.sub" class="class-avg-item">
+              <b>{{ a.initial }}</b> {{ a.avg }}
+              <span v-if="a.delta !== null" class="delta" :class="a.delta >= 0 ? 'up' : 'down'">
+                {{ a.delta > 0 ? "↑" : "↓" }}{{ Math.abs(a.delta) }}
+              </span>
+            </span>
+          </div>
+
+          <div v-if="(c.recent_events || []).length" class="class-events">
+            <div v-for="ev in visibleEvents(c)" :key="`e${ev.id}`" class="class-event">
+              <span class="weakness-sub">{{ shortDate(ev.occurred_at) }}</span>
+              <router-link :to="`/students/${ev.student_id}`">{{ ev.student_name }}</router-link>
+              · {{ eventTypeLabel(ev.event_type) }}
+              <span v-if="ev.recurrence === 'yearly'" class="visited-mark">↻</span>
+            </div>
+          </div>
+          <button
+            v-if="(c.recent_events || []).length > 5 || expandedEvents[c.id]"
+            class="small class-toggle"
+            @click="expandedEvents[c.id] = !expandedEvents[c.id]"
+          >
+            {{ expandedEvents[c.id] ? t("action.collapse") : t("classes.showAllEvents") }}
+          </button>
+
+          <div
+            v-if="c.students.length"
+            :ref="setChipsRef(c.id)"
+            class="student-chips"
+            :class="{ collapsed: !expandedChips[c.id] }"
+          >
             <span
               v-for="s in c.students"
               :key="s.id"
               class="student-chip"
-              :title="s.admission_no"
+              :title="`${s.admission_no} · ${s.home_visited ? t('classes.visitedYes') : t('classes.visitedNo')}`"
               @click.stop="(e) => { e.preventDefault(); e.stopPropagation(); router.push('/students/' + s.id) }"
             >
-              {{ s.name }} <span class="weakness-sub">{{ genderLabel(s.gender) }}</span>
+              {{ s.name }}<span v-if="s.home_visited" class="visited-mark" :title="t('classes.visitedYes')">✓</span>
             </span>
           </div>
           <p v-else class="empty">{{ t("classes.noStudents") }}</p>
+          <button
+            v-if="c.students.length && (chipsOverflow[c.id] || expandedChips[c.id])"
+            class="small class-toggle"
+            @click="expandedChips[c.id] = !expandedChips[c.id]"
+          >
+            {{ expandedChips[c.id] ? t("action.collapse") : t("classes.showAllStudents") }}
+          </button>
         </router-link>
       </div>
     </div>

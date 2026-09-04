@@ -78,6 +78,19 @@ body {
 
 .nav-links { display: flex; gap: 4px; }
 
+/* burger toggle — hidden on desktop, shown when the links collapse */
+.nav-burger {
+  display: none;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--chalk-ink);
+}
+.nav-burger:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
 .nav-links a {
   position: relative;
   padding: 6px 12px;
@@ -230,6 +243,26 @@ body {
 .class-actions a { flex-shrink: 0; }
 .class-actions button { white-space: nowrap; }
 
+/* class card extras: averages, home-visit marks, recent events */
+.class-avg-row {
+  display: flex; align-items: baseline; gap: 12px;
+  margin-top: 10px; font-size: 13px;
+}
+.class-avg-item { display: inline-flex; align-items: baseline; gap: 3px; }
+.class-avg-item b { color: var(--muted); }
+.delta.up { color: var(--ok); }
+.delta.down { color: var(--warn); }
+.visited-mark { color: var(--ok); font-weight: 700; margin-left: 2px; }
+.class-toggle { width: 100%; margin-top: 8px; color: var(--muted); }
+.student-chips.collapsed { max-height: 68px; overflow: hidden; }
+.class-events {
+  margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border);
+  display: flex; flex-direction: column; gap: 4px; font-size: 13px;
+}
+.class-event { display: flex; align-items: center; gap: 6px; }
+.class-event .icon { color: var(--primary); flex-shrink: 0; }
+.class-event.birthday .icon { color: var(--warn); }
+
 /* --- back links --- */
 .back-link {
   display: inline-flex; align-items: center; gap: 4px;
@@ -295,6 +328,23 @@ tbody tr:last-child td { border-bottom: none; }
 tbody tr.clickable { cursor: pointer; }
 tbody tr.clickable:hover { background: #f6f8f5; }
 
+/* collapse long score tables (student detail) */
+.scores-toggle { width: 100%; margin-top: 10px; color: var(--muted); }
+/* one row per exam: subject initial + score pills */
+.score-seg { display: inline-flex; align-items: center; }
+.score-seg + .score-seg { margin-left: 8px; }
+.score-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  width: 88px; padding: 2px 8px;
+  border: 1px solid var(--border); border-radius: 999px; background: #fff;
+  font: inherit; cursor: pointer;
+}
+.score-pill:hover { border-color: var(--primary); }
+.score-pill-subject { width: 14px; text-align: center; color: var(--muted); font-weight: 600; }
+.score-pill .badge, .score-pill .badge.warn, .score-pill .badge.ok {
+  flex: 1; text-align: right; font-variant-numeric: tabular-nums;
+}
+
 .group-card {
   display: flex;
   flex-direction: column;
@@ -316,6 +366,11 @@ tbody tr.clickable:hover { background: #f6f8f5; }
 }
 .group-head:hover { background: transparent; border-color: transparent; }
 .group-head .chev { margin-left: auto; color: var(--muted); transition: transform 0.15s; }
+
+/* last-exam column in the students list */
+.last-exam-name { color: var(--muted); font-size: 12px; margin-right: 8px; }
+.last-exam-scores { font-size: 13px; }
+.last-exam-none { color: var(--muted); }
 .group-head .chev.open { transform: rotate(180deg); }
 
 a { color: var(--primary); text-decoration: none; }
@@ -497,6 +552,95 @@ input:focus, textarea:focus, select:focus {
 .stat .stat-value { font-family: var(--font-display); font-size: 27px; font-weight: 700; margin: 2px 0; }
 .stat .stat-sub { color: var(--muted); font-size: 12px; }
 
+/* --- home layout: calendar top-left with side cards below, feed on the right --- */
+.home-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "cal feed"
+    "side feed";
+  gap: 20px;
+  align-items: start;
+}
+.home-cal { grid-area: cal; }
+.home-side { grid-area: side; display: flex; flex-direction: column; gap: 20px; }
+.home-feed { grid-area: feed; }
+@media (max-width: 720px) {
+  /* single column on phones: calendar first, feed last */
+  .home-grid { grid-template-columns: 1fr; grid-template-areas: "cal" "side" "feed"; }
+}
+
+/* --- 404 / not found --- */
+.nf-wrap {
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  padding-top: 8vh;
+}
+.nf-board {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  width: min(440px, 92vw); padding: 36px 28px 30px; text-align: center;
+  background: var(--board); color: var(--chalk-ink);
+  border: 1px dashed rgba(232, 200, 104, 0.4); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.nf-board .icon { color: var(--chalk); }
+.nf-code {
+  font-family: var(--font-display); font-size: 68px; font-weight: 700;
+  line-height: 1.1; color: var(--chalk); letter-spacing: 0.04em;
+}
+.nf-title { font-size: 16px; font-weight: 600; margin: 8px 0 0; }
+.nf-sub { color: rgba(237, 244, 238, 0.72); font-size: 13px; margin: 2px 0 0; }
+.nf-actions { display: flex; gap: 10px; }
+
+/* --- home month calendar --- */
+.cal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.cal-head strong { font-size: 14px; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cal-week span { font-size: 11px; color: var(--muted); text-align: center; padding: 2px 0; }
+.cal-day {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 3px 0 2px; min-height: 40px; min-width: 0;
+  background: transparent; border: none; border-radius: 8px;
+  font-size: 12px; color: var(--text);
+}
+button.cal-day.has { cursor: pointer; font-weight: 600; }
+button.cal-day.has:hover { background: #f0f4ef; }
+.cal-day.sel { background: var(--primary-soft); }
+.cal-num {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.cal-day.today .cal-num { background: var(--primary); color: #fff; }
+.cal-day.today .cal-num { font-weight: 700; }
+.cal-dots { display: flex; gap: 2px; height: 4px; }
+.cal-dots i { width: 4px; height: 4px; border-radius: 50%; display: block; }
+.cal-items { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.cal-sel-date { font-weight: 600; font-size: 13px; margin: 0 0 4px; }
+.cal-item-actions { display: flex; flex-direction: column; gap: 4px; }
+.cal-item-actions button { font-size: 12px; padding: 3px 8px; height: auto; }
+.cal-add { width: 100%; margin-top: 8px; }
+.cal-form { margin-top: 8px; display: flex; flex-direction: column; gap: 10px; }
+.cal-form .field { margin: 0; }
+.cal-form .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.cal-form-actions { display: flex; gap: 8px; }
+.cal-form-actions button { flex: 1; justify-content: center; }
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 12px;
+}
+.modal-head strong { font-size: 15px; }
+.modal-close {
+  width: 28px; height: 28px; padding: 0; justify-content: center;
+  font-size: 18px; line-height: 1; color: var(--muted);
+  background: transparent; border-color: transparent;
+}
+.modal-close:hover { background: var(--border); border-color: var(--border); color: var(--text); }
+.cal-form .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.cal-form .field { margin: 0 0 12px; }
+.cal-form select:disabled { color: var(--muted); background: #f4f6f3; }
+
 /* --- small screens --- */
 @media (max-width: 1000px) {
   /* not enough side room for dead-centering — fall back to flow layout */
@@ -505,9 +649,31 @@ input:focus, textarea:focus, select:focus {
 
 @media (max-width: 720px) {
   .topnav { flex-wrap: wrap; height: auto; padding: 10px 16px; gap: 8px 16px; }
-  .nav-links { order: 1; flex: 1; min-width: 0; overflow-x: auto; padding-bottom: 4px; }
-  .nav-user { order: 2; }
+  .nav-burger { display: inline-flex; order: 0; }
+  .nav-user { order: 1; }
   .nav-search { order: 3; width: 100%; flex: none; }
-  .nav-links a.router-link-active::after { bottom: 2px; }
+  /* links collapse into a vertical menu behind the burger */
+  .nav-links { order: 4; display: none; width: 100%; flex-direction: column; gap: 2px; padding-bottom: 4px; }
+  .nav-links.open { display: flex; }
+  .nav-links.open a { padding: 9px 12px; }
+  .nav-links.open a.router-link-active::after { display: none; }
+  .nav-links.open a.router-link-active { background: rgba(255, 255, 255, 0.12); }
   .content { padding: 20px 16px 48px; }
+  .home-grid .card { padding: 14px 16px; }
+
+  /* students page: icon-only add button, rows collapse to a compact list */
+  .add-student { width: 32px; padding: 8px 0; justify-content: center; }
+  .add-student .btn-label { display: none; }
+  .group-card { padding: 12px 14px; }
+  .group-card thead { display: none; }
+  .group-card tbody tr {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0; border-bottom: 1px solid var(--border);
+  }
+  .group-card tbody tr:last-child { border-bottom: none; }
+  .group-card tbody td { display: block; padding: 0; border-bottom: none; }
+  .group-card tbody td:nth-child(1) { display: none; } /* 学号 hidden on phones */
+  .group-card tbody td:nth-child(2) { flex: 1; font-size: 15px; }
+  .group-card tbody td:nth-child(3) { text-align: right; }
+  .group-card tbody .last-exam-name { display: none; } /* scores only, no exam name */
 }

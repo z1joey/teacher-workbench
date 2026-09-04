@@ -4,6 +4,7 @@ import { loadMe, me } from "./auth"
 import HomeView from "./views/HomeView.vue"
 import LoginView from "./views/LoginView.vue"
 import ProfileView from "./views/ProfileView.vue"
+import RecordsView from "./views/RecordsView.vue"
 import ClassesView from "./views/ClassesView.vue"
 import ClassDetailView from "./views/ClassDetailView.vue"
 import StudentsView from "./views/StudentsView.vue"
@@ -14,11 +15,12 @@ import ExamNewView from "./views/ExamNewView.vue"
 import ExamDetailView from "./views/ExamDetailView.vue"
 import EventDetailView from "./views/EventDetailView.vue"
 import AdminView from "./views/AdminView.vue"
+import NotFoundView from "./views/NotFoundView.vue"
 
 // Routes that only teachers (non-admin) may enter. Admin accounts get
 // redirected away — they are developers, not classroom teachers.
 const TEACHER_ROUTE_PREFIXES = [
-  "/", "/profile", "/classes", "/students", "/exams",
+  "/", "/profile", "/classes", "/students", "/exams", "/records",
 ]
 
 function isTeacherRoute(path) {
@@ -34,6 +36,7 @@ export const router = createRouter({
     { path: "/", component: HomeView },
     { path: "/login", component: LoginView },
     { path: "/profile", component: ProfileView },
+    { path: "/records", component: RecordsView },
     { path: "/classes", component: ClassesView },
     { path: "/classes/:id", component: ClassDetailView, props: true },
     { path: "/students", component: StudentsView },
@@ -45,6 +48,7 @@ export const router = createRouter({
     { path: "/exams/new", component: ExamNewView },
     { path: "/exams/:id", component: ExamDetailView, props: true },
     { path: "/admin", component: AdminView },
+    { path: "/:pathMatch(.*)*", component: NotFoundView },
   ],
 })
 

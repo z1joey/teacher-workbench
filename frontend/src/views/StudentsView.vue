@@ -4,7 +4,7 @@ import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import api from "../api"
 import { searchQuery, searchStudents } from "../search"
-import { genderLabel, statusLabel, t } from "../strings"
+import { subject, t } from "../strings"
 
 const router = useRouter()
 const students = ref([])
@@ -51,6 +51,19 @@ const groups = computed(() => {
 
 const searching = computed(() => query.value.trim().length > 0)
 
+// last exam scores as "数学 78 · 英语 60.2", math/english first
+const SUBJECT_ORDER = ["math", "english"]
+function lastExamScores(s) {
+  if (!s.last_exam) return ""
+  const entries = Object.entries(s.last_exam.scores)
+  entries.sort(([a], [b]) => {
+    const ia = SUBJECT_ORDER.indexOf(a)
+    const ib = SUBJECT_ORDER.indexOf(b)
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
+  })
+  return entries.map(([sub, score]) => `${subject(sub)} ${score}`).join(" · ")
+}
+
 // While searching, always expand so matches are never hidden inside a collapsed group.
 function isCollapsed(group) {
   return !searching.value && !!collapsed.value[group.name]
@@ -68,7 +81,10 @@ function toggleGroup(group) {
       <p class="page-sub">{{ t("students.subtitle", { count: students.length }) }}</p>
     </div>
     <router-link to="/students/new">
-      <button class="primary"><Icon name="plus" :size="15" /> {{ t("students.add") }}</button>
+      <button class="primary add-student" :aria-label="t('students.add')">
+        <Icon name="plus" :size="15" />
+        <span class="btn-label">{{ t("students.add") }}</span>
+      </button>
     </router-link>
   </div>
 
@@ -95,8 +111,7 @@ function toggleGroup(group) {
           <tr>
             <th>{{ t("th.admissionNo") }}</th>
             <th>{{ t("th.name") }}</th>
-            <th>{{ t("th.gender") }}</th>
-            <th>{{ t("th.status") }}</th>
+            <th>{{ t("th.lastExam") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -108,8 +123,13 @@ function toggleGroup(group) {
           >
             <td>{{ s.admission_no }}</td>
             <td><strong>{{ s.name }}</strong></td>
-            <td>{{ genderLabel(s.gender) }}</td>
-            <td><span class="badge" :class="s.status === 'active' ? 'ok' : 'muted'">{{ statusLabel(s.status) }}</span></td>
+            <td>
+              <span v-if="s.last_exam" class="last-exam">
+                <span class="last-exam-name">{{ s.last_exam.exam_name }}</span>
+                <span class="last-exam-scores">{{ lastExamScores(s) }}</span>
+              </span>
+              <span v-else class="last-exam-none">{{ t("common.none") }}</span>
+            </td>
           </tr>
         </tbody>
       </table>

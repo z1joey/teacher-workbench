@@ -73,7 +73,7 @@ const activity = computed(() => {
   if (!profile.value) return []
   const s = profile.value.stats
   return [
-    { label: t("profile.visitsRecorded"), value: s.home_visits },
+    { label: t("profile.recordsLogged"), value: s.interactions },
     { label: t("profile.resultsEntered"), value: s.results_entered },
     { label: t("profile.notesAdded"), value: s.notes_added },
   ]

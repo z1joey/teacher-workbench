@@ -1,10 +1,12 @@
-"""TDD tests for migrating HomeVisit table usage → StudentEvent event_type='home_visited'.
+"""Tests for the StudentEvent generic-record model (former HomeVisit table).
 
-These tests MUST FAIL on the current codebase (RED state) because:
-  1. get_student() queries HomeVisit table (empty in seed/prod), not StudentEvent.
-  2. delete_student() checks HomeVisit for evidence, not event_type='home_visited' rows.
-
-After migration (GREEN state), all tests pass.
+The dedicated home_visit table was dropped in migration 0002; home visits (and
+talks / calls / tutoring / notes) all live in student_event. These tests pin
+the StudentEvent-based contracts:
+  1. the student detail payload no longer carries the legacy `home_visits` key
+     — events are served generically via the timeline endpoint;
+  2. the timeline lists every event regardless of type;
+  3. DELETE falls back to soft-deactivate when teacher-written records exist.
 """
 
 import os
@@ -21,7 +23,7 @@ from datetime import datetime  # noqa: E402 (env must be set before any app impo
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import create_engine, event  # noqa: E402
+from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 from sqlalchemy.pool import StaticPool  # noqa: E402
 
@@ -30,8 +32,7 @@ from app.database import Base, get_db  # noqa: E402
 from app.events import add_event  # noqa: E402
 from app.main import app as raw_app  # noqa: E402
 from app.models import (  # noqa: E402
-    AuthSession, Class, Enrollment, Exam, ExamResult, ExamSubject,
-    Student, StudentEvent, TeacherProfile, User,
+    AuthSession, Class, Enrollment, Student, StudentEvent, User,
 )
 from app.security import hash_password  # noqa: E402
 
@@ -73,22 +74,15 @@ def session(test_engine):
 
 @pytest.fixture()
 def seeded(session):
-    """Seed just enough data for home_visit related assertions.
-
-    IMPORTANT: We intentionally write NO rows into the legacy `HomeVisit` table.
-    Everything flows via add_event(..., "home_visited", ...) — the real path.
-    """
-    # 1 教师
+    """One student with 2 home_visited events + 1 note, all via add_event()."""
     chen = User(name="陈老师", phone="13800000001",
                 password_hash=hash_password("123456"), role="teacher")
     session.add(chen); session.flush()
 
-    # 1 班级
     c1 = Class(name="七年级1班", grade_level=7, academic_year=2026,
                homeroom_teacher_id=chen.id)
     session.add(c1); session.flush()
 
-    # 1 学生 + enrollment
     lin = Student(admission_no="S001", name="林晓雨", gender="female",
                   status="active",
                   guardian_name="林爸爸", guardian_phone="13810001000")
@@ -97,7 +91,6 @@ def seeded(session):
                            valid_from=datetime(2026, 2, 20).date(),
                            valid_to=None, reason="入学"))
 
-    # 2 次 home_visited 事件（走 StudentEvent.events.py 追加式写入）
     add_event(session, lin.id, "home_visited",
               datetime(2026, 3, 15, 19, 0),
               actor_teacher_id=chen.id,
@@ -112,14 +105,11 @@ def seeded(session):
                        "summary": "分数专项练习计划约定，家长已签字。",
                        "follow_up_needed": False,
                        "follow_up_note": None})
-
-    # 1 条非家访事件，确保 home_visits 不会误把它算进来
     add_event(session, lin.id, "note_added",
               datetime(2026, 4, 20, 15, 0),
               actor_teacher_id=chen.id,
               payload={"note": "对多步骤分数应用题掌握不牢"})
 
-    # Auth session for Teacher Chen → Bearer Token
     tok = "t" * 64
     session.add(AuthSession(token=tok, user_id=chen.id))
 
@@ -129,9 +119,7 @@ def seeded(session):
 
 @pytest.fixture()
 def client(test_engine, session):
-    """FastAPI TestClient. get_db yields the SAME session fixture.
-    We also patch the engine module-wide so code paths beyond Depends(get_db)
-    (e.g., model reflection in create_all) stay consistent."""
+    """FastAPI TestClient. get_db yields the SAME session fixture."""
     def _get_db_override():
         yield session
     raw_app.dependency_overrides[get_db] = _get_db_override
@@ -141,85 +129,67 @@ def client(test_engine, session):
 
 
 # ---------------------------------------------------------------------------
-# TEST 1: GET /api/students/{id}  home_visits 字段应来自 StudentEvent
+# TEST 1: 学生详情不再携带旧的家访专用字段 — 事件统一走 timeline
 # ---------------------------------------------------------------------------
 
-def test_student_detail_home_visits_populated_from_student_event(client, seeded):
-    """RED 状态下当前代码会返回 home_visits: [] （空数组），
-    因为它查的是空的 HomeVisit 表，不查 StudentEvent。"""
+def test_student_detail_has_no_legacy_home_visits_key(client, seeded):
     headers = {"Authorization": f"Bearer {seeded['token']}"}
     r = client.get(f"/api/students/{seeded['lin'].id}", headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
-
-    visits = body["home_visits"]
-    # FAIL EXPECTED: current code returns [] (querying HomeVisit table)
-    # PASS EXPECTED: 2 visits from the home_visited events
-    assert len(visits) == 2, (
-        f"Expected 2 home_visits from StudentEvent, got {len(visits)}. "
-        f"Raw: {visits}. "
-        f"— Bug: get_student() still reads legacy HomeVisit table, not StudentEvent."
-    )
-
-    # Check the visits are chronologically DESC (newest first, as current API spec)
-    # May 10 should come before March 15
-    assert visits[0]["purpose"] == "数学提升计划"
-    assert visits[1]["purpose"] == "开学家访"
-
-    # Field mapping fidelity: each payload field must map to the correct dict key
-    first = visits[1]  # earlier = 开学家访
-    assert first["summary"] == "父母工作忙，主要由外婆照顾，已告知学习重点。"
-    assert first["follow_up_needed"] is True
-    assert first["follow_up_note"] == "两周后回访是否落实课外阅读。"
-    assert "visited_at" in first and first["visited_at"].startswith("2026-03-15")
-
-    # Every home_visits[] item MUST carry its source StudentEvent id
-    # so the frontend can hyperlink (currently unused but critical for API stability)
-    for v in visits:
-        assert isinstance(v["id"], int) and v["id"] > 0, (
-            "home_visits[].id should be the backing StudentEvent id")
+    assert "home_visits" not in body, (
+        "home_visits was the dedicated-table shape; events are served "
+        "generically via /students/{id}/timeline — the legacy key must go.")
 
 
 # ---------------------------------------------------------------------------
-# TEST 2: note_added 事件不出现在 home_visits 中
+# TEST 2: timeline 通用地列出所有类型的事件（含家访与随笔）
 # ---------------------------------------------------------------------------
 
-def test_student_detail_home_visits_excludes_other_event_types(client, seeded):
-    """Only event_type == 'home_visited' counts toward the home_visits array."""
+def test_timeline_lists_all_event_types_generically(client, seeded):
     headers = {"Authorization": f"Bearer {seeded['token']}"}
-    r = client.get(f"/api/students/{seeded['lin'].id}", headers=headers)
+    r = client.get(f"/api/students/{seeded['lin'].id}/timeline", headers=headers)
+    assert r.status_code == 200, r.text
+    items = r.json()
+    types = [it["event_type"] for it in items]
+    assert types.count("home_visited") == 2
+    assert types.count("note_added") == 1
+    assert all(it["is_system"] is False for it in items), (
+        "teacher-written records must not be flagged as system events")
+
+
+# ---------------------------------------------------------------------------
+# TEST 3: 首页待跟进卡片 — 任何类型的事件带 follow_up_needed 都要出现
+# （回归：SQLite 的 LIKE contains() 曾永远匹配不到嵌套键，卡片恒为空）
+# ---------------------------------------------------------------------------
+
+def test_dashboard_follow_ups_lists_events_needing_follow_up(client, seeded):
+    headers = {"Authorization": f"Bearer {seeded['token']}"}
+    r = client.get("/api/dashboard", headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
-    purposes = {v.get("purpose") for v in body["home_visits"]}
-    assert "数学提升计划" in purposes
-    assert "开学家访" in purposes
-    # There should be no "note_added" masquerading as a home_visit (via id 3 note event)
-    summaries = [v.get("summary") for v in body["home_visits"]]
-    for s in summaries:
-        assert s != "对多步骤分数应用题掌握不牢"
+    fu = body["follow_ups"]
+    assert len(fu) == 1, f"Expected the 开学家访 follow-up, got {body['follow_ups']}"
+    assert fu[0]["student_id"] == seeded["lin"].id
+    assert fu[0]["event_type"] == "home_visited"
+    assert fu[0]["follow_up_note"] == "两周后回访是否落实课外阅读。"
+    # counts.interactions counts every teacher-written record (2 visits + 1 note)
+    assert body["counts"]["interactions"] == 3
 
 
 # ---------------------------------------------------------------------------
-# TEST 3: DELETE /api/students/{id}  有 home_visited 事件证据时 → 软删除（停用）
+# TEST 4: DELETE — 有教师手写记录（家访等）时 → 软删除（停用）
 # ---------------------------------------------------------------------------
 
-def test_delete_student_with_home_visited_events_does_soft_deactivate(client, seeded, session):
-    """RED 状态下：delete_student() 查的是 HomeVisit（空），
-    所以它会硬删 student，而不是走 soft-deactivate 分支。
-
-    期望：存在 home_visited 事件时 → action: 'deactivated'（软删）。
-    """
+def test_delete_student_with_manual_records_does_soft_deactivate(client, seeded, session):
     headers = {"Authorization": f"Bearer {seeded['token']}"}
     r = client.delete(f"/api/students/{seeded['lin'].id}", headers=headers)
     assert r.status_code == 200, r.text
     body = r.json()
 
     assert body["action"] == "deactivated", (
-        f"Expected action='deactivated' because student has home_visited evidence. "
-        f"Got action={body['action']}. "
-        f"— Bug: delete_student() checks HomeVisit table instead of "
-        f"StudentEvent(event_type='home_visited') for written evidence."
-    )
+        f"Expected action='deactivated' because the student has teacher-written "
+        f"records. Got action={body['action']}.")
 
     # Verify: student record still exists, status is inactive
     s = session.get(Student, seeded["lin"].id)
@@ -237,7 +207,7 @@ def test_delete_student_with_home_visited_events_does_soft_deactivate(client, se
 
 
 # ---------------------------------------------------------------------------
-# TEST 4: DELETE /api/students/{id}  无任何证据时 → 硬删除
+# TEST 5: DELETE — 无任何证据时 → 硬删除
 # ---------------------------------------------------------------------------
 
 def test_delete_student_without_any_evidence_does_hard_delete(client, seeded, session):

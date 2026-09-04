@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, time
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -7,12 +7,18 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import Class, Enrollment, Exam, ExamResult, ExamSubject, Student, User
+from ..events import RECORD_EVENT_TYPES
+from ..models import Class, Enrollment, Exam, ExamResult, ExamSubject, Student, StudentEvent, User
 
 router = APIRouter(tags=["classes"])
 
 
-def class_out(c: Class, teacher: User | None, students: list[Student]) -> dict:
+def class_out(
+    c: Class,
+    teacher: User | None,
+    students: list[Student],
+    visited: set[int] | None = None,
+) -> dict:
     return {
         "id": c.id,
         "name": c.name,
@@ -22,10 +28,97 @@ def class_out(c: Class, teacher: User | None, students: list[Student]) -> dict:
         "homeroom_teacher": teacher.name if teacher else None,
         "student_count": len(students),
         "students": [
-            {"id": s.id, "name": s.name, "gender": s.gender, "admission_no": s.admission_no}
+            {
+                "id": s.id,
+                "name": s.name,
+                "gender": s.gender,
+                "admission_no": s.admission_no,
+                "home_visited": s.id in (visited or set()),
+            }
             for s in students
         ],
     }
+
+
+def _visited_ids(db: Session, student_ids: list[int]) -> set[int]:
+    if not student_ids:
+        return set()
+    rows = (
+        db.query(StudentEvent.student_id)
+        .filter(
+            StudentEvent.event_type == "home_visited",
+            StudentEvent.student_id.in_(student_ids),
+        )
+        .distinct()
+        .all()
+    )
+    return {r[0] for r in rows}
+
+
+def _recent_events(db: Session, student_ids: list[int], limit: int = 50) -> list[dict]:
+    if not student_ids:
+        return []
+    rows = (
+        db.query(StudentEvent, Student.name)
+        .join(Student, Student.id == StudentEvent.student_id)
+        .filter(
+            StudentEvent.student_id.in_(student_ids),
+            StudentEvent.event_type.in_(RECORD_EVENT_TYPES),
+        )
+        .order_by(StudentEvent.occurred_at.desc(), StudentEvent.id.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": ev.id,
+            "student_id": ev.student_id,
+            "student_name": name,
+            "event_type": ev.event_type,
+            "recurrence": ev.recurrence,
+            "occurred_at": ev.occurred_at.isoformat(),
+        }
+        for ev, name in rows
+    ]
+
+
+def _avg_trend(db: Session, class_id: int) -> list[dict]:
+    """Chronological per-exam per-subject class averages (enrollment-attributed)."""
+    rows = (
+        db.query(
+            Exam.id,
+            Exam.exam_date,
+            Exam.name,
+            ExamSubject.subject,
+            func.avg(ExamResult.score),
+        )
+        .select_from(ExamResult)
+        .join(ExamSubject, ExamSubject.id == ExamResult.exam_subject_id)
+        .join(Exam, Exam.id == ExamSubject.exam_id)
+        .join(
+            Enrollment,
+            and_(
+                Enrollment.student_id == ExamResult.student_id,
+                Enrollment.valid_from <= Exam.exam_date,
+                or_(Enrollment.valid_to.is_(None), Enrollment.valid_to >= Exam.exam_date),
+            ),
+        )
+        .filter(Enrollment.class_id == class_id, ExamResult.status == "entered")
+        .group_by(Exam.id, Exam.exam_date, Exam.name, ExamSubject.subject)
+        .order_by(Exam.exam_date, Exam.id)
+        .all()
+    )
+    ordered: dict[int, dict] = {}
+    for exam_id, exam_date, exam_name, subject, avg in rows:
+        rec = ordered.setdefault(exam_id, {
+            "exam_id": exam_id,
+            "exam_name": exam_name,
+            "exam_date": exam_date.isoformat(),
+            "averages": {},
+        })
+        if avg is not None:
+            rec["averages"][subject] = round(float(avg), 1)
+    return list(ordered.values())
 
 
 def current_students(db: Session, class_id: int) -> list[Student]:
@@ -66,7 +159,13 @@ def list_classes(db: Session = Depends(get_db)):
     out = []
     for c in db.query(Class).order_by(Class.grade_level, Class.name).all():
         teacher = db.get(User, c.homeroom_teacher_id) if c.homeroom_teacher_id else None
-        out.append(class_out(c, teacher, current_students(db, c.id)))
+        students = current_students(db, c.id)
+        ids = [s.id for s in students]
+        visited = _visited_ids(db, ids)
+        base = class_out(c, teacher, students, visited)
+        base["avg_trend"] = _avg_trend(db, c.id)
+        base["recent_events"] = _recent_events(db, ids)
+        out.append(base)
     return out
 
 
