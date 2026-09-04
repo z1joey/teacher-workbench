@@ -1,26 +1,16 @@
-"""Entrypoint schema bootstrap: bring any database to alembic head.
+"""Entrypoint schema bootstrap: create the event-schema tables.
 
-- Fresh database            -> upgrade head
-- Legacy create_all volume  -> stamp 0001 (legacy baseline), then upgrade head
-                              (runs 0002, which migrates teacher -> user)
-- Already migrated          -> upgrade head (no-op)
+Alembic 0005 (event schema) is the path for existing PostgreSQL databases;
+fresh databases are created here via metadata.create_all (idempotent —
+existing tables are left alone). Run `python -m app.seed` for a fresh
+database with demo data.
 """
-import os
-
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from . import models  # noqa: F401  (registers the tables on Base.metadata)
+from .database import Base, engine
 
 
 def main() -> None:
-    url = os.environ.get("DATABASE_URL", "sqlite:///./teacher_workbench.db")
-    cfg = Config("alembic.ini")
-    engine = create_engine(url)
-    tables = set(inspect(engine).get_table_names())
-    if "user" not in tables and "teacher" in tables:
-        # Pre-Alembic database: mark it at the legacy baseline, then migrate.
-        command.stamp(cfg, "0001")
-    command.upgrade(cfg, "head")
+    Base.metadata.create_all(engine)
 
 
 if __name__ == "__main__":
