@@ -1,6 +1,6 @@
-"""Event-centric schema (work in progress — replaces the app/models.py
-module, which this package shadows; routers still import the old schema
-until they migrate).
+"""Event-centric schema — the application's data model. This package replaced
+the flat app/models.py module (deleted along with the legacy schema); every
+router imports its models from here.
 
 Design (2026-09 discussion):
 

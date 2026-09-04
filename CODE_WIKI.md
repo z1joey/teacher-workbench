@@ -13,7 +13,7 @@
 
    - 4.1 [核心模块](#41-核心模块)
 
-   - 4.2 [数据模型（14 张表）](#42-数据模型14-张表)
+   - 4.2 [数据模型（6 张表）](#42-数据模型6-张表)
 
    - 4.3 [API 路由详解](#43-api-路由详解)
 
@@ -80,13 +80,15 @@ teacher-workbench/
 ├── backend/                          # FastAPI 后端
 │   ├── app/
 │   │   ├── __init__.py
-│   │   ├── main.py                   # FastAPI 应用入口：建表、CORS、路由装配
+│   │   ├── main.py                   # FastAPI 应用入口：CORS、路由装配
 │   │   ├── database.py               # 引擎/Session/Base 声明；DATABASE_URL 驱动
-│   │   ├── models.py                 # 14 张表 ORM 映射（SQLAlchemy 2.0 声明式）
-│   │   ├── events.py                 # add_event() — 同事务写时间线
+│   │   ├── models/                   # 事件中心 schema（SQLAlchemy 2.0 声明式包）
+│   │   ├── payloads.py               # 角色/事件 payload 校验注册表
+│   │   ├── eventing.py               # create_event() — 事件表唯一写入口
 │   │   ├── security.py               # PBKDF2 密码 / 随机 Token 生成
-│   │   ├── deps.py                   # FastAPI 依赖：get_current_teacher / get_admin_teacher
-│   │   ├── seed.py                   # 演示数据脚本（DROP → CREATE → 灌数据）
+│   │   ├── deps.py                   # FastAPI 依赖：get_current_person / require_admin
+│   │   ├── bootstrap_db.py           # 部署入口：legacy 卷 Alembic 迁移 / 全新卷建表 + stamp
+│   │   ├── seed.py                   # 演示数据脚本（建表 + 灌数据；非全新库会重复灌入）
 │   │   └── routers/
 │   │       ├── __init__.py           # 空
 │   │       ├── auth.py               # 注册 / 登录 / 登出 / me
@@ -149,9 +151,9 @@ teacher-workbench/
 
 [main.py](file:///Users/joey/Projects/teacher-workbench/backend/app/main.py)
 
-- `Base.metadata.create_all(bind=engine)`：启动时幂等建表
-
-- `FastAPI(title="Teacher Workbench API", version="0.2.0")`
+- `FastAPI(title="Teacher Workbench API", version="0.3.0")`；建表/迁移由部署
+  入口 `python -m app.bootstrap_db` 负责（legacy 卷走 Alembic 0005 原地迁移，
+  全新卷 `create_all` + `stamp` head）
 
 - CORS：允许所有来源（演示配置）
 
@@ -159,7 +161,8 @@ teacher-workbench/
 
   - `/api/auth/*` 与 `/api/admin/*` **独立挂载**（admin 路由自己内部再鉴权）
 
-  - 其余业务路由统一注入 `Depends(get_current_teacher)`
+  - 其余业务路由统一注入 `Depends(get_current_user)`（即 `get_current_person`
+    的别名）
 
 #### `database.py` — 数据库连接
 
@@ -173,7 +176,7 @@ teacher-workbench/
 | `Base`         | `DeclarativeBase` — 所有 ORM 模型的基类                                     |
 | `get_db()`     | FastAPI generator 依赖：yield 一个 Session，finally 关闭                     |
 
-> **PostgreSQL/SQLite 双兼容策略**：`models.py` 中通过 `JSONType = JSON().with_variant(JSONB(), "postgresql")` 声明 JSON 列，自动适配两种数据库。
+> **PostgreSQL/SQLite 双兼容策略**：`models/_common.py` 中通过 `JSONType = JSON().with_variant(JSONB(), "postgresql")` 声明 JSON 列，自动适配两种数据库。
 
 #### `security.py` — 密码与令牌
 
@@ -189,79 +192,87 @@ new_token() -> str                          # secrets.token_hex(32) — 64 字�
 
 [deps.py](file:///Users/joey/Projects/teacher-workbench/backend/app/deps.py)
 
-| 函数                                                 | 职责                                                                                        |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `get_current_teacher(credentials, db)` → `Teacher` | 从 `Authorization: Bearer <token>` 查 `auth_session` → `teacher`；401 若未登录 / Token 过期 / 账号禁用 |
-| `get_admin_teacher(teacher)` → `Teacher`           | 在 `get_current_teacher` 之上再校验 `is_admin == True`，否则 403                                   |
+| 函数                                                   | 职责                                                                                      |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `get_current_person(credentials, db)` → `Person`   | 从 `Authorization: Bearer <token>` 查 `auth_session` → `person`；401 若未登录 / 账号禁用（payload.is_active=False → 403） |
+| `require_admin(person)` → `Person`                 | 在 `get_current_person` 之上再校验 `is_admin`（payload.role=="admin"），否则 403                |
 
-#### `events.py` — 时间线写入辅助
+#### `eventing.py` — 事件写入辅助
 
-[events.py](file:///Users/joey/Projects/teacher-workbench/backend/app/events.py)
+[eventing.py](file:///Users/joey/Projects/teacher-workbench/backend/app/eventing.py)
 
 ```python
-add_event(db, student_id, event_type, occurred_at,
-          actor_teacher_id=None, ref_table=None, ref_id=None, payload=None)
-    -> StudentEvent
+create_event(db, *, event_type, title, start_time, end_time=None,
+             location=None, description=None, payload=None,
+             attendee_ids=(), commit=False) -> Event
 ```
 
-> **设计要点**：此函数只 `db.add(event)`，**不 commit**——让调用方在同一个业务事务里一起 commit，保证领域变更与时间线事件的原子性。
+> **设计要点**：事件表的唯一写入口——先经 `app.payloads` 校验 payload，再挂
+> `attendees`（person_events 多对多）；默认只 `db.add(event)` **不 commit**，
+> 让调用方在同一个业务事务里一起提交，保证领域变更与事件的原子性。
 
 ***
 
-### 4.2 数据模型（10 张表）
+### 4.2 数据模型（6 张表）
 
-所有模型位于 [models.py](file:///Users/joey/Projects/teacher-workbench/backend/app/models.py)，采用 SQLAlchemy 2.0 `Mapped[]` + `mapped_column` 声明式风格。
+所有模型位于 `models/` 包（[models/](file:///Users/joey/Projects/teacher-workbench/backend/app/models/__init__.py)），采用 SQLAlchemy 2.0 `Mapped[]` + `mapped_column` 声明式风格。
 
 #### ER 关系概览
 
 ```
-teacher ──< auth_session                      登录会话（无过期，服务端存储）
-teacher ──< class (homeroom_teacher_id)       班主任关系
-        └──< student_event (统一事件流，替代 HomeVisit)
+person ──< auth_session                      登录会话（无过期，服务端存储）
 
-class ═══< enrollment >═══ student
+person                                       唯一身份表：payload.role =
+                                             student | teacher | admin
+                                             角色专属档案字段全在 payload JSONB
+teacher ──< class (homeroom_person_id)       班主任关系
+
+class ═══< enrollment >═══ student（payload.role="student"）
               └─ valid_from / valid_to 时间维度
-              └─ 部分唯一索引：(student_id) WHERE valid_to IS NULL
+              └─ 部分唯一索引：(person_id) WHERE valid_to IS NULL
 
-exam ──< exam_subject（科目 + 满分）
-              │
-student ──< exam_result                       科目总分（科目级直接录入，无逐题明细）
-student ──< student_event                     追加式时间线（一切变更的事件日志；已完全替代 HomeVisit 表的家访功能）
+event ──< person_events >── person            追加式时间线（一切变更的事件行：
+                                              考试坐席 exam、单科成绩 score、
+                                              家访 home_visited、备注…）
+person ──< person_tags >── tag                学生标签（按约定仅学生挂标签）
 ```
 
-> 注：2026-09 起已移除逐题作答链路（`KnowledgePoint` / `Question` / `QuestionResponse`）和薄弱项预聚合表 `StudentWeakness`；成绩直接以"学生 × 科目"粒度落在 `exam_result` 上。
+> 注：2026-09 起数据模型整体重建为**事件中心 schema**。旧 user / teacher\_profile
+> / student / exam / exam\_subject / exam\_result / student\_event / tag /
+> student\_tag / auth\_session 旧表的列式数据由 Alembic 0005 一次性迁入
+> person / event / tag / class / enrollment（旧 `app/models.py`、`app/events.py`
+> 已删除；0005 的 downgrade 不可用——还原需迁移前备份）。
 
 #### 详细表说明
 
-> 左列为 Python ORM 类名（开发者 `from models import *` 实际使用的标识符），括号内为 SQL 物理表名。
+> 左列为 Python ORM 类名（`from app.models import *` 实际使用的标识符），括号内为 SQL 物理表名。
 
-| #  | ORM 类 / SQL 表                               | 主键          | 关键字段 / 约束                                                                                                                                                              | 用途                                                                                                       |
-| -- | ------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| 1  | **`Teacher`** (teacher)                     | `id`        | `phone`(唯一), `email`(唯一可空), `password_hash`, `is_active`, `is_admin`                                                                                                   | 教师/管理员账号                                                                                                 |
-| 2  | **`Student`** (student)                     | `id`        | `admission_no`(唯一), `name`, `gender`, `birth_date`, `guardian_*`, `status`                                                                                             | 学生档案                                                                                                     |
-| 3  | **`Class`** (class)                         | `id`        | `name`, `grade_level`, `academic_year`, `homeroom_teacher_id`; UQ(name, academic\_year)                                                                                | 班级                                                                                                       |
-| 4  | **`Enrollment`** (enrollment)               | `id`        | `student_id`, `class_id`, `valid_from`, `valid_to`, `reason`; 部分 UQ(student\_id WHERE valid\_to IS NULL)                                                               | **带时间维度的班级归属**                                                                                           |
-| 5  | **`Exam`** (exam)                           | `id`        | `name`, `exam_date`                                                                                                                                                    | 考试                                                                                                       |
-| 6  | **`ExamSubject`** (exam\_subject)           | `id`        | `exam_id`, `subject`, `full_score`; UQ(exam\_id, subject)                                                                                                              | 考试科目                                                                                                     |
-| 7  | **`ExamResult`** (exam\_result)             | `id`        | `student_id`, `exam_subject_id`, `score`, `status`, `entered_by`; UQ(student\_id, exam\_subject\_id)                                                                   | 学生某科成绩（科目级直接存储，无逐题明细）                                                                           |
-| 8  | **`HomeVisit`** (home\_visit)               | `id`        | `student_id`, `teacher_id`, `visited_at`, `purpose`, `summary`, `follow_up_*`; IX(student\_id, visited\_at)                                                            | **仅保留的 legacy 表**：自 2026-09 起不再写入/读取（所有业务逻辑已迁移到 `StudentEvent.event_type="home_visited"`，参见 students.py） |
-| 9  | **`StudentEvent`** (student\_event)         | `id`        | `student_id`, `event_type`, `occurred_at`, `actor_teacher_id`, `ref_table/ref_id`, `payload`(JSON/JSONB); IX(student\_id, occurred\_at); IX(event\_type, occurred\_at) | **追加式时间线核心表 / 家访记录真正存储地（event\_type="home\_visited"）**                                                   |
-| 10 | **`AuthSession`** (auth\_session)           | `token`(PK) | `teacher_id`, `created_at`                                                                                                                                             | Bearer Token 存储                                                                                          |
+| #  | ORM 类 / SQL 表                          | 主键        | 关键字段 / 约束                                                                                                                                              | 用途                                     |
+| -- | ---------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| 1  | **`Person`** (person)                    | `id`(UUID)  | `phone`(唯一可空；学生为 NULL 不登录), `email`(唯一可空), `password_hash`, `payload`(JSON/JSONB: role + 角色档案)；`ix_person_role`、`uq_person_admission_no`(部分唯一) | **唯一身份表**（学生/教师/管理员一个表）   |
+| 2  | **`Event`** (event)                      | `id`(UUID)  | `type`(CHECK 枚举), `title`, `description`, `start_time/end_time`, `location`, `payload`(JSON/JSONB)；`ix_event_type_time`、`ix_event_payload`(PG GIN)           | **追加式时间线核心表**——一切动态皆事件   |
+| 3  | **`Tag`** (tag)                          | `id`(UUID)  | `name`(唯一), `color`                                                                                                                                        | 全局可复用的学生标签                     |
+| 4  | **`Class`** (class)                      | `id`(UUID)  | `name`, `grade_level`, `academic_year`, `homeroom_person_id`; UQ(name, academic\_year)                                                                       | 班级                                     |
+| 5  | **`Enrollment`** (enrollment)            | `id`(UUID)  | `person_id`, `class_id`, `valid_from`, `valid_to`, `reason`; 部分 UQ(person\_id WHERE valid\_to IS NULL)                                                     | **带时间维度的班级归属**                   |
+| 6  | **`AuthSession`** (auth\_session)        | `token`(PK) | `person_id`, `created_at`                                                                                                                                    | Bearer Token 存储                        |
 
-#### 事件类型常量（students.py）
+多对多关联表：`person_events`（事件 ↔ 出席人，`ix_person_events_event`）、`person_tags`（标签 ↔ 人，`ix_person_tags_tag`）。
 
-位于 [students.py L256-263](file:///Users/joey/Projects/teacher-workbench/backend/app/routers/students.py#L256-L263)：
+#### 事件类型常量（eventing.py）
+
+位于 [eventing.py](file:///Users/joey/Projects/teacher-workbench/backend/app/eventing.py)：
 
 ```python
-SYSTEM_EVENT_TYPES = {"enrolled", "class_moved", "exam_taken",
-                      "result_changed", "weakness_flagged"}
-MANUAL_EVENT_TYPES = {"home_visited", "talk", "tutoring",
-                      "parent_call", "note_added"}
+SYSTEM_EVENT_TYPES = {"enrolled", "class_moved", "exam_taken", "result_changed"}
+MANUAL_EVENT_TYPES = {"home_visited", "talk", "tutoring", "parent_call", "note_added"}
+AUTO_RECORD_EVENT_TYPES = {"birthday"}   # 不落库：时间线由 payload.birth_date 投影
 ```
 
-- **系统事件**：由后端逻辑自动写入，不可编辑/删除
+- **系统事件**：由后端业务流程自动写入，不可编辑/删除
 
-- **人工事件**：教师在学生详情页手动创建；**此外的任何 event\_type 被视为自定义类型**
+- **人工事件**：教师手动创建；考试坐席 `type="exam"`（payload.full_scores 带
+  各科满分）与单科成绩 `type="score"`（subject/max_score/score，缺勤约定
+  `{"absent": true}` 无 score 键）也由业务流程写入
 
 ***
 
@@ -288,10 +299,9 @@ MANUAL_EVENT_TYPES = {"home_visited", "talk", "tutoring",
 | POST     | `/students`                                | 新建学生 + 自动生成学号 S递增 + 入班 + enrolled 事件              |
 | GET      | `/students/{id}`                           | 档案 + 历次成绩 + 家访记录                                  |
 | PATCH    | `/students/{id}`                           | 编辑资料；**转班走关旧开新 + class\_moved 事件**                |
-| DELETE   | `/students/{id}`                           | 有历史数据时软删除（status=inactive + 关闭 enrollment），无数据时硬删 |
+| DELETE   | `/students/{id}`                           | 有历史数据时软删除（payload.is_active=false + 关闭 enrollment），无数据时硬删 |
 | GET      | `/students/{id}/timeline`                  | 右侧时间线（系统 + 人工 全部事件）                               |
-| GET      | `/students/{id}/weaknesses`                | 知识点薄弱项（按 severity 降序）                             |
-| GET      | `/students/{id}/failed-questions?subject=` | 错题明细（可按科目过滤）                                      |
+| GET · POST · DELETE | `/tags` · `/students/{id}/tags[/{tag_id}]` | 标签列表/新建 · 给学生打/摘标签                         |
 | **POST** | **`/students/{id}/events`**                | 记录人工事件（家访/谈心/辅导/家长沟通/备注/自定义类型）                    |
 | GET      | `/students/{id}/events`                    | 人工事件列表（不含系统事件，左侧列表用）                              |
 | GET      | `/students/{id}/events/{eid}`              | 单事件详情                                             |
@@ -320,7 +330,7 @@ MANUAL_EVENT_TYPES = {"home_visited", "talk", "tutoring",
 | GET    | `/exams/{id}`          | 考试基本信息 + 科目                                                      |
 | GET    | `/exams/{id}/averages` | 全校统计（avg/min/max/count）+ **各班按考试当日 enrollment 归属** 的班级平均         |
 | PATCH  | `/exams/{id}`          | 改名称/日期；改科目需此考试未录入成绩                                              |
-| DELETE | `/exams/{id}`          | 级联删 question\_response / exam\_result / question / exam\_subject |
+| DELETE | `/exams/{id}`          | 删除考试坐席 Event 本身；score 成绩事件是独立行（无父引用），有意保留 |
 
 #### 仪表盘 `/api/dashboard` — [dashboard.py](file:///Users/joey/Projects/teacher-workbench/backend/app/routers/dashboard.py)
 
@@ -339,18 +349,18 @@ MANUAL_EVENT_TYPES = {"home_visited", "talk", "tutoring",
 
 #### 管理员 `/api/admin/*` — [admin.py](file:///Users/joey/Projects/teacher-workbench/backend/app/routers/admin.py)
 
-全部走 `get_admin_teacher` 依赖。
+全部走 `require_admin` 依赖（教师角色一律 403）。
 
 | 方法     | 路径                         | 说明                                            |
 | ------ | -------------------------- | --------------------------------------------- |
-| GET    | `/admin/stats`             | 数据库驱动、14 张表行数、教师/管理员/活跃/会话数                   |
-| GET    | `/admin/teachers`          | 教师全列表（含 is\_active / is\_admin / 创建时间）        |
-| PATCH  | `/admin/teachers/{id}`     | 启停用、改管理员、重置密码（不能自降 admin）                     |
-| DELETE | `/admin/teachers/{id}`     | 删除（不能删自己）                                     |
+| GET    | `/admin/stats`             | 数据库驱动、6 张表行数、用户/管理员/活跃/会话数                    |
+| GET    | `/admin/users`             | 用户全列表（含 role / is_active / 创建时间，可按 role 过滤）   |
+| PATCH  | `/admin/users/{id}`        | 启停用、改角色、重置密码（不能自降 admin；学生账号 → 400）           |
+| DELETE | `/admin/users/{id}`        | 删除（不能删自己；学生账号 → 400；仍有关联记录 → 409）             |
 | GET    | `/admin/sessions`          | 活动会话（Token 只显前 8 位+…）                         |
 | DELETE | `/admin/sessions/{prefix}` | 按前缀终止会话                                       |
 | POST   | `/admin/sessions/kill-all` | 清空全部会话                                        |
-| POST   | `/admin/inspect`           | `{table, limit=20}` — ORM 只读探查（白名单 14 表）      |
+| POST   | `/admin/inspect`           | `{table, limit=20}` — ORM 只读探查（白名单 6 表）       |
 | POST   | `/admin/db/reset`          | `DROP ALL → CREATE ALL`，不清空不可恢复（仅 DB 重建，不灌种子） |
 
 ***
@@ -359,16 +369,17 @@ MANUAL_EVENT_TYPES = {"home_visited", "talk", "tutoring",
 
 | 函数 / 类                                         | 所在文件                                     | 职责                                                            |
 | ---------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------- |
-| `utcnow()`                                     | `models.py`                              | 返回 **naive UTC datetime**（兼容 SQLite）                          |
-| `JSONType`                                     | `models.py`                              | PostgreSQL JSONB + SQLite JSON 的跨方言别名                         |
+| `utcnow()`                                     | `models/_common.py`                      | 返回 **naive UTC datetime**（兼容 SQLite）                          |
+| `JSONType`                                     | `models/_common.py`                      | PostgreSQL JSONB + SQLite JSON 的跨方言别名                         |
+| `validate_person_payload(role, data)` 等        | `payloads.py`                            | 角色/事件 payload 校验注册表（角色档案的统一入口）                                |
 | `normalize_phone()`                            | `routers/auth.py`                        | 移除空格/横杠统一手机号格式                                                |
-| `teacher_out(t)`                               | `routers/auth.py` / `routers/profile.py` | 教师信息公共序列化函数（两处重复，可优化）                                         |
-| `current_class(db, student_id)`                | `routers/students.py`                    | 通过 `enrollment.valid_to IS NULL` 查当前班级                        |
+| `user_out(u)`                                  | `routers/auth.py` / `routers/profile.py` | 用户信息公共序列化函数（两处重复，可优化）                                         |
+| `current_class(db, person_id)`                 | `routers/students.py`                    | 通过 `enrollment.valid_to IS NULL` 查当前班级                        |
 | `class_out(c, teacher, students)`              | `routers/classes.py`                     | 班级信息公共序列化                                                     |
 | `current_students(db, class_id)`               | `routers/classes.py`                     | 班级当前在读学生（通过 enrollment 有效期）                                   |
 | `_check_duplicate(db, name, year, exclude_id)` | `routers/classes.py`                     | 同学年同名班级校验                                                     |
-| `add_event(...)`                               | `events.py`                              | 追加时间线事件（不 commit，调用方负责）                                       |
-| `seed(db)`                                     | `seed.py`                                | 完整演示数据构造器：3 教师 / 2 班级 / 24 学生 / 2 考试 / 全量逐题作答 / 薄弱项 / 100+ 事件 |
+| `create_event(...)`                            | `eventing.py`                            | 追加事件（payload 校验 + 挂出席人；不 commit，调用方负责）                        |
+| `seed(db)`                                     | `seed.py`                                | 完整演示数据构造器：3 员工 / 2 班级 / 24 学生 / 7 场考试 / 每科成绩事件 / 标签 / 100+ 事件 |
 
 ***
 
@@ -572,7 +583,7 @@ emit: `@select="(event)"` — 仅当 `!is_system` 时触发
 | `--ok / --warn / --amber` | 绿/棕/金                     | 状态色                 |
 | `--font-display`          | Georgia, Songti SC, serif | 标题/大数字展示字体          |
 
-**主要组件类**：`.card` `.badge` `.topnav` `.auth-*` `.stat-grid` `.two-col` `.timeline-*` `.chart-*` `.weakness` `.severity-bar` `.quick-actions` `.mini-event` `.countdown-item` `.student-chips` 等。
+**主要组件类**：`.card` `.badge` `.topnav` `.auth-*` `.stat-grid` `.two-col` `.timeline-*` `.chart-*` `.quick-actions` `.mini-event` `.countdown-item` `.student-chips` 等。
 
 响应式：`@media (max-width: 900px)` 双栏降单栏；`@media (max-width: 720px)` 顶栏换行。
 
@@ -585,20 +596,22 @@ emit: `@select="(event)"` — 仅当 `!is_system` 时触发
 ```
 main.py
   ├─ database.py (Base, engine)
-  ├─ deps.py (get_current_teacher)
+  ├─ deps.py (get_current_user → get_current_person)
   └─ routers/*
       ├─ database.py (get_db)
-      ├─ deps.py (get_current_teacher / get_admin_teacher)
-      ├─ models.py (所有 ORM 模型)
-      ├─ events.py (add_event)
+      ├─ deps.py (get_current_person / require_admin)
+      ├─ models (所有 ORM 模型)
+      ├─ payloads.py (payload 校验)
+      ├─ eventing.py (create_event)
       ├─ security.py (仅 auth.py 与 admin.py 使用)
       └─ pydantic BaseModel (请求体校验)
 
-models.py → database.py (Base)
-deps.py   → database.py (get_db), models.py (AuthSession, Teacher)
+models/   → database.py (Base)
+deps.py   → database.py (get_db), models (AuthSession, Person)
 security.py → 无内部依赖 (纯 hashlib / secrets)
-events.py → models.py (StudentEvent)
-seed.py   → database.py, events.py, models.py, security.py
+eventing.py → models (Event, Person), payloads.py
+payloads.py → 无内部依赖（纯校验注册表）
+seed.py   → database.py, eventing.py, models, payloads.py, security.py
 ```
 
 ### 6.2 前端内部依赖
@@ -656,46 +669,56 @@ psycopg[binary] >= 3.2 # PostgreSQL 驱动（可选，SQLite 不需要）
 
 ## 7. 事件驱动与时间线机制
 
-`student_event` 表是本系统的**单一真实事件源**（append-only event log）。
+`event` 表是本系统的**单一真实事件源**（append-only event log）——考试坐席、
+每生每科成绩、家访、备注、转班… 全部是 event 行。
 
 ### 7.1 写入原则
 
-> 每一个领域状态变更 **在同一数据库事务** 中，额外调用 `add_event()` 追加一条事件行。
+> 领域状态变更 **在同一数据库事务** 中，经 `eventing.create_event()`（payload
+> 校验 + 挂出席人）追加事件行；默认不 commit，由调用方统一提交。
 
-示例流程（新建学生，[students.py L72-101](file:///Users/joey/Projects/teacher-workbench/backend/app/routers/students.py#L72-L101)）：
+示例流程（新建学生，[students.py](file:///Users/joey/Projects/teacher-workbench/backend/app/routers/students.py) `create_student`）：
 
 ```
 事务开始
-  → INSERT student
+  → INSERT person (payload.role="student")
   → INSERT enrollment (班级关系)
-  → add_event("enrolled", payload={class: "七年级1班"})  ← 与业务同事务
+  → create_event("enrolled", payload={"class_name": …}, attendee_ids=[学生])  ← 与业务同事务
 事务 COMMIT
 ```
 
 ### 7.2 事件写入点汇总
 
-| 触发动作                       | event\_type                   | 写入位置                                            |
-| -------------------------- | ----------------------------- | ----------------------------------------------- |
-| 新建学生                       | `enrolled`                    | `students.py:create_student`                    |
-| 转班                         | `class_moved`                 | `students.py:update_student` (含 class\_id 变更分支) |
-| 成绩更正                       | `result_changed`              | `students.py:update_result`                     |
-| 学生停用                       | `note_added` (note="账号停用")    | `students.py:delete_student` (软删分支)             |
-| 考试参加（种子数据）                 | `exam_taken`                  | `seed.py`（MVP 仅种子阶段生成）                          |
-| 薄弱项首次标记（种子）                | `weakness_flagged`            | `seed.py`（MVP 仅种子阶段生成）                          |
-| 教师记录家访/谈心/辅导/家长沟通/备注/自定义事件 | 对应 event\_type                | `students.py:create_event_record`               |
-| 家访 + 教师备注（种子）              | `home_visited` / `note_added` | `seed.py`                                       |
+| 触发动作                       | event type                        | 写入位置                                            |
+| -------------------------- | --------------------------------- | ----------------------------------------------- |
+| 新建学生                       | `enrolled`                        | `students.py:create_student`                    |
+| 转班                         | `class_moved`                     | `students.py:update_student`（关旧 enrollment 开新）  |
+| 成绩更正                       | `result_changed`                  | `students.py:update_result`（同时改写 score 事件 payload） |
+| 学生停用                       | `note_added` (notes="账号停用")       | `students.py:delete_student`（软删分支）              |
+| 新建考试（全科坐席）                 | `exam`（payload.full_scores）       | `exams.py:create_exam`                          |
+| 每生每科成绩                     | `score`（subject/max_score/score）  | `seed.py` 与 Alembic 0005 迁移生成；录入接口未开放，更正走 `PATCH /results/{id}` |
+| 教师记录家访/谈心/辅导/家长沟通/备注/自定义事件 | 对应 type                           | `students.py:create_event_record`               |
+| 家访 + 教师备注（种子）              | `home_visited` / `note_added`     | `seed.py`                                       |
 
 ### 7.3 消费方
 
-- **首页最新动态**：`/api/dashboard` → `StudentEvent` 全表最新 8 条
+- **首页最新动态**：`/api/dashboard` → `Event` 最新 8 条（排除 exam/score 行）
 
-- **首页待跟进**：`/api/dashboard` → `event_type == home_visited AND payload.follow_up_needed == true` 最新 5 条
+- **首页待跟进**：`/api/dashboard` → `type == home_visited AND payload.follow_up 非空` 最新 5 条
 
-- **学生详情时间线**：`/api/students/{id}/timeline` → 按时间倒序全部事件
+- **学生详情时间线**：`/api/students/{id}/timeline` → 按出席人倒序全部事件，
+  并按 `payload.birth_date` 投影下一条生日（不落库）
 
-- **学生详情事件列表**：`/api/students/{id}/events` → 仅人工事件（排除 SYSTEM\_EVENT\_TYPES）
+- **学生详情事件列表 / 全部跟进记录**：`/api/students/{id}/events`、`/api/records` → 仅人工事件（排除 SYSTEM\_EVENT\_TYPES）
 
-- **个人中心统计**：`/api/profile` → 按 `actor_teacher_id == me.id` 分别统计 `home_visited` / `note_added` / `entered_by` 成绩录入数
+- **成绩/考试视图**：`/api/exams/*` → `type="score"` 按 `payload->>'subject'`
+  聚合平均分；`/api/results/{id}` 直接改写 score 事件 payload 并追加
+  `result_changed`
+
+- **日历**：`/api/calendar` → 当月的考试坐席（type="exam"）+ 教师手写记录
+
+- **个人中心统计**：`/api/profile` → 按"出席人包含我"统计手写事件数 /
+  score 事件数（成绩录入）/ note\_added 数（actor 列已随旧表移除）
 
 ***
 
@@ -734,7 +757,7 @@ psycopg[binary] >= 3.2 # PostgreSQL 驱动（可选，SQLite 不需要）
 
 - **前端**：router.js `beforeEach` 守卫（见 5.2）
 
-- **后端**：普通业务路由统一 `Depends(get_current_teacher)`；管理员路由 `Depends(get_admin_teacher)`，即使绕过前端也会 403
+- **后端**：普通业务路由统一 `Depends(get_current_person)`；管理员路由 `Depends(require_admin)`，即使绕过前端也会 403
 
 ### 8.4 输入安全
 
@@ -770,7 +793,7 @@ psycopg[binary] >= 3.2 # PostgreSQL 驱动（可选，SQLite 不需要）
 cd backend
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
-./.venv/bin/python -m app.seed        # 首次或重置：删表→建表→灌演示数据
+./.venv/bin/python -m app.seed        # 首次：建表 + 灌演示数据（重置先删 SQLite 文件再跑）
 ./.venv/bin/uvicorn app.main:app --port 8001 --reload
 ```
 
@@ -815,7 +838,7 @@ docker compose logs -f backend              # 跟踪后端日志
 docker compose stop / start                 # 停止/重启（保留容器）
 docker compose down                         # 删容器（保留 pgdata 卷）
 docker compose down -v                      # 连数据卷一起删（彻底重置）
-docker compose exec backend python -m app.seed   # （重新）灌入演示数据
+docker compose exec backend python -m app.seed   # 灌入演示数据（非全新库会重复灌入，重置先 down -v 删卷）
 ```
 
 **首次使用**：compose up 后需手动执行一次 seed（容器不会自动灌数据，避免持久化数据库被误清）。
@@ -861,23 +884,28 @@ AND (Enrollment.valid_to IS NULL OR Enrollment.valid_to >= Exam.exam_date)
 
 **部分唯一索引**：`uq_one_current_enrollment` 在 DB 层保证每学生**最多一条在读**（`valid_to IS NULL`）记录。
 
-### 10.2 追加式时间线 StudentEvent
+### 10.2 追加式时间线 Event
 
 - 表只增不改，业务变更与事件写入同事务
 
-- `payload JSONB` 灵活携带展示数据；`ref_table/ref_id` 回指业务行
+- `payload JSONB` 灵活携带展示数据；出席人走 `person_events` 多对多
+  （`ref_table/ref_id`、`actor_teacher_id` 等旧列已随旧表移除）
 
-- 时间线、首页动态、待跟进列表直接查此表 → 零对账，零一致性问题
+- 时间线、日历、首页动态、待跟进列表直接查此表 → 零对账，零一致性问题
 
-### 10.3 成绩录入链路（科目级）
+### 10.3 成绩即事件（科目级）
 
 ```
-exam → exam_subject（科目 / 满分）
+exam 事件（payload.full_scores：科目 / 满分）
            ↓
-   exam_result（学生 × 科目：score / status / entered_by）
+score 事件（每生每科一行：payload {subject, max_score, score}；缺勤 {"absent": true}）
 ```
 
-自 2026-09 起已移除逐题作答链路（`KnowledgePoint` / `Question` / `QuestionResponse`）和薄弱项预聚合表（`StudentWeakness`），成绩直接按"学生 × 科目"粒度录入 `exam_result`。前端学生详情页不再展示"错题下钻"与"薄弱项"卡片；种子脚本 `seed.py` 直接按高斯分布生成科目级成绩与趋势。后续如需恢复逐题明细，可在此基础上重新挂接 Question/QuestionResponse 表，不必改动现有 exam_result。
+2026-09 事件 schema 重建后不再有 exam/exam\_subject/exam\_result 列式表，成绩
+直接以"学生 × 科目"粒度落在 `type="score"` 的 Event 行上，前端学生详情页
+不展示"错题下钻"与"薄弱项"卡片；种子脚本 `seed.py` 直接按高斯分布生成
+科目级成绩与趋势。成绩更正改写 score 事件 payload 并追加 `result_changed`
+事件。
 
 ### 10.4 双角色前端隔离
 
@@ -897,20 +925,20 @@ exam → exam_subject（科目 / 满分）
 
 | #  | 类别                    | 现状                                                                           | 建议                                                          |
 | -- | --------------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| 1  | **薄弱项实时聚合**           | 仅 seed 阶段推导一次；成绩更正 (`PATCH /results/{id}`) 后未重算                              | 在 `update_result` 中对受影响的 student\_id × question.kp\_id 重算聚合 |
+| 1  | **薄弱项实时聚合**           | 薄弱项维度已随事件 schema 整体移除（2026-09），成绩更正只改写 score 事件 payload   | 如需薄弱项，在 score 事件 payload 之上做查询层聚合                            |
 | 2  | **Session 过期**        | Token 永不过期                                                                   | 加 `expires_at` 列 + 刷新机制 / Access/Refresh Token 分离           |
 | 3  | **CORS 宽松**           | `allow_origins=["*"]`                                                        | 生产化时限定前端域名                                                  |
-| 4  | **无迁移工具**             | 改 models → 重跑 seed 清库                                                        | 引入 Alembic 做增量迁移                                            |
+| 4  | **迁移已引入 Alembic**      | 链 0001→0005；容器启动 `python -m app.bootstrap_db` 自动迁移 legacy 卷 / 建表 + stamp 全新卷 | 后续模型变更走 `alembic revision --autogenerate` 增量迁移               |
 | 5  | **无限流**               | 登录/接口无速率限制                                                                   | 加 slowapi / 自写依赖限 IP                                        |
 | 6  | **无服务端 CSRF**         | Bearer Token 隐式依赖                                                            | 生产部署启用 SameSite cookie 或显式 CSRF Token                       |
 | 7  | **前端 base 硬编码**       | `router.js base="/gao/"` + `vite.config.js base="/gao/"` 两处重复                | 统一为环境变量                                                     |
 | 8  | **teacher\_out 函数重复** | `auth.py` 与 `profile.py` 各自定义了相同的 `teacher_out(t)`                           | 抽到公共模块（如 `schemas.py`）                                      |
 | 9  | **ExamDetail 分页**     | 考试列表/平均分表格无分页（当前 2 场考试无影响）                                                   | 数据量增大后加 limit/offset 或游标分页                                  |
 | 10 | **搜索仅前端**             | `StudentsView` 搜索在 JS `filter()` 内存过滤                                        | 后端加 `?q=` 参数走 DB LIKE / ILIKE                               |
-| 11 | **HomeVisit 表定义残留**   | 2026-09 已清理 students.py 中所有读写；当前仅 models.py 保留 ORM 类（供 admin 探查 legacy 数据）   | 部署上线后 1\~2 个版本观察无回退，可在 Alembic 中 DROP TABLE 并移除 ORM 类       |
+| 11 | ~~**HomeVisit 表定义残留**~~ 已解决 | 2026-09 事件 schema 重建：旧表与旧 ORM（app/models.py）全部删除，数据由 Alembic 0005 迁入事件表 | —                                                            |
 | 12 | **管理员密码重置校验**         | admin.py 重置密码无最小长度校验                                                         | 加上 `min_length=6` 与前端对齐                                     |
 | 13 | **Docker 镜像版本 pin**   | `postgres:17`, `python:3.14-slim`, `node:22-alpine`, `nginx:alpine` 使用浮动 tag | 生产化建议 pin 到具体 digest 或精确 patch 版本                           |
 
 ***
 
-*本文档最后更新：2026-09-02（HomeVisit → StudentEvent 迁移完成：students.py 读写全部归并到 StudentEvent）。*
+*本文档最后更新：2026-09-04（事件中心 schema 重建完成：person.payload 角色档案 + Event 统一时间线 + Tag/Class/Enrollment；Alembic 0001→0005，旧 models.py/events.py 已删除）。*

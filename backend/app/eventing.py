@@ -1,7 +1,7 @@
 """Event creation helper: the single write path for the event table.
 
-Replaces app/events.py (which legacy routers still import until they
-migrate); payload validation funnels through app.payloads.
+The legacy app/events.py writer was deleted with the old schema; payload
+validation funnels through app.payloads.
 """
 from datetime import date, datetime
 

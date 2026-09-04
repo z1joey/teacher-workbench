@@ -30,5 +30,6 @@ def require_admin(person: Person = Depends(get_current_person)) -> Person:
     return person
 
 
-# legacy alias — removed when last router migrates
+# Load-bearing alias: app/main.py passes get_current_user into
+# include_router(dependencies=[...]) for every business router.
 get_current_user = get_current_person
