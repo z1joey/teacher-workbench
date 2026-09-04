@@ -1,6 +1,9 @@
 <script setup>
-import { ref, onMounted } from "vue"
+// 跟进记录：所有手动记录的事件按时间倒序排列，点学生名直达他的时间线。
+import { onMounted, ref } from "vue"
 import Icon from "../components/Icon.vue"
+import PageHeader from "../components/PageHeader.vue"
+import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
 import {
   dateLocale,
@@ -8,6 +11,7 @@ import {
   eventTypeColor,
   eventTypeIcon,
   eventTypeLabel,
+  friendlyError,
   t,
 } from "../strings"
 
@@ -15,48 +19,65 @@ const records = ref([])
 const error = ref("")
 const loading = ref(true)
 
-onMounted(async () => {
+async function load() {
+  loading.value = true
+  error.value = ""
   try {
     records.value = await api.get("/records")
   } catch (e) {
-    error.value = e.message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
-})
+}
+onMounted(load)
 
 function fmtDate(ts) {
   return new Date(ts).toLocaleDateString(dateLocale(), {
-    year: "numeric", month: "short", day: "numeric",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   })
 }
 </script>
 
 <template>
-  <p v-if="error" class="error-text">{{ error }}</p>
-  <p v-else-if="loading" class="empty">{{ t("common.loading") }}</p>
+  <PageHeader
+    :title="t('records.title')"
+    :subtitle="t('records.subtitle', { count: records.length })"
+  />
 
-  <template v-else>
-    <h1>{{ t("records.title") }}</h1>
-    <p class="page-sub">{{ t("records.subtitle", { count: records.length }) }}</p>
-
+  <AsyncState
+    :loading="loading"
+    :error="error"
+    :empty="!loading && !records.length"
+    :empty-title="t('records.emptyTitle')"
+    :empty-desc="t('records.emptyDesc')"
+    empty-icon="checklist"
+    :rows="5"
+    @retry="load"
+  >
     <div class="card">
-      <p v-if="!records.length" class="empty">{{ t("records.empty") }}</p>
-      <div v-for="r in records" :key="r.id" class="mini-event">
-        <span class="mini-icon" :style="{ background: eventTypeColor(r.event_type) }">
-          <Icon :name="eventTypeIcon(r.event_type)" :size="13" />
-        </span>
-        <div class="mini-body">
-          <div class="mini-head">
-            <span>
-              <router-link :to="`/students/${r.student_id}`">{{ r.student_name }}</router-link>
-              · {{ eventTypeLabel(r.event_type) }}<template v-if="r.actor"> · {{ r.actor }}</template>
+      <div class="card__body card__body--tight">
+        <div class="feed">
+          <div v-for="r in records" :key="r.id" class="feed__item">
+            <span class="feed__dot" :style="{ background: eventTypeColor(r.event_type) }">
+              <Icon :name="eventTypeIcon(r.event_type)" :size="13" />
             </span>
-            <time class="timeline-time">{{ fmtDate(r.occurred_at) }}</time>
+            <div class="feed__body">
+              <div class="feed__head">
+                <span>
+                  <router-link :to="`/students/${r.student_id}`">{{ r.student_name }}</router-link>
+                  · {{ eventTypeLabel(r.event_type) }}
+                  <template v-if="r.actor"> · {{ r.actor }}</template>
+                </span>
+                <time class="timeline__time">{{ fmtDate(r.occurred_at) }}</time>
+              </div>
+              <p class="feed__desc">{{ describeEvent(r.event_type, r.payload) }}</p>
+            </div>
           </div>
-          <p class="mini-desc">{{ describeEvent(r.event_type, r.payload) }}</p>
         </div>
       </div>
     </div>
-  </template>
+  </AsyncState>
 </template>

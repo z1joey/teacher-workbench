@@ -1,9 +1,16 @@
 <script setup>
-import { ref, computed, onMounted } from "vue"
+// 记录 / 编辑事件：类型用中文下拉而不是代码输入框，
+// 需要「事由」和「跟进」的类型会自动展开对应字段（防错 + 低记忆负担）。
+import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import api from "../api"
 import Icon from "../components/Icon.vue"
-import { eventTypeLabel, t } from "../strings"
+import PageHeader from "../components/PageHeader.vue"
+import AsyncState from "../components/AsyncState.vue"
+import FormField from "../components/FormField.vue"
+import { ask } from "../confirm"
+import { notify, runUndoable } from "../feedback"
+import { friendlyError, recordableEventOptions, t } from "../strings"
 
 const props = defineProps({
   studentId: { type: String, required: true },
@@ -13,6 +20,8 @@ const router = useRouter()
 
 const isCreate = computed(() => !props.eventId)
 
+const CUSTOM_VALUE = "__custom__"
+
 const student = ref(null)
 const event = ref(null)
 const customEventTypes = ref([])
@@ -21,18 +30,19 @@ const saving = ref(false)
 const error = ref("")
 const notFound = ref(false)
 
-const EVENT_TYPE_OPTIONS = [
-  { value: "home_visited", label: "家访" },
-  { value: "parent_call", label: "家长沟通" },
-  { value: "talk", label: "谈心" },
-  { value: "tutoring", label: "辅导" },
-  { value: "note_added", label: "随笔" },
-]
-
 const form = ref(emptyForm())
+const errors = ref({})
 
 function emptyForm() {
-  return { event_type: "home_visited", summary: "", purpose: "", follow_up_needed: false, follow_up_note: "", occurred_at: "" }
+  return {
+    event_type: "home_visited",
+    custom_type: "",
+    summary: "",
+    purpose: "",
+    follow_up_needed: false,
+    follow_up_note: "",
+    occurred_at: "",
+  }
 }
 
 onMounted(async () => {
@@ -41,7 +51,7 @@ onMounted(async () => {
   try {
     const tasks = [
       api.get(`/students/${props.studentId}`),
-      api.get(`/teachers/me/event-types`).catch(() => []),
+      api.get("/teachers/me/event-types").catch(() => []),
     ]
     if (!isCreate.value) {
       tasks.push(api.get(`/students/${props.studentId}/events/${props.eventId}`))
@@ -53,8 +63,11 @@ onMounted(async () => {
       const ev = res[2]
       event.value = ev
       const p = ev.payload || {}
+      const known = [...PRESET_VALUES, ...customEventTypes.value]
+      const isCustom = !known.includes(ev.event_type)
       form.value = {
-        event_type: ev.event_type,
+        event_type: isCustom ? CUSTOM_VALUE : ev.event_type,
+        custom_type: isCustom ? ev.event_type : "",
         summary: p.summary || "",
         purpose: p.purpose || "",
         follow_up_needed: !!p.follow_up_needed,
@@ -64,21 +77,28 @@ onMounted(async () => {
     }
   } catch (e) {
     if (/not found/i.test(e.message || "")) notFound.value = true
-    else error.value = e.message
+    else error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
 })
 
+const presets = recordableEventOptions()
+const PRESET_VALUES = presets.map((o) => o.value)
+
 const typeOptions = computed(() => {
-  const presets = EVENT_TYPE_OPTIONS
-  const seen = new Set(presets.map((o) => o.value))
   const extras = customEventTypes.value
-    .filter((t) => !seen.has(t))
-    .map((t) => ({ value: t, label: t }))
-  return [...presets, ...extras]
+    .filter((x) => !PRESET_VALUES.includes(x))
+    .map((x) => ({ value: x, label: x }))
+  return [...presets, ...extras, { value: CUSTOM_VALUE, label: "＋ 自定义类型…" }]
 })
 
+// 自定义类型时真正提交给后端的名字
+const resolvedType = computed(() =>
+  form.value.event_type === CUSTOM_VALUE ? form.value.custom_type.trim() : form.value.event_type
+)
+
+// 家访和家长沟通要说清「为什么」；家访常常需要后续跟进
 function typeNeedsPurpose(type) {
   return type === "home_visited" || type === "parent_call"
 }
@@ -86,16 +106,21 @@ function typeNeedsFollowUp(type) {
   return type === "home_visited"
 }
 
+function validate() {
+  const e = {}
+  if (!form.value.summary.trim()) e.summary = t("event.summaryRequired")
+  if (!resolvedType.value) e.event_type = "请填写事件类型"
+  errors.value = e
+  return !Object.keys(e).length
+}
+
 async function save() {
   error.value = ""
-  if (!form.value.summary.trim()) {
-    error.value = t("event.summaryRequired")
-    return
-  }
+  if (!validate()) return
   saving.value = true
   try {
     const payload = {
-      event_type: form.value.event_type,
+      event_type: resolvedType.value,
       summary: form.value.summary.trim(),
       purpose: form.value.purpose.trim() || null,
       follow_up_needed: form.value.follow_up_needed,
@@ -109,22 +134,36 @@ async function save() {
     } else {
       await api.patch(`/students/${props.studentId}/events/${props.eventId}`, payload)
     }
+    notify({ tone: "ok", title: isCreate.value ? "已记录" : t("common.saved"), timeout: 2400 })
     router.replace(`/students/${props.studentId}`)
   } catch (e) {
-    error.value = e.message
+    error.value = friendlyError(e)
   } finally {
     saving.value = false
   }
 }
 
 async function remove() {
-  if (!window.confirm(t("action.deleteConfirm"))) return
-  try {
-    await api.delete(`/students/${props.studentId}/events/${props.eventId}`)
-    router.replace(`/students/${props.studentId}`)
-  } catch (e) {
-    alert(`删除失败：${e.message}`)
-  }
+  const ok = await ask({
+    title: `删除这条${eventTypeLabelSafe()}记录？`,
+    consequences: [t("event.deleteConfirm")],
+    confirmLabel: t("action.delete"),
+  })
+  if (!ok) return
+
+  const name = student.value?.name || ""
+  runUndoable({
+    title: `已删除「${name}」的这条记录`,
+    run: () => api.delete(`/students/${props.studentId}/events/${props.eventId}`),
+    onDone: () => router.replace(`/students/${props.studentId}`),
+  })
+}
+
+function eventTypeLabelSafe() {
+  if (!form.value.event_type) return "事件"
+  const found = typeOptions.value.find((o) => o.value === form.value.event_type)
+  if (!found) return form.value.event_type
+  return found.value === CUSTOM_VALUE ? form.value.custom_type || "自定义事件" : found.label
 }
 
 function goBack() {
@@ -133,6 +172,7 @@ function goBack() {
 </script>
 
 <template>
+  <!-- 记录已被别人删掉：给一条明确的出路，而不是空白页 -->
   <div v-if="notFound" class="nf-wrap">
     <div class="nf-board">
       <Icon name="alert" :size="30" />
@@ -141,71 +181,102 @@ function goBack() {
     </div>
     <div class="nf-actions">
       <router-link :to="`/students/${props.studentId}`">
-        <button class="primary">{{ t("nf.backTimeline") }}</button>
+        <button class="btn btn--primary">{{ t("nf.backTimeline") }}</button>
       </router-link>
     </div>
   </div>
 
-  <p v-else-if="error" class="error-text">{{ error }}</p>
-  <p v-else-if="loading" class="empty">{{ t("common.loading") }}</p>
+  <template v-else>
+    <PageHeader
+      :title="isCreate ? t('event.record') : `编辑${eventTypeLabelSafe()}`"
+      :subtitle="student ? student.name : ''"
+    />
 
-  <template v-else-if="student">
-    <router-link :to="`/students/${props.studentId}`" class="back-link">
-      <Icon name="chevron-left" :size="14" /> 返回 {{ student.name }}
-    </router-link>
+    <AsyncState :loading="loading" :error="error" :rows="4" @retry="router.go(0)">
+      <div class="card" style="max-width: 620px">
+        <form class="card__body" @submit.prevent="save" novalidate>
+          <FormField :label="t('event.type')" :hint="t('event.typeHint')" :error="errors.event_type || ''">
+            <select
+              v-model="form.event_type"
+              class="select"
+              :aria-invalid="!!errors.event_type"
+            >
+              <option v-for="o in typeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+            </select>
+          </FormField>
 
-    <div class="card" style="margin-top: 12px">
-      <div style="display: flex; justify-content: space-between; align-items: center">
-        <h1 style="margin: 0">
-          {{ isCreate ? "记录事件" : eventTypeLabel(event.event_type) }}
-          <span class="page-sub" style="margin-left: 6px; font-weight: normal">· {{ student.name }}</span>
-        </h1>
-        <button v-if="!isCreate" class="small logout-btn" @click="remove">{{ t("action.delete") }}</button>
+          <FormField
+            v-if="form.event_type === '__custom__'"
+            label="自定义类型名称"
+            required
+            hint="比如「考前谈心」「作业抽查」，用过的会自动出现在上面的列表里"
+          >
+            <input v-model="form.custom_type" class="input" type="text" maxlength="20" />
+          </FormField>
+
+          <FormField
+            v-if="typeNeedsPurpose(form.event_type)"
+            :label="t('event.purpose')"
+            optional
+            :hint="t('event.purposeHint')"
+          >
+            <input v-model="form.purpose" class="input" type="text" />
+          </FormField>
+
+          <FormField :label="t('event.summary')" required :error="errors.summary || ''">
+            <textarea
+              v-model="form.summary"
+              class="textarea"
+              rows="4"
+              :aria-invalid="!!errors.summary"
+            />
+          </FormField>
+
+          <template v-if="typeNeedsFollowUp(form.event_type)">
+            <div class="field">
+              <label class="check">
+                <input v-model="form.follow_up_needed" type="checkbox" />
+                <span>{{ t("event.followUp") }}</span>
+              </label>
+              <span class="field__hint">{{ t("event.followUpHint") }}</span>
+            </div>
+            <FormField
+              v-if="form.follow_up_needed"
+              :label="t('event.followUpNote')"
+              optional
+            >
+              <input v-model="form.follow_up_note" class="input" type="text" />
+            </FormField>
+          </template>
+
+          <FormField :label="t('event.occurredAt')" optional :hint="t('event.occurredAtHint')">
+            <input v-model="form.occurred_at" class="input" type="datetime-local" />
+          </FormField>
+
+          <p v-if="error" class="field__error" style="margin-bottom: 12px">
+            <Icon name="alert-circle" :size="13" /> {{ error }}
+          </p>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn--primary" :disabled="saving">
+              <span v-if="saving" class="spinner" />
+              {{ saving ? t("event.saving") : t("event.save") }}
+            </button>
+            <button type="button" class="btn btn--ghost" @click="goBack">{{ t("action.cancel") }}</button>
+
+            <span class="form-actions__spacer" />
+            <button
+              v-if="!isCreate"
+              type="button"
+              class="btn btn--danger"
+              :disabled="saving"
+              @click="remove"
+            >
+              <Icon name="trash" :size="14" /> {{ t("action.delete") }}
+            </button>
+          </div>
+        </form>
       </div>
-
-      <div style="margin-top: 16px">
-        <div class="field">
-          <label>{{ t("event.type") }} *</label>
-          <input list="custom-event-types" v-model="form.event_type" class="datalist-input" />
-          <datalist id="custom-event-types">
-            <option v-for="o in typeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-          </datalist>
-          <span class="page-sub">可以从下拉选择，也可以直接输入自定义名称（如"考前谈心"、"作业抽查"）。</span>
-        </div>
-
-        <div v-if="typeNeedsPurpose(form.event_type)" class="field">
-          <label>{{ t("event.purpose") }}</label>
-          <input v-model="form.purpose" type="text" />
-        </div>
-
-        <div class="field">
-          <label>{{ t("event.summary") }} *</label>
-          <textarea v-model="form.summary" rows="4"></textarea>
-        </div>
-
-        <div v-if="typeNeedsFollowUp(form.event_type)" class="field checkbox-row">
-          <input id="fu" v-model="form.follow_up_needed" type="checkbox" />
-          <label for="fu">{{ t("event.followUp") }}</label>
-        </div>
-        <div v-if="typeNeedsFollowUp(form.event_type) && form.follow_up_needed" class="field">
-          <label>{{ t("event.followUpNote") }}</label>
-          <input v-model="form.follow_up_note" type="text" />
-        </div>
-
-        <div class="field">
-          <label>事件时间</label>
-          <input v-model="form.occurred_at" type="datetime-local" />
-          <span class="page-sub">留空则使用当前时间。</span>
-        </div>
-
-        <p v-if="error" class="error-text">{{ error }}</p>
-        <div style="display: flex; gap: 8px; margin-top: 8px">
-          <button class="primary" :disabled="saving" @click="save">
-            {{ saving ? t("event.saving") : t("event.save") }}
-          </button>
-          <button class="small" @click="goBack">{{ t("action.cancel") }}</button>
-        </div>
-      </div>
-    </div>
+    </AsyncState>
   </template>
 </template>

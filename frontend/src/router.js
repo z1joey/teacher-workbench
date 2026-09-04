@@ -24,31 +24,70 @@ const TEACHER_ROUTE_PREFIXES = [
 ]
 
 function isTeacherRoute(path) {
-  // Match / or anything starting with the listed prefixes. Exact `/` is
-  // special — it's always a teacher page.
   if (path === "/") return true
   return TEACHER_ROUTE_PREFIXES.slice(1).some((p) => path.startsWith(p))
 }
 
+// meta.title / meta.parent 驱动顶栏面包屑，保证每个页面位置可预期
 export const router = createRouter({
   history: createWebHistory("/gao/"),
   routes: [
-    { path: "/", component: HomeView },
-    { path: "/login", component: LoginView },
-    { path: "/profile", component: ProfileView },
-    { path: "/records", component: RecordsView },
-    { path: "/classes", component: ClassesView },
-    { path: "/classes/:id", component: ClassDetailView, props: true },
-    { path: "/students", component: StudentsView },
-    { path: "/students/new", component: StudentNewView },
-    { path: "/students/:id", component: StudentDetailView, props: true },
-    { path: "/students/:studentId/events/new", component: EventDetailView, props: (r) => ({ studentId: r.params.studentId, eventId: null }) },
-    { path: "/students/:studentId/events/:eventId", component: EventDetailView, props: (r) => ({ studentId: r.params.studentId, eventId: r.params.eventId }) },
-    { path: "/exams", component: ExamsView },
-    { path: "/exams/new", component: ExamNewView },
-    { path: "/exams/:id", component: ExamDetailView, props: true },
-    { path: "/admin", component: AdminView },
-    { path: "/:pathMatch(.*)*", component: NotFoundView },
+    { path: "/", name: "home", component: HomeView, meta: { title: "首页" } },
+    { path: "/login", name: "login", component: LoginView, meta: { title: "登录" } },
+    { path: "/profile", name: "profile", component: ProfileView, meta: { title: "个人中心" } },
+    { path: "/records", name: "records", component: RecordsView, meta: { title: "跟进记录" } },
+    { path: "/classes", name: "classes", component: ClassesView, meta: { title: "班级" } },
+    {
+      path: "/classes/:id",
+      name: "classDetail",
+      component: ClassDetailView,
+      props: true,
+      meta: { title: "班级详情", parent: { label: "班级", to: "/classes" } },
+    },
+    { path: "/students", name: "students", component: StudentsView, meta: { title: "学生" } },
+    {
+      path: "/students/new",
+      name: "studentNew",
+      component: StudentNewView,
+      meta: { title: "添加学生", parent: { label: "学生", to: "/students" } },
+    },
+    {
+      path: "/students/:id",
+      name: "studentDetail",
+      component: StudentDetailView,
+      props: true,
+      meta: { title: "学生档案", parent: { label: "学生", to: "/students" } },
+    },
+    {
+      path: "/students/:studentId/events/new",
+      name: "eventNew",
+      component: EventDetailView,
+      props: (r) => ({ studentId: r.params.studentId, eventId: null }),
+      meta: { title: "记录事件", parent: { label: "学生", to: "/students" } },
+    },
+    {
+      path: "/students/:studentId/events/:eventId",
+      name: "eventDetail",
+      component: EventDetailView,
+      props: (r) => ({ studentId: r.params.studentId, eventId: r.params.eventId }),
+      meta: { title: "编辑事件", parent: { label: "学生", to: "/students" } },
+    },
+    { path: "/exams", name: "exams", component: ExamsView, meta: { title: "考试" } },
+    {
+      path: "/exams/new",
+      name: "examNew",
+      component: ExamNewView,
+      meta: { title: "新建考试", parent: { label: "考试", to: "/exams" } },
+    },
+    {
+      path: "/exams/:id",
+      name: "examDetail",
+      component: ExamDetailView,
+      props: true,
+      meta: { title: "考试详情", parent: { label: "考试", to: "/exams" } },
+    },
+    { path: "/admin", name: "admin", component: AdminView, meta: { title: "开发者后台" } },
+    { path: "/:pathMatch(.*)*", name: "notFound", component: NotFoundView, meta: { title: "页面不存在" } },
   ],
 })
 

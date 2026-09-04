@@ -1,14 +1,88 @@
 <script setup>
-import { ref, computed, onMounted } from "vue"
+// 个人中心：资料、我的班级、教学足迹。退出登录需要确认，避免误触。
+import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
+import PageHeader from "../components/PageHeader.vue"
+import AsyncState from "../components/AsyncState.vue"
+import FormField from "../components/FormField.vue"
 import api, { setToken } from "../api"
 import { clearMe, me } from "../auth"
-import { genderLabel, subject, t } from "../strings"
+import { ask } from "../confirm"
+import { notify } from "../feedback"
+import { clearAll } from "../feedback"
+import { friendlyError, genderLabel, subject, t } from "../strings"
 
 const router = useRouter()
 
+const profile = ref(null)
+const error = ref("")
+const loading = ref(true)
+const editing = ref(false)
+const saving = ref(false)
+const editForm = ref({ name: "", email: "", subject: "" })
+const errors = ref({})
+
+async function load() {
+  loading.value = true
+  error.value = ""
+  try {
+    profile.value = await api.get("/profile")
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    loading.value = false
+  }
+}
+onMounted(load)
+
+function startEdit() {
+  const user = profile.value.user
+  editForm.value = { name: user.name || "", email: user.email || "", subject: user.subject || "" }
+  errors.value = {}
+  editing.value = true
+}
+function cancelEdit() {
+  editing.value = false
+  errors.value = {}
+}
+
+function validate() {
+  const e = {}
+  if (!editForm.value.name.trim()) e.name = t("login.name") + "不能为空"
+  errors.value = e
+  return !Object.keys(e).length
+}
+
+async function saveProfile() {
+  if (!validate()) return
+  saving.value = true
+  error.value = ""
+  try {
+    const updated = await api.patch("/profile", {
+      name: editForm.value.name.trim(),
+      email: editForm.value.email.trim() || null,
+      subject: editForm.value.subject.trim() || null,
+    })
+    profile.value.user = updated
+    if (me.value) me.value = { ...me.value, ...updated } // keep the sidebar name in sync
+    editing.value = false
+    notify({ tone: "ok", title: t("profile.saved"), timeout: 2400 })
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    saving.value = false
+  }
+}
+
 async function logout() {
+  const ok = await ask({
+    title: "退出登录？",
+    message: "退出后需要重新输入手机号和密码。",
+    confirmLabel: t("auth.logout"),
+    tone: "warn",
+  })
+  if (!ok) return
   try {
     await api.post("/auth/logout")
   } catch {
@@ -16,157 +90,129 @@ async function logout() {
   }
   setToken(null)
   clearMe()
+  clearAll()
   router.push("/login")
-}
-
-const profile = ref(null)
-const error = ref("")
-const editing = ref(false)
-const saving = ref(false)
-const saved = ref(false)
-const editForm = ref({ name: "", email: "", subject: "" })
-
-onMounted(load)
-
-async function load() {
-  error.value = ""
-  try {
-    profile.value = await api.get("/profile")
-  } catch (e) {
-    error.value = e.message
-  }
-}
-
-function startEdit() {
-  const user = profile.value.user
-  editForm.value = { name: user.name, email: user.email || "", subject: user.subject || "" }
-  saved.value = false
-  editing.value = true
-}
-
-async function saveProfile() {
-  saving.value = true
-  error.value = ""
-  try {
-    const updated = await api.patch("/profile", {
-      name: editForm.value.name,
-      email: editForm.value.email || null,
-      subject: editForm.value.subject || null,
-    })
-    profile.value.user = updated
-    if (me.value) me.value = { ...me.value, ...updated } // keep the nav name in sync
-    editing.value = false
-    saved.value = true
-    setTimeout(() => (saved.value = false), 2000)
-  } catch (e) {
-    error.value = e.message
-  } finally {
-    saving.value = false
-  }
-}
-
-function fmtDate(d) {
-  return d ? new Date(d).toLocaleDateString("zh-CN", { year: "numeric", month: "short", day: "numeric" }) : "—"
 }
 
 const activity = computed(() => {
   if (!profile.value) return []
   const s = profile.value.stats
   return [
-    { label: t("profile.recordsLogged"), value: s.interactions },
-    { label: t("profile.resultsEntered"), value: s.results_entered },
-    { label: t("profile.notesAdded"), value: s.notes_added },
+    { label: t("profile.recordsLogged"), value: s.interactions, icon: "checklist" },
+    { label: t("profile.resultsEntered"), value: s.results_entered, icon: "clipboard" },
+    { label: t("profile.notesAdded"), value: s.notes_added, icon: "note" },
   ]
 })
 </script>
 
 <template>
-  <p v-if="error" class="error-text">{{ error }}</p>
-  <p v-else-if="!profile" class="empty">{{ t("common.loading") }}</p>
+  <PageHeader :title="t('profile.title')" :subtitle="t('profile.subtitle')">
+    <template #actions>
+      <button class="btn btn--danger" @click="logout">
+        <Icon name="logout" :size="15" /> {{ t("auth.logout") }}
+      </button>
+    </template>
+  </PageHeader>
 
-  <template v-else>
-    <h1>{{ t("profile.title") }}</h1>
-    <p class="page-sub">{{ t("profile.subtitle") }}</p>
-
-    <div class="two-col">
+  <AsyncState :loading="loading" :error="error" :rows="4" @retry="load">
+    <div v-if="profile" class="split">
       <div>
-        <!-- teacher card -->
+        <!-- 资料 -->
         <div class="card">
-          <div class="profile-head">
-            <div class="avatar">{{ profile.user.name.charAt(0) }}</div>
-            <div style="flex: 1">
-              <h1 style="margin-bottom: 0">{{ profile.user.name }}</h1>
-              <div class="profile-meta">
-                <span class="badge">{{ t("profile.loginPhone") }}: {{ profile.user.phone }}</span>
-                <span v-if="profile.user.email">{{ t("profile.email") }}: {{ profile.user.email }}</span>
-                <span v-if="profile.user.subject">{{ t("profile.subject") }}: {{ subject(profile.user.subject) }}</span>
-              </div>
-            </div>
-            <button v-if="!editing" class="small" @click="startEdit">{{ t("profile.editInfo") }}</button>
+          <div class="card__head">
+            <h2 class="card__title"><Icon name="user" :size="16" /> 基本资料</h2>
+            <button v-if="!editing" class="btn btn--sm" @click="startEdit">
+              <Icon name="pencil" :size="13" /> {{ t("profile.editInfo") }}
+            </button>
           </div>
 
-          <form v-if="editing" style="margin-top: 14px" @submit.prevent="saveProfile">
-            <div class="field">
-              <label>{{ t("login.name") }} *</label>
-              <input v-model="editForm.name" type="text" required />
+          <div v-if="!editing" class="card__body">
+            <div class="row" style="gap: 14px; align-items: flex-start">
+              <span class="avatar avatar--lg">{{ profile.user.name.charAt(0) }}</span>
+              <div class="grow">
+                <p style="font-size: 17px; font-weight: 600">{{ profile.user.name }}</p>
+                <div class="row-wrap" style="margin-top: 6px">
+                  <span class="pill pill--outline">{{ t("profile.loginPhone") }}：{{ profile.user.phone }}</span>
+                  <span v-if="profile.user.email" class="pill pill--outline">
+                    {{ t("profile.email") }}：{{ profile.user.email }}
+                  </span>
+                  <span v-if="profile.user.subject" class="pill pill--outline">
+                    {{ t("profile.subject") }}：{{ subject(profile.user.subject) }}
+                  </span>
+                </div>
+              </div>
             </div>
-            <div class="field">
-              <label>{{ t("profile.email") }}</label>
-              <input v-model="editForm.email" type="email" />
+          </div>
+
+          <form v-else class="card__body" @submit.prevent="saveProfile">
+            <div class="form-grid">
+              <FormField :label="t('login.name')" required :error="errors.name || ''">
+                <input v-model="editForm.name" class="input" type="text" :aria-invalid="!!errors.name" />
+              </FormField>
+              <FormField :label="t('profile.email')" optional>
+                <input v-model="editForm.email" class="input" type="email" />
+              </FormField>
+              <FormField :label="t('profile.subject')" optional hint="填学科名，比如「数学」">
+                <input v-model="editForm.subject" class="input" type="text" />
+              </FormField>
             </div>
-            <div class="field">
-              <label>{{ t("profile.subject") }}</label>
-              <input v-model="editForm.subject" type="text" />
+            <div class="form-actions">
+              <button type="submit" class="btn btn--primary" :disabled="saving">
+                <span v-if="saving" class="spinner" />
+                {{ saving ? t("action.saving") : t("action.save") }}
+              </button>
+              <button type="button" class="btn btn--ghost" @click="cancelEdit">
+                {{ t("action.cancel") }}
+              </button>
             </div>
-            <button type="submit" class="primary small" :disabled="saving">
-              {{ saving ? t("new.saving") : t("action.save") }}
-            </button>
-            <button type="button" class="small" style="margin-left: 8px" @click="editing = false">
-              {{ t("action.cancel") }}
-            </button>
           </form>
-          <p v-if="saved" class="error-text" style="color: var(--ok); display: inline-flex; align-items: center; gap: 4px">
-            <Icon name="check" :size="13" /> {{ t("profile.saved") }}
-          </p>
         </div>
 
-        <!-- classes -->
+        <!-- 我的班级 -->
         <div class="card">
-          <h2>{{ t("profile.myClasses") }}</h2>
-          <p v-if="!profile.classes.length" class="empty">{{ t("profile.noClasses") }}</p>
-          <div v-for="c in profile.classes" :key="c.id" style="margin-bottom: 16px">
-            <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px">
-              <span class="badge">{{ c.name }}</span>
-              <span class="weakness-sub">{{ c.academic_year }} · {{ t("profile.studentsCount", { n: c.students.length }) }}</span>
-            </div>
-            <div class="student-chips">
-              <router-link
-                v-for="s in c.students"
-                :key="s.id"
-                :to="`/students/${s.id}`"
-                class="student-chip"
-              >
-                {{ s.name }} <span class="weakness-sub">{{ genderLabel(s.gender) }}</span>
-              </router-link>
+          <div class="card__head">
+            <h2 class="card__title"><Icon name="building" :size="16" /> {{ t("profile.myClasses") }}</h2>
+            <span class="pill pill--muted pill--count">{{ profile.classes.length }}</span>
+          </div>
+          <div class="card__body">
+            <p v-if="!profile.classes.length" class="state__desc" style="text-align: center; padding: 12px 0">
+              {{ t("profile.noClasses") }}
+            </p>
+            <div v-for="c in profile.classes" :key="c.id" class="stack" style="gap: 8px; margin-bottom: 20px">
+              <div class="row-wrap">
+                <router-link :to="`/classes/${c.id}`" class="pill">{{ c.name }}</router-link>
+                <span class="stat__sub">
+                  {{ c.academic_year }} · {{ t("profile.studentsCount", { n: c.students.length }) }}
+                </span>
+              </div>
+              <div class="chips">
+                <router-link
+                  v-for="s in c.students"
+                  :key="s.id"
+                  :to="`/students/${s.id}`"
+                  class="chip"
+                >
+                  {{ s.name }}
+                  <span class="muted" style="font-size: 12px">{{ genderLabel(s.gender) }}</span>
+                </router-link>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div>
-        <!-- activity -->
-        <div class="card">
-          <h2>{{ t("profile.activity") }}</h2>
-          <div class="stat" style="box-shadow: none; border: none; padding: 6px 0" v-for="a in activity" :key="a.label">
-            <div class="stat-label">{{ a.label }}</div>
-            <div class="stat-value">{{ a.value }}</div>
-          </div>
+      <!-- 教学足迹 -->
+      <div class="card">
+        <div class="card__head">
+          <h2 class="card__title"><Icon name="chart" :size="16" /> {{ t("profile.activity") }}</h2>
         </div>
-
-        <div style="text-align: center">
-          <button class="logout-btn" @click="logout">{{ t("auth.logout") }}</button>
+        <div class="card__body">
+          <div v-for="a in activity" :key="a.label" class="stat stat--plain">
+            <div class="stat__label">{{ a.label }}</div>
+            <div class="stat__value tnum">{{ a.value }}</div>
+          </div>
         </div>
       </div>
     </div>
-  </template>
+  </AsyncState>
 </template>
