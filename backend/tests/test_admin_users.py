@@ -6,11 +6,12 @@ full-app fixture while routers are mid-migration)."""
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
-from app.models import AuthSession, Class, Enrollment, Person
+from app.eventing import create_event
+from app.models import AuthSession, Class, Enrollment, Event, Person
 from app.payloads import validate_person_payload
 from app.routers import admin, auth
 from app.security import hash_password
@@ -141,6 +142,39 @@ def test_delete_referenced_user_409_and_clean_user_ok(client, db):
     db.expire_all()
     assert db.get(Person, uuid.UUID(ids["teacher2"])) is None
     assert db.get(AuthSession, TEACHER2_TOKEN) is None
+
+
+def test_patch_student_rejected_and_payload_untouched(client, db):
+    """A role change rebuilds the payload from {name, is_active} only — it
+    must never touch a student profile (admission_no/birth_date/guardian)."""
+    tc, ids = client
+    r = tc.patch(f"/api/admin/users/{ids['student']}", json={"role": "teacher"})
+    assert r.status_code == 400
+    assert r.json()["detail"] == "学生账号不支持此操作"
+    db.expire_all()
+    row = db.get(Person, uuid.UUID(ids["student"]))
+    assert row.payload["role"] == "student"
+    assert row.payload["name"] == "林小明"
+    assert row.payload["admission_no"] == "S1"  # not wiped
+
+
+def test_delete_event_attending_student_rejected(client, db):
+    """Hard-deleting an event-attending student would orphan their event rows
+    (no enrollment → the 409 evidence guard wouldn't have caught it)."""
+    tc, _ = client
+    s2 = seed_person(db, None, role="student", name="王小一", admission_no="S99")
+    db.flush()
+    create_event(db, event_type="note_added", title="随笔",
+                 start_time=datetime(2026, 5, 1, 10, 0),
+                 payload={"notes": "课堂表现活跃"}, attendee_ids=[s2.id])
+    db.commit()
+
+    r = tc.delete(f"/api/admin/users/{s2.id}")
+    assert r.status_code == 400
+    assert r.json()["detail"] == "学生账号不支持此操作"
+    db.expire_all()
+    assert db.get(Person, s2.id) is not None
+    assert db.query(Event).join(Event.attendees).filter(Person.id == s2.id).count() == 1
 
 
 def test_stats_keys(client, db):

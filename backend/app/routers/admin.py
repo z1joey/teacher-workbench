@@ -87,6 +87,12 @@ def update_user(
     u = db.get(Person, user_id)
     if u is None:
         raise HTTPException(status_code=404, detail="账号不存在")
+    # A role change rebuilds the payload from {name, is_active} only, which
+    # would wipe a student's admission_no/birth_date/guardian fields — and
+    # hard-deleting a student orphans their attended event rows. Student
+    # profiles are managed on /students instead.
+    if (u.payload or {}).get("role") == "student":
+        raise HTTPException(status_code=400, detail="学生账号不支持此操作")
     # Don't allow an admin to lock themselves out — demoting their role or
     # deactivating their account both make every subsequent request 401/403
     # with no in-app recovery.
@@ -128,6 +134,10 @@ def delete_user(
     u = db.get(Person, user_id)
     if u is None:
         raise HTTPException(status_code=404, detail="账号不存在")
+    # Hard-deleting a student would orphan the event rows they attended.
+    # Students are removed via /students/{id} (soft delete keeps the timeline).
+    if (u.payload or {}).get("role") == "student":
+        raise HTTPException(status_code=400, detail="学生账号不支持此操作")
     # Evidence FKs (class.homeroom_person_id, enrollment.person_id) have no
     # cascades — only hard-delete unreferenced accounts; referenced ones hit
     # the 409 guard below.
