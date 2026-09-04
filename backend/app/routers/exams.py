@@ -1,4 +1,30 @@
-from datetime import date
+"""Exams: a sitting is one Event(type="exam") row, scores are score Events.
+
+The sitting Event is titled with the exam name and dated the exam day
+(start_time 09:00); an optional class_id scopes its attendees to that class's
+enrolled students (otherwise the whole active student body attends). There are
+no ExamSubject rows: the per-subject full_score config posted to POST/PATCH
+/exams lives in the sitting Event's description as a JSON array
+[{"id","subject","full_score"}] — that is where the score-entry flow reads
+each subject's max_score from before writing per-student score Events.
+
+Score rows follow the students-router convention: one Event(type="score") per
+student per subject, title "<exam name>·<subject>", start_time on the exam
+day, payload {subject, max_score, score|absent}. With no parent link, a
+sitting's scores are matched by title prefix ("{exam.title}·") AND the
+sitting's date window (see sitting_score_conds) — the same rule students.py
+uses to resolve exam_id. Averages aggregate payload["score"] over entered
+rows only (absent=true excluded, score present).
+
+These helpers (sitting_score_conds / subject_averages / find_exam_event) are
+the shared sitting/averages vocabulary — classes.py imports them from here
+rather than duplicating the aggregation.
+"""
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -6,17 +32,166 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_user
-from ..models import (
-    Class,
-    Enrollment,
-    Exam,
-    ExamResult,
-    ExamSubject,
-    User,
+from ..deps import get_current_person
+from ..eventing import create_event
+from ..models import Class, Enrollment, Event, Person, person_events
+
+router = APIRouter(
+    tags=["exams"],
+    dependencies=[Depends(get_current_person)],  # router-level auth (include pattern)
 )
 
-router = APIRouter(tags=["exams"])
+EXAM_HOUR = time(9, 0)  # sitting Events are dated the exam day at 09:00
+
+
+def day_window(day: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(day, time.min)
+    return start, start + timedelta(days=1)
+
+
+def sitting_score_conds(title_prefix: str, day: date) -> list:
+    """Score Events of one sitting: title "<prefix>·<subject>", exam day,
+    entered only — absent=true excluded (validated payloads always carry
+    absent:false explicitly, so NULL never occurs) and score present."""
+    lo, hi = day_window(day)
+    return [
+        Event.type == "score",
+        Event.title.startswith(f"{title_prefix}·", autoescape=True),
+        Event.start_time >= lo,
+        Event.start_time < hi,
+        Event.payload["absent"].as_boolean().is_not(True),
+        Event.payload["score"].is_not(None),
+    ]
+
+
+def any_sitting_score_conds(title_prefix: str, day: date) -> list:
+    """Score Events of a sitting regardless of entered state (the
+    structure-frozen check in PATCH /exams mirrors the old any-ExamResult rule)."""
+    lo, hi = day_window(day)
+    return [
+        Event.type == "score",
+        Event.title.startswith(f"{title_prefix}·", autoescape=True),
+        Event.start_time >= lo,
+        Event.start_time < hi,
+    ]
+
+
+def subject_averages(db: Session, title_prefix: str, day: date,
+                     person_ids: list[uuid.UUID] | None = None) -> dict[str, dict]:
+    """Per-subject aggregate over one sitting's entered score Events:
+    {subject: {avg, min, max, count, full}} — full is the max payload
+    max_score (the old ExamSubject.full_score now lives on every score row).
+    person_ids restricts the aggregate to those students (class attribution)."""
+    subject = Event.payload["subject"].as_string()
+    q = (
+        db.query(
+            subject,
+            func.avg(Event.payload["score"].as_numeric(10, 2)),
+            func.min(Event.payload["score"].as_numeric(10, 2)),
+            func.max(Event.payload["score"].as_numeric(10, 2)),
+            func.count(Event.id),
+            func.max(Event.payload["max_score"].as_numeric(10, 2)),
+        )
+        .select_from(Event)
+        .join(person_events, person_events.c.event_id == Event.id)
+    )
+    if person_ids is not None:
+        q = q.filter(person_events.c.person_id.in_(person_ids))
+    rows = q.filter(*sitting_score_conds(title_prefix, day)).group_by(subject).all()
+    return {
+        s: {"avg": avg, "min": min_, "max": max_, "count": count, "full": full}
+        for s, avg, min_, max_, count, full in rows
+    }
+
+
+def find_exam_event(db: Session, name: str, day: date) -> Event | None:
+    """The sitting Event of a name + date (students.py resolves score rows'
+    exam_id with the same title + date-window match)."""
+    lo, hi = day_window(day)
+    return (
+        db.query(Event)
+        .filter(
+            Event.type == "exam",
+            Event.title == name,
+            Event.start_time >= lo,
+            Event.start_time < hi,
+        )
+        .first()
+    )
+
+
+def exam_events(db: Session) -> list[Event]:
+    """All sittings, chronological (start_time, then creation order — the old
+    auto-increment id tiebreak)."""
+    return (
+        db.query(Event)
+        .filter(Event.type == "exam")
+        .order_by(Event.start_time, Event.created_at)
+        .all()
+    )
+
+
+def subjects_config(exam: Event) -> list[dict]:
+    """The per-subject full_score config stored in the sitting's description
+    ([{"id","subject","full_score"}]); only well-formed entries survive —
+    a corrupt/partial config reads as [] rather than 500ing the list views."""
+    try:
+        config = json.loads(exam.description or "")
+    except ValueError:
+        return []
+    if not isinstance(config, list):
+        return []
+    return [
+        c for c in config
+        if isinstance(c, dict) and {"id", "subject", "full_score"} <= set(c)
+    ]
+
+
+def store_subjects_config(exam: Event, subjects: list["SubjectIn"]) -> None:
+    exam.description = json.dumps(
+        [
+            {"id": str(uuid.uuid4()), "subject": s.subject.strip(),
+             "full_score": s.full_score}
+            for s in subjects
+        ],
+        ensure_ascii=False,
+    )
+
+
+def exam_out(exam: Event) -> dict:
+    return {
+        "id": str(exam.id),
+        "name": exam.title,
+        "exam_date": exam.start_time.date().isoformat(),
+        "subjects": sorted(
+            (
+                {"id": c["id"], "subject": c["subject"], "full_score": c["full_score"]}
+                for c in subjects_config(exam)
+            ),
+            key=lambda s: s["subject"],
+        ),
+    }
+
+
+def _attendee_ids(db: Session, class_id: uuid.UUID | None) -> list[uuid.UUID]:
+    if class_id is not None:
+        return [
+            row[0]
+            for row in db.query(Enrollment.person_id)
+            .filter(Enrollment.class_id == class_id, Enrollment.valid_to.is_(None))
+            .all()
+        ]
+    # school-wide sitting: the active student body attends
+    active = or_(
+        Person.payload["is_active"].as_boolean().is_(None),
+        Person.payload["is_active"].as_boolean().is_not(False),
+    )
+    return [
+        row[0]
+        for row in db.query(Person.id)
+        .filter(Person.payload["role"].as_string() == "student", active)
+        .all()
+    ]
 
 
 class SubjectIn(BaseModel):
@@ -28,101 +203,62 @@ class ExamIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     exam_date: date
     subjects: list[SubjectIn] = Field(min_length=1)
+    class_id: uuid.UUID | None = None  # scope attendees to one class
+    term: str | None = None
 
 
 @router.post("/exams", status_code=201)
 def create_exam(
     body: ExamIn,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: Person = Depends(get_current_person),
 ):
     name = body.name.strip()
-    if db.query(Exam).filter(Exam.name == name, Exam.exam_date == body.exam_date).first() is not None:
+    if find_exam_event(db, name, body.exam_date) is not None:
         raise HTTPException(status_code=409, detail="该日期已存在同名考试")
-    exam = Exam(name=name, exam_date=body.exam_date)
-    db.add(exam)
-    db.flush()
-    for s in body.subjects:
-        db.add(ExamSubject(exam_id=exam.id, subject=s.subject.strip(), full_score=s.full_score))
+    if body.class_id is not None and db.get(Class, body.class_id) is None:
+        raise HTTPException(status_code=400, detail="class not found")
+    exam = create_event(
+        db,
+        event_type="exam",
+        title=name,
+        start_time=datetime.combine(body.exam_date, EXAM_HOUR),
+        payload={"term": body.term},  # registry keeps {"term"?}; the rest is free
+        attendee_ids=_attendee_ids(db, body.class_id),
+    )
+    store_subjects_config(exam, body.subjects)  # full_score config: see module doc
     db.commit()
-    return {"id": exam.id, "name": exam.name, "exam_date": exam.exam_date.isoformat()}
-
-
-def _exam_out(e: Exam, subjects: list[ExamSubject] | None = None) -> dict:
-    if subjects is None:
-        subjects = (
-            db_read.query(ExamSubject)
-            .filter(ExamSubject.exam_id == e.id)
-            .order_by(ExamSubject.subject)
-            .all()
-        )
-    return {
-        "id": e.id,
-        "name": e.name,
-        "exam_date": e.exam_date.isoformat(),
-        "subjects": [
-            {"id": s.id, "subject": s.subject, "full_score": s.full_score}
-            for s in subjects
-        ],
-    }
-
-
-# NOTE: _exam_out uses a helper that needs a Session; keep them inline.
+    return {"id": str(exam.id), "name": exam.title,
+            "exam_date": exam.start_time.date().isoformat()}
 
 
 @router.get("/exams")
 def list_exams(db: Session = Depends(get_db)):
-    exams = db.query(Exam).order_by(Exam.exam_date.desc()).all()
-    out = []
-    for e in exams:
-        subjects = (
-            db.query(ExamSubject)
-            .filter(ExamSubject.exam_id == e.id)
-            .order_by(ExamSubject.subject)
-            .all()
-        )
-        out.append(
-            {
-                "id": e.id,
-                "name": e.name,
-                "exam_date": e.exam_date.isoformat(),
-                "subjects": [
-                    {"id": s.id, "subject": s.subject, "full_score": s.full_score}
-                    for s in subjects
-                ],
-            }
-        )
-    return out
+    exams = exam_events(db)
+    exams.reverse()  # old listing was exam_date desc
+    return [exam_out(e) for e in exams]
 
 
 @router.get("/exams/trend")
-def exams_trend(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    exams = db.query(Exam).order_by(Exam.exam_date, Exam.id).all()
+def exams_trend(db: Session = Depends(get_db), user: Person = Depends(get_current_person)):
+    """School-wide per-subject averages across sittings (entered scores only)."""
+    exams = exam_events(db)
     index_of = {e.id: i for i, e in enumerate(exams)}
-    rows = (
-        db.query(
-            ExamSubject.exam_id,
-            ExamSubject.subject,
-            ExamSubject.full_score,
-            func.avg(ExamResult.score),
-        )
-        .join(ExamResult, ExamResult.exam_subject_id == ExamSubject.id)
-        .filter(ExamResult.status == "entered")
-        .group_by(ExamSubject.exam_id, ExamSubject.subject, ExamSubject.full_score)
-        .all()
-    )
     per_subject: dict[str, dict] = {}
-    for exam_id, subject, full_score, avg in rows:
-        rec = per_subject.setdefault(subject, {"full_score": 0.0, "values": [None] * len(exams)})
-        rec["full_score"] = max(rec["full_score"], full_score or 0)
-        if exam_id in index_of and avg is not None:
-            rec["values"][index_of[exam_id]] = round(float(avg), 1)
+    for e in exams:
+        for subject, agg in subject_averages(db, e.title, e.start_time.date()).items():
+            rec = per_subject.setdefault(
+                subject, {"full_score": 0.0, "values": [None] * len(exams)}
+            )
+            rec["full_score"] = max(rec["full_score"], float(agg["full"] or 0))
+            if e.id in index_of and agg["avg"] is not None:
+                rec["values"][index_of[e.id]] = round(float(agg["avg"]), 1)
     return {
         "exams": [
             {
-                "id": e.id,
-                "name": e.name,
-                "exam_date": e.exam_date.isoformat(),
+                "id": str(e.id),
+                "name": e.title,
+                "exam_date": e.start_time.date().isoformat(),
             }
             for e in exams
         ],
@@ -134,94 +270,72 @@ def exams_trend(db: Session = Depends(get_db), user: User = Depends(get_current_
 
 
 @router.get("/exams/{exam_id}")
-def get_exam(exam_id: int, db: Session = Depends(get_db)):
-    e = db.get(Exam, exam_id)
-    if e is None:
+def get_exam(exam_id: uuid.UUID, db: Session = Depends(get_db)):
+    e = db.get(Event, exam_id)
+    if e is None or e.type != "exam":
         raise HTTPException(status_code=404, detail="exam not found")
-    subjects = (
-        db.query(ExamSubject)
-        .filter(ExamSubject.exam_id == e.id)
-        .order_by(ExamSubject.subject)
-        .all()
-    )
-    return {
-        "id": e.id,
-        "name": e.name,
-        "exam_date": e.exam_date.isoformat(),
-        "subjects": [
-            {"id": s.id, "subject": s.subject, "full_score": s.full_score} for s in subjects
-        ],
-    }
+    return exam_out(e)
 
 
 @router.get("/exams/{exam_id}/averages")
-def exam_averages(exam_id: int, db: Session = Depends(get_db)):
-    exam = db.get(Exam, exam_id)
-    if exam is None:
+def exam_averages(exam_id: uuid.UUID, db: Session = Depends(get_db)):
+    exam = db.get(Event, exam_id)
+    if exam is None or exam.type != "exam":
         raise HTTPException(status_code=404, detail="exam not found")
+    day = exam.start_time.date()
 
-    school_rows = (
-        db.query(
-            ExamSubject.subject,
-            ExamSubject.full_score,
-            func.avg(ExamResult.score),
-            func.min(ExamResult.score),
-            func.max(ExamResult.score),
-            func.count(ExamResult.id),
+    school = [
+        {
+            "subject": subject,
+            "full_score": float(agg["full"]) if agg["full"] is not None else None,
+            "avg": round(float(agg["avg"]), 1) if agg["avg"] is not None else None,
+            "min": round(float(agg["min"]), 1) if agg["min"] is not None else None,
+            "max": round(float(agg["max"]), 1) if agg["max"] is not None else None,
+            "count": agg["count"],
+        }
+        for subject, agg in sorted(
+            subject_averages(db, exam.title, day).items()
         )
-        .join(ExamResult, ExamResult.exam_subject_id == ExamSubject.id)
-        .filter(ExamSubject.exam_id == exam_id, ExamResult.status == "entered")
-        .group_by(ExamSubject.id)
-        .order_by(ExamSubject.subject)
-        .all()
-    )
+    ]
 
+    # per-class averages attribute each score to the class roster valid at the
+    # exam date (the old enrollment-valid-at-exam_date rule)
     class_rows = (
         db.query(
             Class.id,
             Class.name,
-            ExamSubject.subject,
-            func.avg(ExamResult.score),
-            func.count(ExamResult.id),
+            Event.payload["subject"].as_string(),
+            func.avg(Event.payload["score"].as_numeric(10, 2)),
+            func.count(Event.id),
         )
-        .select_from(ExamResult)
-        .join(ExamSubject, ExamSubject.id == ExamResult.exam_subject_id)
-        .join(Exam, Exam.id == ExamSubject.exam_id)
+        .select_from(Event)
+        .join(person_events, person_events.c.event_id == Event.id)
+        .join(Person, Person.id == person_events.c.person_id)
         .join(
             Enrollment,
             and_(
-                Enrollment.student_id == ExamResult.student_id,
-                Enrollment.valid_from <= Exam.exam_date,
-                or_(Enrollment.valid_to.is_(None), Enrollment.valid_to >= Exam.exam_date),
+                Enrollment.person_id == Person.id,
+                Enrollment.valid_from <= day,
+                or_(Enrollment.valid_to.is_(None), Enrollment.valid_to >= day),
             ),
         )
         .join(Class, Class.id == Enrollment.class_id)
-        .filter(ExamSubject.exam_id == exam_id, ExamResult.status == "entered")
-        .group_by(Class.id, Class.name, ExamSubject.subject)
-        .order_by(Class.name, ExamSubject.subject)
+        .filter(*sitting_score_conds(exam.title, day))
+        .group_by(Class.id, Class.name, Event.payload["subject"].as_string())
+        .order_by(Class.name, Event.payload["subject"].as_string())
         .all()
     )
 
     return {
         "exam": {
-            "id": exam.id,
-            "name": exam.name,
-            "exam_date": exam.exam_date.isoformat(),
+            "id": str(exam.id),
+            "name": exam.title,
+            "exam_date": day.isoformat(),
         },
-        "school": [
-            {
-                "subject": subject,
-                "full_score": full,
-                "avg": round(float(avg), 1) if avg is not None else None,
-                "min": round(float(min_), 1) if min_ is not None else None,
-                "max": round(float(max_), 1) if max_ is not None else None,
-                "count": count,
-            }
-            for subject, full, avg, min_, max_, count in school_rows
-        ],
+        "school": school,
         "classes": [
             {
-                "class_id": class_id,
+                "class_id": str(class_id),
                 "class_name": class_name,
                 "subject": subject,
                 "avg": round(float(avg), 1) if avg is not None else None,
@@ -240,70 +354,59 @@ class ExamUpdateIn(BaseModel):
 
 @router.patch("/exams/{exam_id}")
 def update_exam(
-    exam_id: int,
+    exam_id: uuid.UUID,
     body: ExamUpdateIn,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: Person = Depends(get_current_person),
 ):
-    e = db.get(Exam, exam_id)
-    if e is None:
+    e = db.get(Event, exam_id)
+    if e is None or e.type != "exam":
         raise HTTPException(status_code=404, detail="exam not found")
 
-    if body.name is not None:
-        e.name = body.name.strip()
-    if body.exam_date is not None:
-        e.exam_date = body.exam_date
-
+    old_name, old_day = e.title, e.start_time.date()
     if body.subjects is not None:
-        has_results = (
-            db.query(ExamResult)
-            .join(ExamSubject, ExamSubject.id == ExamResult.exam_subject_id)
-            .filter(ExamSubject.exam_id == exam_id)
+        if (
+            db.query(Event.id)
+            .filter(*any_sitting_score_conds(old_name, old_day))
             .first()
             is not None
-        )
-        if has_results:
+        ):
             raise HTTPException(status_code=400, detail="考试已有成绩录入，无法修改科目结构")
-        db.query(ExamSubject).filter(ExamSubject.exam_id == exam_id).delete()
-        for s in body.subjects:
-            db.add(ExamSubject(exam_id=exam_id, subject=s.subject.strip(), full_score=s.full_score))
+        store_subjects_config(e, body.subjects)
+
+    if body.name is not None:
+        e.title = body.name.strip()
+    if body.exam_date is not None:
+        e.start_time = datetime.combine(body.exam_date, e.start_time.time())
+
+    # renaming / re-dating the sitting must not orphan its scores: the results
+    # follow the exam (the old FK behavior — results stayed attached)
+    if e.title != old_name or e.start_time.date() != old_day:
+        shift = (e.start_time.date() - old_day).days
+        for score in (
+            db.query(Event).filter(*any_sitting_score_conds(old_name, old_day)).all()
+        ):
+            subject = score.title.rsplit("·", 1)[-1]
+            score.title = f"{e.title}·{subject}"
+            score.start_time = score.start_time + timedelta(days=shift)
 
     db.commit()
-
-    subjects = (
-        db.query(ExamSubject)
-        .filter(ExamSubject.exam_id == exam_id)
-        .order_by(ExamSubject.subject)
-        .all()
-    )
-    return {
-        "id": e.id,
-        "name": e.name,
-        "exam_date": e.exam_date.isoformat(),
-        "subjects": [
-            {"id": s.id, "subject": s.subject, "full_score": s.full_score} for s in subjects
-        ],
-    }
+    db.refresh(e)
+    return exam_out(e)
 
 
 @router.delete("/exams/{exam_id}")
 def delete_exam(
-    exam_id: int,
+    exam_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: Person = Depends(get_current_person),
 ):
-    e = db.get(Exam, exam_id)
-    if e is None:
+    """Deletes the sitting Event only. Score events are individual rows with
+    no parent link, so they deliberately survive the delete (the old cascade
+    over exam_subject/exam_result has no equivalent to walk)."""
+    e = db.get(Event, exam_id)
+    if e is None or e.type != "exam":
         raise HTTPException(status_code=404, detail="exam not found")
-    subject_ids = [
-        row[0]
-        for row in db.query(ExamSubject.id).filter(ExamSubject.exam_id == exam_id).all()
-    ]
-    if subject_ids:
-        # KnowledgePoint, Question, QuestionResponse tables removed; only
-        # subject-level ExamResult rows need cascade cleanup.
-        db.query(ExamResult).filter(ExamResult.exam_subject_id.in_(subject_ids)).delete(synchronize_session=False)
-        db.query(ExamSubject).filter(ExamSubject.id.in_(subject_ids)).delete(synchronize_session=False)
     db.delete(e)
     db.commit()
     return {"ok": True}
