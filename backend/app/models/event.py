@@ -1,20 +1,52 @@
-from .associations import Base, student_event
-from sqlalchemy import Column, String, DateTime
-from datetime import datetime
-from sqlalchemy.orm import relationship, mapped_column, Mapped
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+"""Event: the unified timeline spine — "everything is an event".
+
+A calendar-style row: title, description, start/end, location, attendees —
+plus `type`, which says what the payload means (payload is meaningless
+without it). Every event is individual; events never reference each other.
+
+Exam scores are per-student score events: one row per student per subject
+with {"subject", "score", "max_score"} in the payload. Grouping scores (by
+exam sitting or otherwise) is a query-layer concern over payload + time.
+
+Student-scoped events (birthday, home visit, score) list exactly one
+attendee; class-scoped events (exam, parent meeting) list the class's
+students (or whoever attends).
+"""
+from __future__ import annotations
+
 import uuid
+from datetime import datetime
+
+from sqlalchemy import CheckConstraint, DateTime, Index, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from ._common import Base, JSONType, utcnow
+
+EVENT_TYPES = ("birthday", "exam", "home_visit", "parent_meeting", "score")
+
 
 class Event(Base):
-    __tablename__ = "events"
-    event_id = Column(String, primary_key=True, default=uuid.uuid4)
-    name = Column(String, nullable=False)
-    type = Column(String, nullable=False)
-    start_time = Column(DateTime, nullable=False)
-    end_time = Column(DateTime, nullable=False)
-    location = Column(String, nullable=False)
-    description = Column(String, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.now)
-    updated_at = Column(DateTime, nullable=False, default=datetime.now)
-    students = relationship("Student", secondary=student_event, back_populates="events")
-    payload = mapped_column(JSONB, nullable=True)
+    __tablename__ = "event"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    type: Mapped[str] = mapped_column(String(40))
+    title: Mapped[str] = mapped_column(String(100))
+    description: Mapped[str | None] = mapped_column(Text)
+    start_time: Mapped[datetime] = mapped_column(DateTime)
+    end_time: Mapped[datetime | None] = mapped_column(DateTime)
+    location: Mapped[str | None] = mapped_column(String(200))
+    payload: Mapped[dict | None] = mapped_column(JSONType)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    attendees = relationship("Person", secondary="person_events", back_populates="events")
+
+    __table_args__ = (
+        CheckConstraint(
+            "type IN (%s)" % ", ".join("'%s'" % t for t in EVENT_TYPES),
+            name="ck_event_type_valid",
+        ),
+        Index("ix_event_type_time", "type", "start_time"),
+        Index("ix_event_payload", "payload", postgresql_using="gin"),
+    )
