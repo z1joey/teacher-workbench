@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import bearer_scheme, get_current_user
-from ..models import AuthSession, User
+from ..deps import bearer_scheme, get_current_person
+from ..models import AuthSession, Person
+from ..payloads import validate_person_payload
 from ..security import hash_password, new_token, verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -32,20 +33,21 @@ def normalize_phone(phone: str) -> str:
     return phone.replace(" ", "").replace("-", "")
 
 
-def user_out(u: User) -> dict:
+def user_out(u: Person) -> dict:
+    payload = u.payload or {}
     return {
-        "id": u.id,
-        "name": u.name,
+        "id": str(u.id),
+        "name": payload.get("name"),
         "phone": u.phone,
         "email": u.email,
-        "subject": u.profile.subject if u.profile else None,
-        "role": u.role,
+        "subject": payload.get("subject"),
+        "role": payload.get("role"),
     }
 
 
-def create_session(db: Session, user_id: int) -> str:
+def create_session(db: Session, person_id) -> str:
     token = new_token()
-    db.add(AuthSession(token=token, user_id=user_id))
+    db.add(AuthSession(token=token, person_id=person_id))
     return token
 
 
@@ -56,30 +58,32 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="手机号格式不正确")
     if body.email and "@" not in body.email:
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
-    if db.query(User).filter(User.phone == phone).first() is not None:
+    if db.query(Person).filter(Person.phone == phone).first() is not None:
         raise HTTPException(status_code=409, detail="该手机号已注册")
-    user = User(
-        name=(body.name or "").strip() or phone,
+    payload = validate_person_payload(
+        "teacher", {"name": (body.name or "").strip() or phone}
+    )
+    person = Person(
         phone=phone,
         email=(body.email or "").strip() or None,
         password_hash=hash_password(body.password),
-        role="teacher",
+        payload=payload,
     )
-    db.add(user)
+    db.add(person)
     db.flush()
-    token = create_session(db, user.id)
+    token = create_session(db, person.id)
     db.commit()
-    return {"token": token, "user": user_out(user)}
+    return {"token": token, "user": user_out(person)}
 
 
 @router.post("/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.phone == normalize_phone(body.phone)).first()
-    if user is None or not verify_password(body.password, user.password_hash):
+    person = db.query(Person).filter(Person.phone == normalize_phone(body.phone)).first()
+    if person is None or not verify_password(body.password, person.password_hash):
         raise HTTPException(status_code=401, detail="手机号或密码错误")
-    token = create_session(db, user.id)
+    token = create_session(db, person.id)
     db.commit()
-    return {"token": token, "user": user_out(user)}
+    return {"token": token, "user": user_out(person)}
 
 
 @router.post("/logout")
@@ -96,5 +100,5 @@ def logout(
 
 
 @router.get("/me")
-def me(user: User = Depends(get_current_user)):
-    return user_out(user)
+def me(person: Person = Depends(get_current_person)):
+    return user_out(person)

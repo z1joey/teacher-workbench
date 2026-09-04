@@ -1,174 +1,176 @@
-"""Behavior lock for /admin/users: role gating, filtering, update rules,
-delete-with-evidence guard. Uses the shared-memory SQLite pattern from
-test_kp_qr_removal.py."""
+"""Behavior lock for /admin/users: require_admin gating, role filtering,
+update rules, delete-with-evidence guard. Adapted from the User-based file to
+Person + payload identities: ids are UUID strings, is_active/name/subject live
+in the payload, and tokens are seeded directly (make_client replaces the
+full-app fixture while routers are mid-migration)."""
 from __future__ import annotations
 
-import os
+import uuid
 from datetime import date
 
-_TEST_DB_URI = "sqlite:///file:admin_users_tests?mode=memory&cache=shared&uri=true"
-os.environ["DATABASE_URL"] = _TEST_DB_URI
+import pytest
 
-import pytest  # noqa: E402
-from app.models import TeacherProfile, User  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import create_engine  # noqa: E402
-from sqlalchemy.orm import sessionmaker  # noqa: E402
-from sqlalchemy.pool import StaticPool  # noqa: E402
+from app.models import AuthSession, Class, Enrollment, Person
+from app.payloads import validate_person_payload
+from app.routers import admin, auth
+from app.security import hash_password
 
-_engine = create_engine(
-    _TEST_DB_URI, poolclass=StaticPool, connect_args={"check_same_thread": False}
-)
-_Session = sessionmaker(bind=_engine, autoflush=False, expire_on_commit=False)
+ADMIN_TOKEN = "a" * 64
+TEACHER_TOKEN = "d" * 64
+TEACHER2_TOKEN = "c" * 64
+
+
+def _seed_person(db, phone: str, *, role: str = "teacher", active: bool = True,
+                 name: str = "用户", subject: str | None = None) -> Person:
+    data = {"name": name}
+    if subject is not None:
+        data["subject"] = subject
+    payload = validate_person_payload(role, data)
+    if not active:
+        payload["is_active"] = False
+    p = Person(phone=phone, password_hash=hash_password("123456"), payload=payload)
+    db.add(p)
+    db.flush()
+    return p
+
+
+def _seed_token(db, person: Person, token: str) -> str:
+    db.add(AuthSession(token=token, person_id=person.id))
+    db.commit()
+    return token
 
 
 @pytest.fixture()
-def client():
-    """Fresh app + seeded data per test. Yields an UNAUTHENTICATED TestClient;
-    tests log in themselves via _login()."""
-    import sys as _sys
+def client(make_client, db):
+    """Fresh app + seeded data per test. Yields (TestClient, ids) with the
+    admin token pre-set as Authorization header; tests needing another
+    identity swap the header themselves. Admin endpoints carry their own
+    require_admin guard, so the app mounts without a global auth dependency
+    (exactly like app/main.py does)."""
+    tc = make_client(auth.router, admin.router, auth_dependency=False)
 
-    for mod in list(_sys.modules.keys()):
-        if mod == "app" or mod.startswith("app."):
-            del _sys.modules[mod]
-
-    from app.database import Base, get_db
-    from app.main import app as fastapi_app
-    from app.models import (
-        AuthSession, Class, Enrollment, Exam, ExamResult, ExamSubject,
-        Student, TeacherProfile, User,
-    )
-    from app.security import hash_password
-
-    Base.metadata.drop_all(bind=_engine)
-    Base.metadata.create_all(bind=_engine)
-
-    def override():
-        s = _Session()
-        try:
-            yield s
-        finally:
-            s.close()
-
-    fastapi_app.dependency_overrides[get_db] = override
-
-    s = _Session()
-    admin = User(name="管理员", phone="13600000000",
-                 password_hash=hash_password("123456"), role="admin")
-    teacher = User(name="陈老师", phone="13600000001",
-                   password_hash=hash_password("123456"), role="teacher")
-    teacher2 = User(name="赵老师", phone="13600000002",
-                    password_hash=hash_password("123456"), role="teacher")
-    s.add_all([admin, teacher, teacher2])
-    s.flush()
-    s.add(TeacherProfile(user_id=teacher.id, subject="math"))
-    # teacher2 also carries a profile: deleting a profile-bearing but
-    # evidence-free user used to 500 (ORM tried to blank out the
-    # teacher_profile.user_id PK) — the clean-delete test below locks the fix.
-    s.add(TeacherProfile(user_id=teacher2.id, subject="english"))
+    admin_p = _seed_person(db, "13600000000", role="admin", name="管理员")
+    teacher = _seed_person(db, "13600000001", name="陈老师", subject="math")
+    teacher2 = _seed_person(db, "13600000002", name="赵老师", subject="english")
 
     klass = Class(name="七年级1班", grade_level=7, academic_year="2025/2026",
-                  homeroom_teacher_id=teacher.id)
-    s.add(klass)
-    s.flush()
-    student = Student(admission_no="S1", name="林小明", status="active")
-    s.add(student)
-    s.flush()
-    s.add(Enrollment(student_id=student.id, class_id=klass.id,
-                     valid_from=date(2025, 9, 1)))
-    exam = Exam(name="月考", exam_date=date(2026, 1, 10))
-    s.add(exam)
-    s.flush()
-    es = ExamSubject(exam_id=exam.id, subject="math", full_score=100.0)
-    s.add(es)
-    s.flush()
-    s.add(ExamResult(student_id=student.id, exam_subject_id=es.id,
-                     score=90.0, status="entered", entered_by=teacher.id))
-    s.add(AuthSession(token="b" * 64, user_id=teacher2.id))
-    s.commit()
-    ids = {"admin": admin.id, "teacher": teacher.id, "teacher2": teacher2.id}
-    s.close()
+                  homeroom_person_id=teacher.id)
+    db.add(klass)
+    db.flush()
+    student = Person(
+        password_hash=hash_password("123456"),
+        payload=validate_person_payload("student", {"name": "林小明", "admission_no": "S1"}),
+    )
+    db.add(student)
+    db.flush()
+    db.add(Enrollment(person_id=student.id, class_id=klass.id,
+                      valid_from=date(2025, 9, 1)))
+    _seed_token(db, teacher2, TEACHER2_TOKEN)
+    _seed_token(db, teacher, TEACHER_TOKEN)
+    _seed_token(db, admin_p, ADMIN_TOKEN)
+    db.commit()
+    ids = {
+        "admin": str(admin_p.id),
+        "teacher": str(teacher.id),
+        "teacher2": str(teacher2.id),
+        "student": str(student.id),
+    }
 
-    yield TestClient(fastapi_app), ids
-    fastapi_app.dependency_overrides.clear()
-
-
-def _login(client, phone: str) -> None:
-    r = client.post("/api/auth/login", json={"phone": phone, "password": "123456"})
-    assert r.status_code == 200, r.text
-    client.headers.update({"Authorization": f"Bearer {r.json()['token']}"})
+    tc.headers.update({"Authorization": f"Bearer {ADMIN_TOKEN}"})
+    yield tc, ids
+    tc.headers.clear()
 
 
-def test_teacher_role_cannot_access_admin_users(client):
+def _as(tc, token: str) -> None:
+    tc.headers.update({"Authorization": f"Bearer {token}"})
+
+
+def test_non_admin_cannot_access_admin_users(client):
     tc, _ = client
-    _login(tc, "13600000001")
+    _as(tc, TEACHER_TOKEN)
     assert tc.get("/api/admin/users").status_code == 403
+    assert tc.get("/api/admin/stats").status_code == 403
 
 
 def test_admin_lists_users_with_role_filter(client):
     tc, ids = client
-    _login(tc, "13600000000")
     body = tc.get("/api/admin/users").json()
-    assert {u["role"] for u in body} == {"admin", "teacher"}
-    assert len(body) == 3
+    # Students are persons too now, so the unfiltered list shows every role.
+    assert {u["role"] for u in body} == {"admin", "teacher", "student"}
+    assert len(body) == 4
+    assert {u["id"] for u in body} == set(ids.values())
+    assert all(uuid.UUID(u["id"]) for u in body)
+    assert {u["name"] for u in body} == {"管理员", "陈老师", "赵老师", "林小明"}
+    assert all(u["is_active"] is True for u in body)
+
     teachers = tc.get("/api/admin/users", params={"role": "teacher"}).json()
-    assert [u["id"] for u in teachers] == [ids["teacher"], ids["teacher2"]]
-    assert teachers[0]["subject"] == "math"
+    assert {u["id"] for u in teachers} == {ids["teacher"], ids["teacher2"]}
+    assert next(u for u in teachers if u["id"] == ids["teacher"])["subject"] == "math"
     assert tc.get("/api/admin/users", params={"role": "boss"}).status_code == 400
 
 
 def test_patch_role_validation_and_self_demote_guard(client):
     tc, ids = client
-    _login(tc, "13600000000")
     assert tc.patch(f"/api/admin/users/{ids['teacher']}",
                     json={"role": "boss"}).status_code == 400
     assert tc.patch(f"/api/admin/users/{ids['admin']}",
                     json={"role": "teacher"}).status_code == 400
     assert tc.patch(f"/api/admin/users/{ids['teacher']}",
                     json={"role": "admin"}).json() == {"ok": True}
+    # The role flip rewrote the payload role (subject has no place in an
+    # admin payload), keeping the person active.
+    row = next(u for u in tc.get("/api/admin/users").json() if u["id"] == ids["teacher"])
+    assert row["role"] == "admin"
+    assert row["is_active"] is True
 
 
-def test_delete_referenced_user_409_and_clean_user_ok(client):
+def test_patch_toggles_is_active_in_payload(client):
     tc, ids = client
-    _login(tc, "13600000000")
-    r = tc.delete(f"/api/admin/users/{ids['teacher']}")  # homeroom + entered results
-    assert r.status_code == 409
-    # The 409 guard must leave the user AND their profile intact.
-    s = _Session()
-    try:
-        assert s.get(User, ids["teacher"]) is not None
-        assert s.query(TeacherProfile).filter(
-            TeacherProfile.user_id == ids["teacher"]).first() is not None
-    finally:
-        s.close()
-    r = tc.delete(f"/api/admin/users/{ids['teacher2']}")  # profile-bearing, evidence-free
-    assert r.json() == {"ok": True}
-    # Regression: deleting a profile-bearing, evidence-free user used to 500
-    # (ORM tried to blank out the teacher_profile.user_id PK). The profile row
-    # must really be gone along with the user.
-    s = _Session()
-    try:
-        assert s.get(User, ids["teacher2"]) is None
-        assert s.query(TeacherProfile).filter(
-            TeacherProfile.user_id == ids["teacher2"]).first() is None
-    finally:
-        s.close()
+    assert tc.patch(f"/api/admin/users/{ids['teacher']}",
+                    json={"is_active": False}).json() == {"ok": True}
+    row = next(u for u in tc.get("/api/admin/users").json() if u["id"] == ids["teacher"])
+    assert row["is_active"] is False
+    # A disabled person is rejected from /me with 403.
+    r = tc.get("/api/auth/me", headers={"Authorization": f"Bearer {TEACHER_TOKEN}"})
+    assert r.status_code == 403
+
+    assert tc.patch(f"/api/admin/users/{ids['teacher']}",
+                    json={"is_active": True}).json() == {"ok": True}
+    r = tc.get("/api/auth/me", headers={"Authorization": f"Bearer {TEACHER_TOKEN}"})
+    assert r.status_code == 200
 
 
 def test_admin_cannot_deactivate_self(client):
     tc, ids = client
-    _login(tc, "13600000000")
     assert tc.patch(f"/api/admin/users/{ids['admin']}",
                     json={"is_active": False}).status_code == 400
 
 
+def test_delete_referenced_user_409_and_clean_user_ok(client, db):
+    tc, ids = client
+    r = tc.delete(f"/api/admin/users/{ids['teacher']}")  # homeroom + enrollment
+    assert r.status_code == 409
+    # The 409 guard must leave the person intact.
+    db.expire_all()
+    assert db.get(Person, uuid.UUID(ids["teacher"])) is not None
+
+    r = tc.delete(f"/api/admin/users/{ids['teacher2']}")  # profile-bearing, evidence-free
+    assert r.json() == {"ok": True}
+    # The person — and their owned auth sessions — must really be gone.
+    db.expire_all()
+    assert db.get(Person, uuid.UUID(ids["teacher2"])) is None
+    assert db.get(AuthSession, TEACHER2_TOKEN) is None
+
+
 def test_stats_keys(client):
     tc, _ = client
-    _login(tc, "13600000000")  # adds one session to the 1 pre-seeded one
     stats = tc.get("/api/admin/stats").json()
-    assert stats["users_total"] == 3
+    assert set(stats) == {"database", "tables", "users_total", "users_admins",
+                          "users_active", "sessions_active"}
+    assert stats["users_total"] == 4
     assert stats["users_admins"] == 1
-    assert stats["users_active"] == 3
-    assert stats["sessions_active"] == 2
-    assert stats["tables"]["user"] == 3
-    assert "teacher" not in stats["tables"]
+    assert stats["users_active"] == 4
+    assert stats["sessions_active"] == 3
+    assert stats["tables"]["person"] == 4
+    assert "user" not in stats["tables"]
+    assert "teacher_profile" not in stats["tables"]
