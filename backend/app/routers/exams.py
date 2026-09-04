@@ -2,11 +2,12 @@
 
 The sitting Event is titled with the exam name and dated the exam day
 (start_time 09:00); an optional class_id scopes its attendees to that class's
-enrolled students (otherwise the whole active student body attends). There are
-no ExamSubject rows: the per-subject full_score config posted to POST/PATCH
-/exams lives in the sitting Event's description as a JSON array
-[{"id","subject","full_score"}] — that is where the score-entry flow reads
-each subject's max_score from before writing per-student score Events.
+enrolled students (otherwise the whole active student body attends). There
+are no ExamSubject rows: the per-subject full_score config posted to
+POST/PATCH /exams lives in the sitting Event's registry-validated payload as
+payload["full_scores"] ({subject: full score}) — that is where the
+score-entry flow reads each subject's max_score from before writing
+per-student score Events. description stays plain free text.
 
 Score rows follow the students-router convention: one Event(type="score") per
 student per subject, title "<exam name>·<subject>", start_time on the exam
@@ -22,7 +23,6 @@ rather than duplicating the aggregation.
 """
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import date, datetime, time, timedelta
 
@@ -35,6 +35,7 @@ from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import create_event
 from ..models import Class, Enrollment, Event, Person, person_events
+from ..payloads import validate_event_payload
 
 router = APIRouter(
     tags=["exams"],
@@ -132,30 +133,26 @@ def exam_events(db: Session) -> list[Event]:
 
 
 def subjects_config(exam: Event) -> list[dict]:
-    """The per-subject full_score config stored in the sitting's description
-    ([{"id","subject","full_score"}]); only well-formed entries survive —
-    a corrupt/partial config reads as [] rather than 500ing the list views."""
-    try:
-        config = json.loads(exam.description or "")
-    except ValueError:
-        return []
-    if not isinstance(config, list):
+    """The sitting's subjects from the registry-validated payload
+    ({"full_scores": {subject: full score}}), serialized to the old response
+    shape [{id, subject, full_score}] sorted by subject — [] on missing or
+    malformed config. Entry ids are deterministic per (exam, subject) so they
+    are stable across reads (the old ExamSubject ids died with the table)."""
+    full_scores = (exam.payload or {}).get("full_scores")
+    if not isinstance(full_scores, dict):
         return []
     return [
-        c for c in config
-        if isinstance(c, dict) and {"id", "subject", "full_score"} <= set(c)
+        {
+            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{exam.id}:{subject}")),
+            "subject": subject,
+            "full_score": full,
+        }
+        for subject, full in sorted(full_scores.items())
     ]
 
 
-def store_subjects_config(exam: Event, subjects: list["SubjectIn"]) -> None:
-    exam.description = json.dumps(
-        [
-            {"id": str(uuid.uuid4()), "subject": s.subject.strip(),
-             "full_score": s.full_score}
-            for s in subjects
-        ],
-        ensure_ascii=False,
-    )
+def full_scores_of(subjects: list["SubjectIn"]) -> dict[str, float]:
+    return {s.subject.strip(): s.full_score for s in subjects}
 
 
 def exam_out(exam: Event) -> dict:
@@ -223,10 +220,9 @@ def create_exam(
         event_type="exam",
         title=name,
         start_time=datetime.combine(body.exam_date, EXAM_HOUR),
-        payload={"term": body.term},  # registry keeps {"term"?}; the rest is free
+        payload={"term": body.term, "full_scores": full_scores_of(body.subjects)},
         attendee_ids=_attendee_ids(db, body.class_id),
     )
-    store_subjects_config(exam, body.subjects)  # full_score config: see module doc
     db.commit()
     return {"id": str(exam.id), "name": exam.title,
             "exam_date": exam.start_time.date().isoformat()}
@@ -372,7 +368,11 @@ def update_exam(
             is not None
         ):
             raise HTTPException(status_code=400, detail="考试已有成绩录入，无法修改科目结构")
-        store_subjects_config(e, body.subjects)
+        # copy-modify-reassign + re-validate: JSON columns don't see in-place
+        # mutation, and the config must stay registry-shaped
+        payload = dict(e.payload or {})
+        payload["full_scores"] = full_scores_of(body.subjects)
+        e.payload = validate_event_payload("exam", payload)
 
     if body.name is not None:
         e.title = body.name.strip()

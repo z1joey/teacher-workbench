@@ -31,6 +31,16 @@ def test_score_payload_absent_has_no_score():
     assert "score" not in out and out["absent"] is True
 
 
+def test_exam_payload_carries_full_scores():
+    out = validate_event_payload("exam", {"full_scores": {"数学": 120}})
+    assert out == {"full_scores": {"数学": 120.0}}
+
+
+def test_exam_payload_rejects_non_float_full_scores():
+    with pytest.raises(ValidationError):
+        validate_event_payload("exam", {"full_scores": {"数学": "many"}})
+
+
 def test_free_form_type_passthrough():
     assert validate_event_payload("birthday", {"foo": 1}) == {"foo": 1}
 

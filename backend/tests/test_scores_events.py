@@ -2,11 +2,12 @@
 
 Ports the legacy routers to the event-centric schema: an exam sitting is an
 Event(type="exam") titled with the exam name (class_id's students attend),
-per-subject full_score config lives in the exam Event's description (JSON —
-the score-entry flow reads it to set each score payload's max_score), and
-scores are per-student score Events titled "<exam name>·<subject>" dated the
-exam day. Averages aggregate payload["score"] over entered rows (absent=true
-excluded) per sitting = title prefix + date.
+per-subject full_score config lives in the exam Event's registry-validated
+payload as {"full_scores": {subject: score}} — the score-entry flow reads it
+to set each score payload's max_score — and scores are per-student score
+Events titled "<exam name>·<subject>" dated the exam day. Averages aggregate
+payload["score"] over entered rows (absent=true excluded) per sitting =
+title prefix + date, attributed to the roster enrolled at the exam date.
 """
 from __future__ import annotations
 
@@ -86,7 +87,7 @@ def _create_exam(client, headers, name: str, day: date, subjects: list[dict],
 def _enter_scores(db, exam: Event, person: Person, subject_scores: dict[str, float | None]):
     """The score-entry flow: config full_score becomes the payload max_score;
     score None marks an absence (absent=true, no score key)."""
-    config = {c["subject"]: c["full_score"] for c in json.loads(exam.description)}
+    config = dict(exam.payload["full_scores"])
     day = exam.start_time.date()
     for subject, score in subject_scores.items():
         payload: dict = {"subject": subject, "max_score": config[subject]}
@@ -184,8 +185,8 @@ def test_create_exam_creates_event_with_class_attendees(make_client, db, headers
     assert exam.title == "期中考试"
     assert exam.start_time.date().isoformat() == "2026-05-20"
     assert {str(p.id) for p in exam.attendees} == {str(a.id), str(b.id)}
-    config = {c["subject"]: c["full_score"] for c in json.loads(exam.description)}
-    assert config == {"语文": 120.0, "数学": 100.0}
+    # the per-subject full_score config round-trips through the registry
+    assert exam.payload == {"full_scores": {"语文": 120.0, "数学": 100.0}}
 
     # duplicate name on the same date → 409, same Chinese message
     dup = client.post(
@@ -345,21 +346,19 @@ def test_averages_attribute_by_enrollment_at_exam_date(graded, db):
         {"subject": "语文", "values": [80.0, 80.0], "full_score": 100.0},
     ]
 
-    # list avg_trend follows the CURRENT roster: B's scores leave 一班
+    # list avg_trend uses the same at-exam-date rule: B counts for 一班 in
+    # 期中 (roster on 05-20) but not in 期末 (06-20); 二班 only has 期末
     rows = ctx["client"].get("/api/classes", headers=ctx["headers"]).json()
     mine = next(r for r in rows if r["id"] == str(cls1.id))
     assert mine["avg_trend"] == [
         {"exam_id": str(ctx["e1"].id), "exam_name": "期中考试", "exam_date": "2026-05-20",
-         "averages": {"语文": 90.0}},
+         "averages": {"语文": 80.0, "数学": 60.0}},
         {"exam_id": str(ctx["e2"].id), "exam_name": "期末考试", "exam_date": "2026-06-20",
          "averages": {"语文": 80.0}},
     ]
     theirs = next(r for r in rows if r["id"] == str(cls2.id))
-    # current-roster rule: B's score events follow them — including the
-    # 期中 sat while still in 一班
+    # B joined 二班 on 06-01, so the 期中 sitting isn't attributed to it at all
     assert theirs["avg_trend"] == [
-        {"exam_id": str(ctx["e1"].id), "exam_name": "期中考试", "exam_date": "2026-05-20",
-         "averages": {"语文": 70.0, "数学": 60.0}},
         {"exam_id": str(ctx["e2"].id), "exam_name": "期末考试", "exam_date": "2026-06-20",
          "averages": {"语文": 100.0}},
     ]
@@ -435,13 +434,16 @@ def test_patch_exam_rewrites_score_titles_and_dates(make_client, db, headers):
     subjects = ok.json()["subjects"]
     assert [s["subject"] for s in subjects] == ["物理"]
     assert subjects[0]["full_score"] == 90.0
+    # the structure rewrite lands in the validated payload too
+    e2_row = db.get(Event, uuid.UUID(e2["id"]))
+    assert e2_row.payload == {"full_scores": {"物理": 90.0}}
 
 
 def test_delete_exam_keeps_score_events(make_client, db, headers):
     client = make_client(exams_router.router, classes_router.router)
     cls = _seed_class(db)
     a = _seed_person(db, "张一", "S1")
-    _enroll(db, a, cls)
+    _enroll(db, a, cls, valid_from=date(2026, 5, 1))
     db.commit()  # release the write lock before the API session writes
     e1 = _create_exam(client, headers, "期中考试", date(2026, 5, 20),
                       [{"subject": "语文", "full_score": 100}])

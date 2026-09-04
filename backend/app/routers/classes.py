@@ -5,9 +5,9 @@ averaging views aggregate the class's students' score Events
 (type="score", title "<exam name>·<subject>", payload subject/score). The
 shared sitting/averages helpers live in exams.py — this file imports them.
 
-Attribution: GET /classes avg_trend follows the CURRENT roster (controller
-resolution) — students via today's Enrollment; the class-detail trend keeps
-the old enrollment-valid-at-exam-date rule, as does GET /exams/{id}/averages.
+Attribution: every class average — list avg_trend, class-detail trend, and
+/exams/{id}/averages alike — attributes each score to the roster enrolled at
+the exam date (the old rule), via _roster_at / the equivalent join.
 """
 from __future__ import annotations
 
@@ -116,33 +116,24 @@ def _roster_at(db: Session, class_id: uuid.UUID, day: date) -> list[uuid.UUID]:
 
 
 def _avg_trend(db: Session, class_id: uuid.UUID) -> list[dict]:
-    """Chronological per-sitting per-subject class averages for the CURRENT
-    roster: students via today's Enrollment → their entered score Events →
-    avg per (sitting, subject). exam_id resolves the sitting Event by
-    title + date (None when there is no such row, mirroring students.py)."""
-    person_ids = [s.id for s in current_students(db, class_id)]
-    if not person_ids:
-        return []
-    rows = (
-        db.query(Event.title, Event.start_time)
-        .join(person_events, person_events.c.event_id == Event.id)
-        .filter(
-            Event.type == "score",
-            person_events.c.person_id.in_(person_ids),
-            Event.payload["absent"].as_boolean().is_not(True),
-            Event.payload["score"].is_not(None),
-        )
-        .distinct()
-        .all()
-    )
-    # one sitting per (exam name, date): score titles vary per subject
+    """Chronological per-sitting per-subject class averages; roster
+    attribution uses the enrollment valid at each exam date (the old rule,
+    same as the class-detail trend and the exam averages page). exam_id
+    resolves the sitting Event by title + date (None when there is no such
+    row, mirroring students.py)."""
+    # candidate sittings: entered score events school-wide, deduped to one
+    # (exam name, date) per sitting — score titles vary per subject
     sittings = sorted(
-        {(t.rsplit("·", 1)[0] if "·" in t else t, s.date()) for t, s in rows},
+        {(t.rsplit("·", 1)[0] if "·" in t else t, s.date())
+         for t, s in db.query(Event.title, Event.start_time)
+                        .filter(Event.type == "score").all()},
         key=lambda pair: (pair[1], pair[0]),
     )
     out = []
     for exam_name, day in sittings:
-        exam = find_exam_event(db, exam_name, day)
+        person_ids = _roster_at(db, class_id, day)
+        if not person_ids:
+            continue
         averages = {
             subject: round(float(agg["avg"]), 1)
             for subject, agg in sorted(
@@ -150,6 +141,9 @@ def _avg_trend(db: Session, class_id: uuid.UUID) -> list[dict]:
             )
             if agg["avg"] is not None
         }
+        if not averages:
+            continue
+        exam = find_exam_event(db, exam_name, day)
         out.append(
             {
                 "exam_id": str(exam.id) if exam else None,

@@ -61,6 +61,9 @@ class HomeVisitPayload(_Strict):
 
 class ExamPayload(_Strict):
     term: str | None = None
+    # per-subject full_score config of a sitting (subject name -> full score);
+    # the score-entry flow reads it to set each score payload's max_score
+    full_scores: dict[str, float] | None = None
 
 
 class EnrolledPayload(_Strict):
