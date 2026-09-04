@@ -24,7 +24,8 @@ class Person(Base):
     __tablename__ = "person"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    phone: Mapped[str] = mapped_column(String(40), unique=True)  # login credential — required
+    # login credential for teachers/admins; NULL for students (they don't log in)
+    phone: Mapped[str | None] = mapped_column(String(40), unique=True)
     password_hash: Mapped[str] = mapped_column(String(200))
     email: Mapped[str | None] = mapped_column(String(200), unique=True)  # optional
     payload: Mapped[dict | None] = mapped_column(JSONType)  # role + role-specific attributes
