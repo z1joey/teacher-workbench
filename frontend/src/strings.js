@@ -372,9 +372,13 @@ export function dateLocale() {
 // ------------------------------------------------------------------ 学科
 
 const SUBJECTS = {
+  chinese: "语文",
   math: "数学",
   english: "英语",
-  chinese: "语文",
+  politics: "道德与法治",
+  history: "历史",
+  geography: "地理",
+  biology: "生物",
   physics: "物理",
   chemistry: "化学",
 }
@@ -383,9 +387,13 @@ export function subject(s) {
 }
 
 const SUBJECT_COLORS = {
+  chinese: "#b98a2e",
   math: "#2e6ba8",
   english: "#2f7d4f",
-  chinese: "#b98a2e",
+  politics: "#c2608f",
+  history: "#8c564b",
+  geography: "#2b8a8a",
+  biology: "#5a8f29",
   physics: "#6d5bb8",
   chemistry: "#b42318",
 }

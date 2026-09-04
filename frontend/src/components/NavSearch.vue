@@ -127,9 +127,11 @@ function clear() {
         <span class="avatar avatar--onpaper" style="width: 26px; height: 26px; font-size: 12px">
           {{ s.name.charAt(0) }}
         </span>
-        <span class="search-results__name">{{ s.name }}</span>
-        <span class="search-results__meta">
-          {{ s.admission_no }} · {{ s.class ? s.class.name : t("students.ungrouped") }}
+        <span class="search-results__text">
+          <span class="search-results__name">{{ s.name }}</span>
+          <span class="search-results__meta">
+            {{ s.admission_no }} · {{ s.class ? s.class.name : t("students.ungrouped") }}
+          </span>
         </span>
       </button>
 

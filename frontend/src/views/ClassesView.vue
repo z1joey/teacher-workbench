@@ -108,7 +108,7 @@ async function removeClass(c) {
   })
 }
 
-const SUBJECT_ORDER = ["chinese", "math", "english", "physics", "chemistry"]
+const SUBJECT_ORDER = ["chinese", "math", "english", "politics", "history", "geography", "biology", "physics", "chemistry"]
 
 // per-subject class averages of the latest exam, with delta vs the previous one
 function avgSummary(c) {

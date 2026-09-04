@@ -77,16 +77,7 @@ function countdownLabel(d) {
       <PageHeader
         :title="t('home.greeting', { name: data.user.name })"
         :subtitle="t('home.today', { date: today })"
-      >
-        <template #actions>
-          <router-link to="/students">
-            <button class="btn"><Icon name="users" :size="15" /> {{ t("nav.students") }}</button>
-          </router-link>
-          <router-link to="/exams/new">
-            <button class="btn btn--primary"><Icon name="plus" :size="15" /> {{ t("exams.create") }}</button>
-          </router-link>
-        </template>
-      </PageHeader>
+      />
 
       <div class="split">
         <div>

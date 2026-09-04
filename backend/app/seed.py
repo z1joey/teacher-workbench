@@ -45,7 +45,13 @@ random.seed(2026)
 ACADEMIC_YEAR = "2025/2026"
 ENROLL_DATE = date(2025, 9, 1)
 
-SUBJECT_FULL_SCORE = 100.0
+# 初中全科：科目 key 与满分（语数英 120，其余 100）
+SUBJECT_FULL_SCORES = {
+    "chinese": 120.0, "math": 120.0, "english": 120.0,
+    "politics": 100.0, "history": 100.0, "geography": 100.0,
+    "biology": 100.0, "physics": 100.0, "chemistry": 100.0,
+}
+ALL_SUBJECTS = list(SUBJECT_FULL_SCORES)
 
 # (name, gender)
 NAMES_7_1 = [
@@ -111,8 +117,8 @@ def seed(db: Session) -> None:
 
     exam_subject_by_key: dict[tuple[str, str], ExamSubject] = {}
     for exam_key, exam in exams_by_key.items():
-        for subject in ("math", "english"):
-            es = ExamSubject(exam_id=exam.id, subject=subject, full_score=SUBJECT_FULL_SCORE)
+        for subject in ALL_SUBJECTS:
+            es = ExamSubject(exam_id=exam.id, subject=subject, full_score=SUBJECT_FULL_SCORES[subject])
             db.add(es)
             exam_subject_by_key[(exam_key, subject)] = es
     db.flush()
@@ -173,10 +179,22 @@ def seed(db: Session) -> None:
     guo = next(s for s in students if s.name == "郭浩然")
 
     # --- subject-level ability + results (no per-question detail) --------
-    ability = {
-        s.id: {"math": random.gauss(72, 12), "english": random.gauss(70, 13)}
-        for s in students
-    }
+    # 语言类（语/英）与理科类（数/物/化）各共享一个能力因子，其余科目独立
+    ability = {}
+    for s in students:
+        verbal = random.gauss(70, 10)
+        science = random.gauss(72, 12)
+        ability[s.id] = {
+            "chinese": verbal + random.gauss(0, 4),
+            "english": verbal + random.gauss(0, 4),
+            "math": science + random.gauss(0, 4),
+            "physics": science + random.gauss(0, 4),
+            "chemistry": science + random.gauss(0, 4),
+            "politics": random.gauss(75, 8),
+            "history": random.gauss(72, 9),
+            "geography": random.gauss(70, 10),
+            "biology": random.gauss(71, 9),
+        }
     # Story: 林晓雨数学偏弱，王浩数学方程部分薄弱（表现为 math 能力下调）。
     ability[lin.id]["math"] = 58.0
     ability[hao.id]["math"] = 62.0
@@ -188,7 +206,7 @@ def seed(db: Session) -> None:
     exam_trend = {"oct": 0.0, "premid": 1.0, "prefinal": 1.5,
                   "mar": 2.0, "midterm": 3.0, "final": 4.0}
     slope = {
-        s.id: {"math": random.uniform(-2.0, 2.6), "english": random.uniform(-2.0, 2.6)}
+        s.id: {sub: random.uniform(-2.0, 2.6) for sub in ALL_SUBJECTS}
         for s in students
     }
     slope[lin.id]["math"] = 2.8      # weak start, climbing all year (提升计划)
@@ -200,9 +218,9 @@ def seed(db: Session) -> None:
 
     for exam_key in SCORED_EXAMS:
         exam = exams_by_key[exam_key]
-        for subject in ("math", "english"):
+        for subject in ALL_SUBJECTS:
             es = exam_subject_by_key[(exam_key, subject)]
-            entering_teacher = chen if subject == "math" else zhao
+            entering_teacher = chen if ALL_SUBJECTS.index(subject) % 2 == 0 else zhao
             for s in students:
                 base = (
                     ability[s.id][subject]
@@ -212,7 +230,7 @@ def seed(db: Session) -> None:
                 )
                 if s.id == hao.id and subject == "math":
                     base += hao_dip.get(exam_key, 0.0)
-                score = round(clamp(base, 0.0, SUBJECT_FULL_SCORE), 1)
+                score = round(clamp(base, 0.0, SUBJECT_FULL_SCORES[subject]), 1)
                 result = ExamResult(
                     student_id=s.id, exam_subject_id=es.id,
                     score=score, status="entered",
@@ -226,7 +244,7 @@ def seed(db: Session) -> None:
     # (+5 points, still ≤ 100).
     lin_math_midterm = result_by_key[(lin.id, "midterm", "math")]
     old_score = lin_math_midterm.score
-    lin_math_midterm.score = round(clamp(old_score + 5.0, 0.0, SUBJECT_FULL_SCORE), 1)
+    lin_math_midterm.score = round(clamp(old_score + 5.0, 0.0, SUBJECT_FULL_SCORES["math"]), 1)
     add_event(db, lin.id, "result_changed", dt(date(2026, 4, 16), time(16, 30)),
               actor_teacher_id=chen.id, ref_table="exam_result",
               ref_id=lin_math_midterm.id,
@@ -258,7 +276,7 @@ def seed(db: Session) -> None:
         for s in students:
             scores = {
                 subject: result_by_key[(s.id, exam_key, subject)].score
-                for subject in ("math", "english")
+                for subject in ALL_SUBJECTS
             }
             add_event(db, s.id, "exam_taken", dt(exam.exam_date, time(9, 0)),
                       ref_table="exam", ref_id=exam.id,

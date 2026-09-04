@@ -41,8 +41,8 @@ const editValue = ref(null)
 const editError = ref("")
 
 // the score table collapses to the most recent entries once exams pile up
-const SCORE_ROWS_VISIBLE = 6
-const SUBJECT_ORDER = ["chinese", "math", "english", "physics", "chemistry"]
+const SCORE_ROWS_VISIBLE = 9 // one full exam (all subjects)
+const SUBJECT_ORDER = ["chinese", "math", "english", "politics", "history", "geography", "biology", "physics", "chemistry"]
 const showAllScores = ref(false)
 
 // tag editor
