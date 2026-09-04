@@ -26,6 +26,11 @@ def admin_stats(
 ):
     """Per-table row counts + database info."""
     counts = {m.__tablename__: db.query(m).count() for m in ALL_MODELS}
+    # JSON booleans don't survive a SQL comparison portably: SQLite's
+    # json_extract maps them to 1/0 (as_string() → '1', never 'false') while
+    # PostgreSQL's ->> yields text. Count in Python with the same
+    # default-true rule the users list uses.
+    persons = db.query(Person).all()
     return {
         "database": engine.url.drivername,
         "tables": counts,
@@ -33,10 +38,8 @@ def admin_stats(
         "users_admins": (
             db.query(Person).filter(Person.payload["role"].as_string() == "admin").count()
         ),
-        "users_active": (
-            db.query(Person)
-            .filter(Person.payload["is_active"].as_string() != "false")
-            .count()
+        "users_active": sum(
+            1 for p in persons if (p.payload or {}).get("is_active") is not False
         ),
         "sessions_active": counts.get("auth_session", 0),
     }

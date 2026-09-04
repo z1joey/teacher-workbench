@@ -162,15 +162,20 @@ def test_delete_referenced_user_409_and_clean_user_ok(client, db):
     assert db.get(AuthSession, TEACHER2_TOKEN) is None
 
 
-def test_stats_keys(client):
+def test_stats_keys(client, db):
     tc, _ = client
+    # A disabled person must not count as active. SQLite's json_extract maps
+    # JSON booleans to integers, so SQL text comparisons can't express this —
+    # the endpoint counts in Python; this locks that.
+    _seed_person(db, "13600000003", name="已停用", active=False)
+    db.commit()
     stats = tc.get("/api/admin/stats").json()
     assert set(stats) == {"database", "tables", "users_total", "users_admins",
                           "users_active", "sessions_active"}
-    assert stats["users_total"] == 4
+    assert stats["users_total"] == 5
     assert stats["users_admins"] == 1
-    assert stats["users_active"] == 4
+    assert stats["users_active"] == 4  # excludes the disabled teacher
     assert stats["sessions_active"] == 3
-    assert stats["tables"]["person"] == 4
+    assert stats["tables"]["person"] == 5
     assert "user" not in stats["tables"]
     assert "teacher_profile" not in stats["tables"]
