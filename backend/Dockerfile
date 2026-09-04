@@ -37,7 +37,9 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/health').read()"
 
-# Bring the schema to alembic head (migrating legacy volumes in place), then
-# start the server. Seeding stays manual:
+# Bring the database to the event schema, then start the server. Existing
+# legacy volumes (legacy "user" table, no "person") run the real Alembic
+# chain — 0005 migrates the legacy data in place; fresh volumes are created
+# via create_all and stamped to alembic head. Seeding stays manual:
 #   docker compose exec backend python -m app.seed
 CMD ["sh", "-c", "python -m app.bootstrap_db && exec uvicorn app.main:app --host 0.0.0.0 --port 8001"]
