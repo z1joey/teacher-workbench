@@ -33,3 +33,8 @@ def test_score_payload_absent_has_no_score():
 
 def test_free_form_type_passthrough():
     assert validate_event_payload("birthday", {"foo": 1}) == {"foo": 1}
+
+
+def test_empty_dict_for_typed_schema_rejected():
+    with pytest.raises(ValidationError):
+        validate_event_payload("score", {})

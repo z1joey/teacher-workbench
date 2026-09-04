@@ -95,7 +95,7 @@ def validate_person_payload(role: str, data: dict) -> dict:
 
 
 def validate_event_payload(event_type: str, data: dict | None) -> dict | None:
-    if not data:
+    if data is None:
         return data
     schema = EVENT_PAYLOAD_SCHEMAS.get(event_type)
     if schema is None:
