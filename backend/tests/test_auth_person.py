@@ -8,9 +8,8 @@ from __future__ import annotations
 import uuid
 
 from app.models import AuthSession, Person
-from app.payloads import validate_person_payload
 from app.routers import auth, misc, profile
-from app.security import hash_password
+from tests.conftest import seed_person, seed_token
 
 
 def _register(client, phone: str, password: str = "secret123", **extra):
@@ -20,29 +19,6 @@ def _register(client, phone: str, password: str = "secret123", **extra):
 def _auth_client(make_client):
     # /register and /login must be open; /me and /logout guard themselves.
     return make_client(auth.router, auth_dependency=False)
-
-
-def _seed_person(db, phone: str, *, role: str = "teacher", active: bool = True,
-                 name: str = "用户", subject: str | None = None,
-                 admission_no: str | None = None) -> Person:
-    data = {"name": name}
-    if subject is not None:
-        data["subject"] = subject
-    if admission_no is not None:
-        data["admission_no"] = admission_no
-    payload = validate_person_payload(role, data)
-    if not active:
-        payload["is_active"] = False
-    p = Person(phone=phone, password_hash=hash_password("123456"), payload=payload)
-    db.add(p)
-    db.flush()
-    return p
-
-
-def _seed_token(db, person: Person, token: str) -> str:
-    db.add(AuthSession(token=token, person_id=person.id))
-    db.commit()
-    return token
 
 
 def test_register_login_me_logout_flow(make_client, db):
@@ -108,16 +84,16 @@ def test_me_without_token_401(make_client):
 
 def test_disabled_person_gets_403_on_me(make_client, db):
     client = _auth_client(make_client)
-    person = _seed_person(db, "13800000014", active=False)
-    token = _seed_token(db, person, "a" * 64)
+    person = seed_person(db, "13800000014", active=False)
+    token = seed_token(db, person, "a" * 64)
     r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
 
 
 def test_profile_patch_get_round_trips_subject(make_client, db):
     client = make_client(profile.router)
-    person = _seed_person(db, "13800000015", name="陈老师")
-    token = _seed_token(db, person, "b" * 64)
+    person = seed_person(db, "13800000015", name="陈老师")
+    token = seed_token(db, person, "b" * 64)
     headers = {"Authorization": f"Bearer {token}"}
 
     r = client.patch("/api/profile", json={"name": "陈老师", "subject": "math"}, headers=headers)
@@ -133,10 +109,10 @@ def test_profile_patch_get_round_trips_subject(make_client, db):
 
 def test_teachers_lists_only_teachers(make_client, db):
     client = make_client(misc.router)
-    _seed_person(db, "13800000016", name="张老师", subject="语文")
-    _seed_person(db, "13800000017", role="admin", name="管理员")
-    _seed_person(db, "13800000018", role="student", name="林小明", admission_no="S9")
-    token = _seed_token(db, db.query(Person).filter_by(phone="13800000016").one(), "c" * 64)
+    seed_person(db, "13800000016", name="张老师", subject="语文")
+    seed_person(db, "13800000017", role="admin", name="管理员")
+    seed_person(db, "13800000018", role="student", name="林小明", admission_no="S9")
+    token = seed_token(db, db.query(Person).filter_by(phone="13800000016").one(), "c" * 64)
 
     r = client.get("/api/teachers", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200, r.text

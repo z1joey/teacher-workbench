@@ -16,6 +16,7 @@ def db():
     s = Session(eng)
     yield s
     s.close()
+    eng.dispose()  # close the pooled sqlite3 connection (ResourceWarning under -W error)
 
 
 def test_legacy_event_types_are_valid(db):

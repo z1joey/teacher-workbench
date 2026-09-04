@@ -1,10 +1,20 @@
-"""Shared fixtures for the identity-swap test files (Person + payload).
+"""Shared fixtures + seeding helpers for the event-schema test suite.
 
-`import app.main` still fails — students/classes/exams/dashboard routers
-import the legacy schema until Tasks 5-6 migrate them — so tests cannot use
-the real FastAPI app yet. Instead, each test builds a per-router app via
-`make_client`, bound to the same tmp-file SQLite engine as the `db` fixture.
-The full-app `client` fixture lands in Task 8 once all routers are migrated.
+Two ways to get an HTTP client, both bound to the same per-test tmp-file
+SQLite engine as the `db` fixture:
+
+- `make_client(*routers, auth_dependency=True)` builds a fresh FastAPI app
+  per call with just the routers under test mounted at /api — fast and
+  precise, used by the per-router behavior tests.
+- `client` is the real `app.main` app with `get_db` overridden onto the test
+  engine — for tests that need the full route table (404-on-removed-route
+  guards, cross-router flows). It exists for future tests; nothing in the
+  current suite depends on it beyond the smoke test and the route-removal
+  guards in test_kp_qr_removal.py.
+
+`seed_person` / `seed_token` are plain helper functions (import from
+`tests.conftest`) so tests keep a linear arrange section instead of juggling
+fixture return values.
 """
 import sys
 import warnings
@@ -27,6 +37,8 @@ from sqlalchemy.orm import sessionmaker
 import app.models  # noqa: F401  (registers the new tables on Base.metadata)
 from app.database import Base, get_db
 from app.deps import get_current_person
+from app.payloads import validate_person_payload
+from app.security import hash_password
 
 
 @pytest.fixture()
@@ -43,10 +55,25 @@ def engine(tmp_path):
 
 @pytest.fixture()
 def db(engine):
-    """Session on the same per-test engine that make_client binds apps to."""
+    """Session on the same per-test engine that make_client/client bind to."""
     session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)()
     yield session
     session.close()
+
+
+def _make_session_factory(engine):
+    return sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+def _db_override(factory):
+    def _override():
+        s = factory()
+        try:
+            yield s
+        finally:
+            s.close()
+
+    return _override
 
 
 @pytest.fixture()
@@ -57,16 +84,9 @@ def make_client(engine):
 
     def _make(*routers, auth_dependency: bool = True) -> TestClient:
         application = FastAPI()
-        TestSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-
-        def _override():
-            s = TestSession()
-            try:
-                yield s
-            finally:
-                s.close()
-
-        application.dependency_overrides[get_db] = _override
+        application.dependency_overrides[get_db] = _db_override(
+            _make_session_factory(engine)
+        )
         for router in routers:
             application.include_router(
                 router,
@@ -76,3 +96,50 @@ def make_client(engine):
         return TestClient(application)
 
     return _make
+
+
+@pytest.fixture()
+def client(engine):
+    """The real full app (app.main) with get_db overridden onto the per-test
+    engine. Mounts every router exactly like production — including the ones
+    make_client leaves out — so removed routes really 404 and cross-router
+    behavior is exercised. Note that app.main keeps the real auth dependency
+    chain: seed credentials with `seed_person` + `seed_token` in `db`."""
+    from app.database import get_db as app_get_db
+    from app.main import app as fastapi_app
+
+    fastapi_app.dependency_overrides[app_get_db] = _db_override(
+        _make_session_factory(engine)
+    )
+    yield TestClient(fastapi_app)
+    fastapi_app.dependency_overrides.clear()
+
+
+def seed_person(db, phone: str | None, *, role: str = "teacher", active: bool = True,
+                name: str = "用户", subject: str | None = None,
+                admission_no: str | None = None):
+    """Insert a Person row with a registry-validated payload (the common
+    arrange step of the router tests)."""
+    from app.models import Person
+
+    data = {"name": name}
+    if subject is not None:
+        data["subject"] = subject
+    if admission_no is not None:
+        data["admission_no"] = admission_no
+    payload = validate_person_payload(role, data)
+    if not active:
+        payload["is_active"] = False
+    p = Person(phone=phone, password_hash=hash_password("123456"), payload=payload)
+    db.add(p)
+    db.flush()
+    return p
+
+
+def seed_token(db, person, token: str) -> str:
+    """Mint a bearer-token AuthSession for `person` (committed)."""
+    from app.models import AuthSession
+
+    db.add(AuthSession(token=token, person_id=person.id))
+    db.commit()
+    return token

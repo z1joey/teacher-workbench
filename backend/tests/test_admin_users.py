@@ -14,30 +14,11 @@ from app.models import AuthSession, Class, Enrollment, Person
 from app.payloads import validate_person_payload
 from app.routers import admin, auth
 from app.security import hash_password
+from tests.conftest import seed_person, seed_token
 
 ADMIN_TOKEN = "a" * 64
 TEACHER_TOKEN = "d" * 64
 TEACHER2_TOKEN = "c" * 64
-
-
-def _seed_person(db, phone: str, *, role: str = "teacher", active: bool = True,
-                 name: str = "用户", subject: str | None = None) -> Person:
-    data = {"name": name}
-    if subject is not None:
-        data["subject"] = subject
-    payload = validate_person_payload(role, data)
-    if not active:
-        payload["is_active"] = False
-    p = Person(phone=phone, password_hash=hash_password("123456"), payload=payload)
-    db.add(p)
-    db.flush()
-    return p
-
-
-def _seed_token(db, person: Person, token: str) -> str:
-    db.add(AuthSession(token=token, person_id=person.id))
-    db.commit()
-    return token
 
 
 @pytest.fixture()
@@ -49,9 +30,9 @@ def client(make_client, db):
     (exactly like app/main.py does)."""
     tc = make_client(auth.router, admin.router, auth_dependency=False)
 
-    admin_p = _seed_person(db, "13600000000", role="admin", name="管理员")
-    teacher = _seed_person(db, "13600000001", name="陈老师", subject="math")
-    teacher2 = _seed_person(db, "13600000002", name="赵老师", subject="english")
+    admin_p = seed_person(db, "13600000000", role="admin", name="管理员")
+    teacher = seed_person(db, "13600000001", name="陈老师", subject="math")
+    teacher2 = seed_person(db, "13600000002", name="赵老师", subject="english")
 
     klass = Class(name="七年级1班", grade_level=7, academic_year="2025/2026",
                   homeroom_person_id=teacher.id)
@@ -65,9 +46,9 @@ def client(make_client, db):
     db.flush()
     db.add(Enrollment(person_id=student.id, class_id=klass.id,
                       valid_from=date(2025, 9, 1)))
-    _seed_token(db, teacher2, TEACHER2_TOKEN)
-    _seed_token(db, teacher, TEACHER_TOKEN)
-    _seed_token(db, admin_p, ADMIN_TOKEN)
+    seed_token(db, teacher2, TEACHER2_TOKEN)
+    seed_token(db, teacher, TEACHER_TOKEN)
+    seed_token(db, admin_p, ADMIN_TOKEN)
     db.commit()
     ids = {
         "admin": str(admin_p.id),
@@ -167,7 +148,7 @@ def test_stats_keys(client, db):
     # A disabled person must not count as active. SQLite's json_extract maps
     # JSON booleans to integers, so SQL text comparisons can't express this —
     # the endpoint counts in Python; this locks that.
-    _seed_person(db, "13600000003", name="已停用", active=False)
+    seed_person(db, "13600000003", name="已停用", active=False)
     db.commit()
     stats = tc.get("/api/admin/stats").json()
     assert set(stats) == {"database", "tables", "users_total", "users_admins",
