@@ -4,7 +4,7 @@ import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import api from "../api"
 import { searchQuery, searchStudents } from "../search"
-import { subject, t } from "../strings"
+import { t } from "../strings"
 
 const router = useRouter()
 const students = ref([])
@@ -51,18 +51,7 @@ const groups = computed(() => {
 
 const searching = computed(() => query.value.trim().length > 0)
 
-// last exam scores as "数学 78 · 英语 60.2", math/english first
-const SUBJECT_ORDER = ["math", "english"]
-function lastExamScores(s) {
-  if (!s.last_exam) return ""
-  const entries = Object.entries(s.last_exam.scores)
-  entries.sort(([a], [b]) => {
-    const ia = SUBJECT_ORDER.indexOf(a)
-    const ib = SUBJECT_ORDER.indexOf(b)
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
-  })
-  return entries.map(([sub, score]) => `${subject(sub)} ${score}`).join(" · ")
-}
+
 
 // While searching, always expand so matches are never hidden inside a collapsed group.
 function isCollapsed(group) {
@@ -111,7 +100,7 @@ function toggleGroup(group) {
           <tr>
             <th>{{ t("th.admissionNo") }}</th>
             <th>{{ t("th.name") }}</th>
-            <th>{{ t("th.lastExam") }}</th>
+            <th>{{ t("th.tags") }}</th>
           </tr>
         </thead>
         <tbody>
@@ -124,9 +113,13 @@ function toggleGroup(group) {
             <td>{{ s.admission_no }}</td>
             <td><strong>{{ s.name }}</strong></td>
             <td>
-              <span v-if="s.last_exam" class="last-exam">
-                <span class="last-exam-name">{{ s.last_exam.exam_name }}</span>
-                <span class="last-exam-scores">{{ lastExamScores(s) }}</span>
+              <span v-if="s.tags && s.tags.length" class="tag-chips">
+                <span
+                  v-for="tag in s.tags"
+                  :key="tag.id"
+                  class="tag-chip"
+                  :style="{ background: tag.color }"
+                >{{ tag.name }}</span>
               </span>
               <span v-else class="last-exam-none">{{ t("common.none") }}</span>
             </td>

@@ -68,6 +68,80 @@ const profileSaving = ref(false)
 const profileError = ref("")
 const profileForm = ref({})
 
+// tags
+const tagFormOpen = ref(false)
+const tagSaving = ref(false)
+const tagError = ref("")
+const tagForm = ref({ name: "", color: "#2f5b44" })
+const allTags = ref([])
+
+const tagSuggestions = computed(() => {
+  const own = new Set((student.value?.tags ?? []).map((t) => t.id))
+  return allTags.value.filter((t) => !own.has(t.id))
+})
+
+function syncTags(tags) {
+  if (student.value) student.value.tags = tags
+}
+
+async function refreshSuggestions() {
+  try {
+    allTags.value = await api.get("/tags")
+  } catch {
+    allTags.value = []
+  }
+}
+
+async function addTag() {
+  tagError.value = ""
+  if (!(tagForm.value.name || "").trim()) {
+    tagError.value = t("detail.tagNameRequired")
+    return
+  }
+  tagSaving.value = true
+  try {
+    const created = await api.post(`/students/${props.id}/tags`, {
+      name: tagForm.value.name.trim(),
+      color: tagForm.value.color,
+    })
+    syncTags([...(student.value?.tags ?? []), created])
+    tagForm.value.name = ""
+    tagFormOpen.value = false
+    await refreshSuggestions()
+  } catch (e) {
+    tagError.value = e.message
+  } finally {
+    tagSaving.value = false
+  }
+}
+
+async function attachExisting(s) {
+  tagError.value = ""
+  try {
+    await api.post(`/students/${props.id}/tags`, { name: s.name, color: s.color })
+    syncTags([...(student.value?.tags ?? []), s])
+    await refreshSuggestions()
+  } catch (e) {
+    tagError.value = e.message
+  }
+}
+
+async function toggleTagForm() {
+  tagFormOpen.value = !tagFormOpen.value
+  if (tagFormOpen.value) await refreshSuggestions()
+}
+
+async function removeTag(tag) {
+  tagError.value = ""
+  try {
+    await api.delete(`/students/${props.id}/tags/${tag.id}`)
+    syncTags((student.value?.tags ?? []).filter((t) => t.id !== tag.id))
+    await refreshSuggestions()
+  } catch (e) {
+    tagError.value = e.message
+  }
+}
+
 async function load() {
   loading.value = true
   error.value = ""
@@ -252,6 +326,42 @@ function scoreClass(row) {
             <div class="profile-meta">
               <span>{{ t("detail.guardian") }}: {{ student.guardian_name || "—" }} · {{ student.guardian_phone || "—" }}</span>
               <span>{{ student.address || "" }}</span>
+            </div>
+            <div class="tag-row">
+              <span
+                v-for="tag in student.tags"
+                :key="tag.id"
+                class="tag-chip"
+                :style="{ background: tag.color }"
+              >{{ tag.name }}<button class="tag-x" :title="t('action.delete')" @click.stop="removeTag(tag)">×</button></span>
+              <button class="small tag-add-btn" @click="toggleTagForm">
+                <Icon name="plus" :size="12" /> {{ t("detail.addTag") }}
+              </button>
+            </div>
+            <div v-if="tagFormOpen" class="card tag-editor">
+              <div class="tag-suggest" v-if="tagSuggestions.length">
+                <span class="weakness-sub">{{ t("detail.tagInUse") }}:</span>
+                <button
+                  v-for="s in tagSuggestions"
+                  :key="s.id"
+                  class="small"
+                  @click="attachExisting(s)"
+                >{{ s.name }}</button>
+              </div>
+              <div class="tag-form-row">
+                <input
+                  v-model="tagForm.name"
+                  type="text"
+                  :placeholder="t('detail.tagName')"
+                  maxlength="40"
+                  style="flex: 1 1 140px"
+                />
+                <input v-model="tagForm.color" type="color" style="width: 42px; height: 32px; padding: 2px" />
+                <button class="small primary" :disabled="tagSaving" @click="addTag">
+                  {{ tagSaving ? t("new.saving") : t("action.save") }}
+                </button>
+              </div>
+              <p v-if="tagError" class="error-text">{{ tagError }}</p>
             </div>
           </div>
         </div>

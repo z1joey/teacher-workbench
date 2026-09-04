@@ -12,7 +12,7 @@ import {
 } from "../strings"
 
 const WEEKDAYS = ["一", "二", "三", "四", "五", "六", "日"]
-const TYPE_OPTIONS = ["home_visited", "parent_call", "talk", "tutoring", "note_added"]
+const TYPE_OPTIONS = ["home_visited", "parent_call", "talk", "tutoring", "note_added", "birthday"]
 const mounted = new Date()
 const todayISO = isoOf(mounted.getFullYear(), mounted.getMonth() + 1, mounted.getDate())
 
@@ -130,6 +130,7 @@ function openEdit(it) {
   form.value = {
     student_id: it.student_id,
     event_type: it.event_type,
+    recurrence: it.recurrence || "once",
     summary: p.summary || "",
     purpose: p.purpose || "",
     follow_up_needed: !!p.follow_up_needed,
@@ -184,6 +185,12 @@ async function saveForm() {
 function editRecord(it) {
   openEdit(it)
 }
+
+// yearly auto-events (birthdays) are read-only here — delete instead of edit
+const readOnlyEvent = computed(
+  () => modal.value?.mode === "edit" &&
+        (modal.value.item.recurrence === "yearly" || modal.value.item.event_type === "birthday")
+)
 
 async function deleteRecord(it) {
   if (!window.confirm(t("action.deleteConfirm"))) return
@@ -250,8 +257,7 @@ async function deleteRecord(it) {
           <p v-if="it.kind === 'record'" class="mini-desc">{{ describeEvent(it.event_type, it.payload) }}</p>
         </div>
         <div v-if="it.kind === 'record'" class="cal-item-actions">
-          <button class="small" :title="t('action.edit')" @click="editRecord(it)">{{ t("action.edit") }}</button>
-          <button class="small" :title="t('action.delete')" @click="deleteRecord(it)">{{ t("action.delete") }}</button>
+          <button class="small icon-btn" title="编辑 / 删除" @click="editRecord(it)">…</button>
         </div>
       </div>
 
@@ -270,7 +276,7 @@ async function deleteRecord(it) {
         <form class="cal-form" @submit.prevent="saveForm">
           <div class="field">
             <label>{{ t("home.calStudent") }} *</label>
-            <select v-model="form.student_id" required :disabled="modal.mode === 'edit'">
+            <select v-model="form.student_id" required :disabled="modal.mode === 'edit' || readOnlyEvent">
               <option value="" disabled>—</option>
               <option v-for="s in studentOptions" :key="s.id" :value="s.id">
                 {{ s.name }}{{ s.class ? `（${s.class.name}）` : "" }}
@@ -279,20 +285,20 @@ async function deleteRecord(it) {
           </div>
           <div class="field">
             <label>{{ t("home.calType") }}</label>
-            <select v-model="form.event_type">
+            <select v-model="form.event_type" :disabled="readOnlyEvent">
               <option v-for="ty in TYPE_OPTIONS" :key="ty" :value="ty">{{ eventTypeLabel(ty) }}</option>
             </select>
           </div>
           <div class="field">
             <label>{{ t("home.calRecurrence") }}</label>
-            <select v-model="form.recurrence">
+            <select v-model="form.recurrence" :disabled="readOnlyEvent">
               <option value="once">{{ t("home.calOnce") }}</option>
               <option value="yearly">{{ t("home.calYearly") }}</option>
             </select>
           </div>
           <div class="field">
             <label>{{ t("home.calSummary") }}</label>
-            <input v-model="form.summary" type="text" required />
+            <input v-model="form.summary" type="text" required :disabled="readOnlyEvent" />
           </div>
           <div v-if="form.event_type === 'home_visited' || form.event_type === 'parent_call'" class="field">
             <label>{{ t("home.calPurpose") }}</label>
@@ -309,10 +315,17 @@ async function deleteRecord(it) {
           </div>
           <p v-if="formError" class="error-text">{{ formError }}</p>
           <div class="cal-form-actions">
-            <button type="submit" class="primary" :disabled="formSaving">
+            <button
+              v-if="modal.mode === 'edit'"
+              type="button"
+              class="danger"
+              :disabled="formSaving"
+              @click="deleteRecord(modal.item)"
+            >{{ t("action.delete") }}</button>
+            <button type="button" @click="closeForm">{{ t("action.cancel") }}</button>
+            <button v-if="!readOnlyEvent" type="submit" class="primary" :disabled="formSaving">
               {{ formSaving ? t("new.saving") : t("action.save") }}
             </button>
-            <button type="button" @click="closeForm">{{ t("action.cancel") }}</button>
           </div>
         </form>
       </div>

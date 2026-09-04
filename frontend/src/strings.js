@@ -211,10 +211,10 @@ const messages = {
   "th.admissionNo": "学号",
   "th.name": "姓名",
   "th.gender": "性别",
-  "th.lastExam": "上次考试",
   "th.class": "班级",
   "th.status": "状态",
   "th.exam": "考试",
+  "th.tags": "标签",
   "th.subject": "科目",
   "th.score": "分数",
 
@@ -230,6 +230,10 @@ const messages = {
   "detail.timeline": "时间线",
   "detail.trendTitle": "成绩变化趋势",
   "detail.trendSub": "各科成绩随考试变化 · 点击分数可修改",
+  "detail.addTag": "添加标签",
+  "detail.tagName": "标签名称",
+  "detail.tagNameRequired": "请填写标签名称",
+  "detail.tagInUse": "使用中的标签",
   "detail.scoresExpand": "展开更早的 {n} 条成绩",
   "detail.scoresCollapse": "收起",
   "detail.editReason": "工作台内更正",
@@ -353,6 +357,7 @@ const EVENT_TYPES = {
   talk: { icon: "note", color: "#4F6EAD" },
   tutoring: { icon: "board", color: "#854D0E" },
   note_added: { icon: "note", color: "#5C6B63" },
+  birthday: { icon: "cake", color: "#9A5B07" },
 }
 
 export function eventTypeIcon(type) {
@@ -382,6 +387,10 @@ export function describeEvent(type, p = {}) {
     }
     case "result_changed":
       return `${p.exam ?? ""} · ${subject(p.subject)}: ${p.old} → ${p.new}${p.reason ? " · " + p.reason : ""}`
+    case "birthday": {
+      const [y, m, d] = (p.birth_date ?? "").split("-")
+      return y ? `出生于 ${y}年${parseInt(m)}月${parseInt(d)}日` : "生日"
+    }
     case "home_visited":
       return `${p.purpose ? p.purpose + " — " : ""}${p.summary || ""}`
     case "parent_call":

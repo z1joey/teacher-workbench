@@ -37,6 +37,7 @@ async function request(path, options = {}) {
     if (typeof detail !== "string" || !detail) detail = res.statusText
     throw new Error(detail)
   }
+  if (res.status === 204 || res.status === 205) return null
   return res.json()
 }
 

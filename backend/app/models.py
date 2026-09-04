@@ -196,3 +196,26 @@ class AuthSession(Base):
     token: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class Tag(Base):
+    """Global, reusable student tag. Only tags attached to at least one
+    student are considered "in use"; unused rows are garbage-collected."""
+
+    __tablename__ = "tag"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(40), unique=True)
+    color: Mapped[str] = mapped_column(String(20))
+
+
+class StudentTag(Base):
+    __tablename__ = "student_tag"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("student.id"))
+    tag_id: Mapped[int] = mapped_column(ForeignKey("tag.id"))
+
+    __table_args__ = (
+        UniqueConstraint("student_id", "tag_id", name="uq_student_tag"),
+    )

@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 from .database import SessionLocal, engine
 from .events import add_event, next_birthday_date
 from .models import (
+    StudentTag,
+    Tag,
     Class,
     Enrollment,
     Exam,
@@ -140,6 +142,20 @@ def seed(db: Session) -> None:
 
     make_students(NAMES_7_1, c71, 1)
     make_students(NAMES_7_2, c72, 101)
+    db.flush()
+
+    # demo tags (globally reusable once attached)
+    focus_tag = Tag(name="需关注", color="#b42318")
+    rep_tag = Tag(name="课代表", color="#177245")
+    db.add_all([focus_tag, rep_tag])
+    db.flush()
+    by_name = {s.name: s for s in students}
+    for tag_name, names in (("需关注", ["林晓雨", "王浩"]), ("课代表", ["宋雅轩", "郭浩然"])):
+        tag = focus_tag if tag_name == "需关注" else rep_tag
+        for n in names:
+            s = by_name.get(n)
+            if s:
+                db.add(StudentTag(student_id=s.id, tag_id=tag.id))
     db.flush()
 
     # recurring birthday events (auto-created on real signups too)

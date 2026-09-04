@@ -1,7 +1,9 @@
 from datetime import date, datetime, time
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -15,11 +17,40 @@ from ..models import (
     ExamSubject,
     Student,
     StudentEvent,
+    StudentTag,
+    Tag,
     User,
     utcnow,
 )
 
 router = APIRouter(tags=["students"])
+
+COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _tags_for_student(db: Session, student_id: int) -> list[dict]:
+    rows = (
+        db.query(Tag)
+        .join(StudentTag, StudentTag.tag_id == Tag.id)
+        .filter(StudentTag.student_id == student_id)
+        .order_by(Tag.id)
+        .all()
+    )
+    return [{"id": tg.id, "name": tg.name, "color": tg.color} for tg in rows]
+
+
+def _prune_unused_tags(db: Session) -> None:
+    used = db.query(StudentTag.tag_id).distinct()
+    db.query(Tag).filter(~Tag.id.in_(used)).delete(synchronize_session=False)
+
+
+def _find_or_create_tag(db: Session, name: str, color: str) -> Tag:
+    tag = db.query(Tag).filter(Tag.name == name).first()
+    if tag is None:
+        tag = Tag(name=name, color=color)
+        db.add(tag)
+        db.flush()
+    return tag
 
 
 def current_class(db: Session, student_id: int) -> Class | None:
@@ -83,9 +114,78 @@ def list_students(db: Session = Depends(get_db)):
                 "status": s.status,
                 "class": {"id": cls.id, "name": cls.name} if cls else None,
                 "last_exam": last_exam_summary(db, s.id),
+                "tags": _tags_for_student(db, s.id),
             }
         )
     return out
+
+
+@router.get("/tags")
+def list_tags(db: Session = Depends(get_db)):
+    """All in-use tags (attached to at least one student)."""
+    tags = (
+        db.query(Tag, func.count(StudentTag.id))
+        .outerjoin(StudentTag, StudentTag.tag_id == Tag.id)
+        .group_by(Tag.id)
+        .having(func.count(StudentTag.id) > 0)
+        .order_by(func.count(StudentTag.id).desc(), Tag.name)
+        .all()
+    )
+    return [
+        {"id": tag.id, "name": tag.name, "color": tag.color, "usage": count}
+        for tag, count in tags
+    ]
+
+
+class StudentTagIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    color: str
+
+
+@router.post("/students/{student_id}/tags", status_code=201)
+def attach_tag(
+    student_id: int,
+    body: StudentTagIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if db.get(Student, student_id) is None:
+        raise HTTPException(status_code=404, detail="student not found")
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="tag name is required")
+    if not COLOR_RE.match(body.color):
+        raise HTTPException(status_code=400, detail="颜色格式不正确")
+    tag = _find_or_create_tag(db, name, body.color.lower())
+    if (
+        db.query(StudentTag)
+        .filter(StudentTag.student_id == student_id, StudentTag.tag_id == tag.id)
+        .first()
+        is not None
+    ):
+        raise HTTPException(status_code=409, detail="该标签已添加")
+    db.add(StudentTag(student_id=student_id, tag_id=tag.id))
+    db.commit()
+    return {"id": tag.id, "name": tag.name, "color": tag.color}
+
+
+@router.delete("/students/{student_id}/tags/{tag_id}", status_code=204)
+def detach_tag(
+    student_id: int,
+    tag_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    row = (
+        db.query(StudentTag)
+        .filter(StudentTag.student_id == student_id, StudentTag.tag_id == tag_id)
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="tag not attached")
+    db.delete(row)
+    _prune_unused_tags(db)
+    db.commit()
 
 
 class StudentIn(BaseModel):
@@ -176,6 +276,7 @@ def get_student(student_id: int, db: Session = Depends(get_db)):
             }
             for r, es, e in results
         ],
+        "tags": _tags_for_student(db, s.id),
     }
 
 
@@ -374,13 +475,16 @@ def update_event(
         raise HTTPException(status_code=403, detail="cannot edit another teacher's event")
     ev.event_type = body.event_type
     ev.occurred_at = body.occurred_at or ev.occurred_at
-    ev.payload = {
+    payload = {
         "summary": body.summary,
         "purpose": body.purpose,
         "follow_up_needed": body.follow_up_needed,
         "follow_up_note": body.follow_up_note,
         "is_custom": body.event_type not in MANUAL_EVENT_TYPES,
     }
+    if ev.event_type == "birthday":
+        payload["birth_date"] = (ev.payload or {}).get("birth_date")
+    ev.payload = payload
     db.commit()
     db.refresh(ev)
     return {"id": ev.id, "status": "updated"}

@@ -330,6 +330,25 @@ tbody tr.clickable:hover { background: #f6f8f5; }
 
 /* collapse long score tables (student detail) */
 .scores-toggle { width: 100%; margin-top: 10px; color: var(--muted); }
+
+/* --- student tags --- */
+.tag-chip {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 2px 10px; border-radius: 999px;
+  color: #fff; font-size: 12px; font-weight: 600;
+  white-space: nowrap;
+}
+.tag-x {
+  border: none; background: transparent; color: rgba(255, 255, 255, 0.85);
+  font-size: 13px; line-height: 1; padding: 0 0 0 2px; cursor: pointer;
+}
+.tag-x:hover { color: #fff; }
+.tag-add-btn { flex-shrink: 0; }
+.tag-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tag-editor { margin-top: 10px; padding: 12px 14px; box-shadow: none; }
+.tag-suggest { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.tag-suggest button { height: 26px; padding: 2px 10px; font-size: 12px; }
+.tag-form-row { display: flex; gap: 8px; align-items: center; }
 /* one row per exam: subject initial + score pills */
 .score-seg { display: inline-flex; align-items: center; }
 .score-seg + .score-seg { margin-left: 8px; }
@@ -626,6 +645,11 @@ button.cal-day.has:hover { background: #f0f4ef; }
 .cal-form .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .cal-form-actions { display: flex; gap: 8px; }
 .cal-form-actions button { flex: 1; justify-content: center; }
+.cal-form-actions .danger {
+  margin-right: auto; flex: 0 0 auto;
+  background: #fff; border-color: #eecac5; color: var(--danger);
+}
+.cal-form-actions .danger:hover { background: var(--danger-soft); border-color: var(--danger); }
 .modal-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   margin-bottom: 12px;
