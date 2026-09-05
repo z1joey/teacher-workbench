@@ -10,7 +10,7 @@ import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
 import { ask } from "../confirm"
 import { notify, runUndoable } from "../feedback"
-import { friendlyError, recordableEventOptions, t } from "../strings"
+import { friendlyError, recordableEventOptions, eventTypeLabel, t } from "../strings"
 
 const props = defineProps({
   studentId: { type: String, required: true },
@@ -86,11 +86,14 @@ onMounted(async () => {
 const presets = recordableEventOptions()
 const PRESET_VALUES = presets.map((o) => o.value)
 
+// 新建只开放家访；下拉仅编辑旧记录时出现，用于回显暂时关闭的类型
+// （家长沟通/谈心/辅导/教师备注），不再提供「自定义类型」新入口。
 const typeOptions = computed(() => {
+  if (isCreate.value) return presets
   const extras = customEventTypes.value
     .filter((x) => !PRESET_VALUES.includes(x))
-    .map((x) => ({ value: x, label: x }))
-  return [...presets, ...extras, { value: CUSTOM_VALUE, label: "＋ 自定义类型…" }]
+    .map((x) => ({ value: x, label: eventTypeLabel(x) }))
+  return [...presets, ...extras, { value: CUSTOM_VALUE, label: "自定义类型" }]
 })
 
 // 自定义类型时真正提交给后端的名字
@@ -188,14 +191,19 @@ function goBack() {
 
   <template v-else>
     <PageHeader
-      :title="isCreate ? t('event.record') : `编辑${eventTypeLabelSafe()}`"
+      :title="isCreate ? '记录家访' : `编辑${eventTypeLabelSafe()}`"
       :subtitle="student ? student.name : ''"
     />
 
     <AsyncState :loading="loading" :error="error" :rows="4" @retry="router.go(0)">
       <div class="card" style="max-width: 620px">
         <form class="card__body" @submit.prevent="save" novalidate>
-          <FormField :label="t('event.type')" :hint="t('event.typeHint')" :error="errors.event_type || ''">
+          <!-- 新建固定为家访，不再选类型；类型下拉只在编辑历史记录时出现 -->
+          <FormField
+            v-if="!isCreate"
+            :label="t('event.type')"
+            :error="errors.event_type || ''"
+          >
             <select
               v-model="form.event_type"
               class="select"
@@ -206,10 +214,9 @@ function goBack() {
           </FormField>
 
           <FormField
-            v-if="form.event_type === '__custom__'"
+            v-if="!isCreate && form.event_type === '__custom__'"
             label="自定义类型名称"
             required
-            hint="比如「考前谈心」「作业抽查」，用过的会自动出现在上面的列表里"
           >
             <input v-model="form.custom_type" class="input" type="text" maxlength="20" />
           </FormField>

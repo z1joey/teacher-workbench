@@ -198,7 +198,7 @@ const messages = {
   "visits.title": "家访",
   "visits.subtitle": "共 {count} 次 · 覆盖 {students} 名学生",
   "visits.emptyTitle": "还没有家访记录",
-  "visits.emptyDesc": "家访记录来自学生档案里的「记录事件」，勾选「需要跟进」的会出现在待跟进里。",
+  "visits.emptyDesc": "家访记录来自学生档案里的「记录家访」，勾选「需要跟进」的会出现在待跟进里。",
   "visits.filterAll": "全部",
   "visits.filterFollowUps": "待跟进",
   "visits.followUp": "需跟进",
@@ -325,7 +325,7 @@ const messages = {
   "detail.scoresExpand": "展开更早的 {n} 条成绩",
   "detail.scoresCollapse": "收起更早的成绩",
   "detail.editReason": "工作台内更正",
-  "detail.recordEvent": "记录事件",
+  "detail.recordEvent": "记录家访",
   "detail.nameRequired": "请填写学生姓名",
   "detail.deleteConfirm": "如果他已有成绩或跟进记录，只会停用账号并保留数据；没有记录才会彻底删除。",
   "detail.profileEditTitle": "编辑资料",
@@ -335,10 +335,8 @@ const messages = {
   "detail.noEvents": "还没有事件记录",
 
   // --- 事件 ---
-  "event.record": "记录事件",
   "event.close": "收起",
   "event.type": "事件类型",
-  "event.typeHint": "从列表里选，也可以直接输入自己的说法，比如「考前谈心」",
   "event.purpose": "事件目的",
   "event.purposeHint": "写清楚为什么做这件事，半年后回看才想得起来",
   "event.summary": "事件摘要",
@@ -564,11 +562,9 @@ export function describeEvent(type, p = {}) {
 // 可手动记录的事件类型（供下拉选择，而不是让用户背代码）
 export const RECORDABLE_EVENT_TYPES = [
   { value: "home_visited", label: "tl.home_visited" },
-  { value: "parent_call", label: "tl.parent_call" },
-  { value: "talk", label: "tl.talk" },
-  { value: "tutoring", label: "tl.tutoring" },
-  { value: "note_added", label: "tl.note_added" },
 ]
+// 手动记录暂时只开放家访；其余类型（家长沟通/谈心/辅导/教师备注）的历史
+// 记录仍可编辑。录入成绩走考试详情页和学生档案的成绩卡，不在这个表单里。
 export function recordableEventOptions() {
   return RECORDABLE_EVENT_TYPES.map((o) => ({ value: o.value, label: t(o.label) }))
 }

@@ -79,7 +79,7 @@ export const router = createRouter({
       name: "eventNew",
       component: EventDetailView,
       props: (r) => ({ studentId: r.params.studentId, eventId: null }),
-      meta: { title: "记录事件", parent: { label: "学生", to: "/students" } },
+      meta: { title: "记录家访", parent: { label: "学生", to: "/students" } },
     },
     {
       path: "/students/:studentId/events/:eventId",
