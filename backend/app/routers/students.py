@@ -396,7 +396,12 @@ def student_timeline(student_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="student not found")
     rows = (
         db.query(Event)
-        .filter(Event.attendees.any(Person.id == student_id))
+        .filter(
+            Event.attendees.any(Person.id == student_id),
+            # score events stay in the 考试成绩 card — one row per subject per
+            # exam floods the timeline with rows the scores table shows better
+            Event.type != "score",
+        )
         .order_by(Event.start_time.desc(), Event.created_at.desc())
         .all()
     )

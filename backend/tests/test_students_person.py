@@ -399,6 +399,7 @@ def test_timeline_lists_manual_events_and_projected_birthday(make_client, db, he
     s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
     _manual_event(db, s, "home_visited", "开学前家访", datetime(2026, 3, 15, 19, 0))
     _manual_event(db, s, "talk", "聊了作业习惯", datetime(2026, 4, 1, 12, 0))
+    _score_event(db, s, "期中考试", "math", score=90.0)  # scores live in the 成绩 card
     db.commit()
     client = make_client(students.router)
 

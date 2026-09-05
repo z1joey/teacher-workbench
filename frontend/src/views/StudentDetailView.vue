@@ -392,148 +392,6 @@ function fmtDate(d) {
 
       <div class="split">
         <div>
-          <!-- 资料卡 -->
-          <div class="card">
-            <div class="card__head">
-              <h2 class="card__title"><Icon name="user" :size="16" /> 学生资料</h2>
-              <button v-if="!profileEditing" class="btn btn--sm" @click="startProfileEdit">
-                <Icon name="pencil" :size="13" /> {{ t("action.edit") }}
-              </button>
-            </div>
-
-            <div v-if="!profileEditing" class="card__body">
-              <div class="row" style="gap: 14px; align-items: flex-start">
-                <span class="avatar avatar--lg">{{ student.name.charAt(0) }}</span>
-                <div class="grow">
-                  <div class="row-wrap">
-                    <span class="pill" :class="`pill--${studentStatusTone(student.status)}`">
-                      {{ studentStatusLabel(student.status) }}
-                    </span>
-                    <span v-if="student.class" class="pill pill--outline">{{ student.class.name }}</span>
-                  </div>
-                  <p class="stat__sub" style="margin-top: 8px">
-                    {{ t("detail.guardian") }}：{{ student.guardian_name || t("common.none") }}
-                    · {{ student.guardian_phone || t("common.none") }}
-                  </p>
-                  <p v-if="student.address" class="stat__sub">{{ student.address }}</p>
-                </div>
-              </div>
-
-              <!-- 标签 -->
-              <div class="row-wrap" style="margin-top: 16px">
-                <span
-                  v-for="tag in student.tags"
-                  :key="tag.id"
-                  class="tag"
-                  :style="{ background: tag.color }"
-                >
-                  {{ tag.name }}
-                  <button class="tag__x" :aria-label="`移除标签 ${tag.name}`" @click="removeTag(tag)">
-                    <Icon name="close" :size="10" />
-                  </button>
-                </span>
-                <button class="btn btn--sm btn--ghost" @click="toggleTagForm">
-                  <Icon name="tag" :size="13" /> {{ t("detail.addTag") }}
-                </button>
-              </div>
-
-              <div v-if="tagFormOpen" class="card card--nested" style="margin-top: 12px">
-                <div class="card__body card__body--tight">
-                  <div v-if="tagSuggestions.length" class="row-wrap" style="margin-bottom: 10px">
-                    <span class="field__hint">{{ t("detail.tagInUse") }}</span>
-                    <button
-                      v-for="s in tagSuggestions"
-                      :key="s.id"
-                      class="chip"
-                      :style="{ borderColor: s.color, color: s.color }"
-                      @click="attachExisting(s)"
-                    >
-                      <Icon name="plus" :size="11" /> {{ s.name }}
-                    </button>
-                  </div>
-                  <div class="row">
-                    <input
-                      v-model="tagForm.name"
-                      class="input input--sm grow"
-                      type="text"
-                      :placeholder="t('detail.tagName')"
-                      maxlength="40"
-                      :aria-invalid="!!tagError"
-                      @keydown.enter.prevent="addTag"
-                    />
-                    <input
-                      v-model="tagForm.color"
-                      class="input input--color"
-                      type="color"
-                      aria-label="标签颜色"
-                    />
-                    <button class="btn btn--sm btn--primary" :disabled="tagSaving" @click="addTag">
-                      {{ t("action.save") }}
-                    </button>
-                  </div>
-                  <p v-if="tagError" class="field__error" style="margin-top: 8px">
-                    <Icon name="alert-circle" :size="12" /> {{ tagError }}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <!-- 就地编辑资料 -->
-            <form v-else class="card__body" @submit.prevent="saveProfileEdit">
-              <p class="section-title" style="margin-bottom: 14px">
-                {{ t("detail.profileEditTitle") }} · {{ student.name }}
-              </p>
-              <div class="form-grid">
-                <FormField :label="t('new.name')" required>
-                  <input v-model="profileForm.name" class="input" type="text" maxlength="100" />
-                </FormField>
-                <FormField :label="t('new.gender')" optional>
-                  <select v-model="profileForm.gender" class="select">
-                    <option v-for="g in GENDER_OPTIONS" :key="g.value" :value="g.value">{{ g.label }}</option>
-                  </select>
-                </FormField>
-                <FormField :label="t('detail.status')">
-                  <select v-model="profileForm.status" class="select">
-                    <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.label }}</option>
-                  </select>
-                </FormField>
-                <FormField :label="t('new.class')" hint="换班会自动记录一条转班事件">
-                  <select v-model="profileForm.class_id" class="select">
-                    <option :value="null">{{ t("students.ungrouped") }}</option>
-                    <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
-                  </select>
-                </FormField>
-              </div>
-              <div class="form-grid">
-                <FormField :label="t('new.guardianName')" optional>
-                  <input v-model="profileForm.guardian_name" class="input" type="text" />
-                </FormField>
-                <FormField :label="t('new.guardianPhone')" optional>
-                  <input v-model="profileForm.guardian_phone" class="input" type="tel" maxlength="40" />
-                </FormField>
-                <FormField :label="t('new.birthDate')" optional>
-                  <input v-model="profileForm.birth_date" class="input" type="date" />
-                </FormField>
-                <FormField :label="t('new.address')" optional>
-                  <input v-model="profileForm.address" class="input" type="text" />
-                </FormField>
-              </div>
-
-              <p v-if="profileError" class="field__error" style="margin-bottom: 12px">
-                <Icon name="alert-circle" :size="13" /> {{ profileError }}
-              </p>
-
-              <div class="form-actions">
-                <button type="submit" class="btn btn--primary" :disabled="profileSaving">
-                  <span v-if="profileSaving" class="spinner" />
-                  {{ profileSaving ? t("action.saving") : t("action.save") }}
-                </button>
-                <button type="button" class="btn btn--ghost" @click="cancelProfileEdit">
-                  {{ t("action.cancel") }}
-                </button>
-              </div>
-            </form>
-          </div>
 
           <!-- 成绩 -->
           <div class="card">
@@ -648,6 +506,149 @@ function fmtDate(d) {
               </p>
             </div>
           </div>
+        </div>
+
+        <!-- 资料卡（侧栏） -->
+        <div class="card">
+          <div class="card__head">
+            <h2 class="card__title"><Icon name="user" :size="16" /> 学生资料</h2>
+            <button v-if="!profileEditing" class="btn btn--sm" @click="startProfileEdit">
+              <Icon name="pencil" :size="13" /> {{ t("action.edit") }}
+            </button>
+          </div>
+
+          <div v-if="!profileEditing" class="card__body">
+            <div class="row" style="gap: 14px; align-items: flex-start">
+              <span class="avatar avatar--lg">{{ student.name.charAt(0) }}</span>
+              <div class="grow">
+                <div class="row-wrap">
+                  <span class="pill" :class="`pill--${studentStatusTone(student.status)}`">
+                    {{ studentStatusLabel(student.status) }}
+                  </span>
+                  <span v-if="student.class" class="pill pill--outline">{{ student.class.name }}</span>
+                </div>
+                <p class="stat__sub" style="margin-top: 8px">
+                  {{ t("detail.guardian") }}：{{ student.guardian_name || t("common.none") }}
+                  · {{ student.guardian_phone || t("common.none") }}
+                </p>
+                <p v-if="student.address" class="stat__sub">{{ student.address }}</p>
+              </div>
+            </div>
+
+            <!-- 标签 -->
+            <div class="row-wrap" style="margin-top: 16px">
+              <span
+                v-for="tag in student.tags"
+                :key="tag.id"
+                class="tag"
+                :style="{ background: tag.color }"
+              >
+                {{ tag.name }}
+                <button class="tag__x" :aria-label="`移除标签 ${tag.name}`" @click="removeTag(tag)">
+                  <Icon name="close" :size="10" />
+                </button>
+              </span>
+              <button class="btn btn--sm btn--ghost" @click="toggleTagForm">
+                <Icon name="tag" :size="13" /> {{ t("detail.addTag") }}
+              </button>
+            </div>
+
+            <div v-if="tagFormOpen" class="card card--nested" style="margin-top: 12px">
+              <div class="card__body card__body--tight">
+                <div v-if="tagSuggestions.length" class="row-wrap" style="margin-bottom: 10px">
+                  <span class="field__hint">{{ t("detail.tagInUse") }}</span>
+                  <button
+                    v-for="s in tagSuggestions"
+                    :key="s.id"
+                    class="chip"
+                    :style="{ borderColor: s.color, color: s.color }"
+                    @click="attachExisting(s)"
+                  >
+                    <Icon name="plus" :size="11" /> {{ s.name }}
+                  </button>
+                </div>
+                <div class="row">
+                  <input
+                    v-model="tagForm.name"
+                    class="input input--sm grow"
+                    type="text"
+                    :placeholder="t('detail.tagName')"
+                    maxlength="40"
+                    :aria-invalid="!!tagError"
+                    @keydown.enter.prevent="addTag"
+                  />
+                  <input
+                    v-model="tagForm.color"
+                    class="input input--color"
+                    type="color"
+                    aria-label="标签颜色"
+                  />
+                  <button class="btn btn--sm btn--primary" :disabled="tagSaving" @click="addTag">
+                    {{ t("action.save") }}
+                  </button>
+                </div>
+                <p v-if="tagError" class="field__error" style="margin-top: 8px">
+                  <Icon name="alert-circle" :size="12" /> {{ tagError }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 就地编辑资料 -->
+          <form v-else class="card__body" @submit.prevent="saveProfileEdit">
+            <p class="section-title" style="margin-bottom: 14px">
+              {{ t("detail.profileEditTitle") }} · {{ student.name }}
+            </p>
+            <div class="form-grid">
+              <FormField :label="t('new.name')" required>
+                <input v-model="profileForm.name" class="input" type="text" maxlength="100" />
+              </FormField>
+              <FormField :label="t('new.gender')" optional>
+                <select v-model="profileForm.gender" class="select">
+                  <option v-for="g in GENDER_OPTIONS" :key="g.value" :value="g.value">{{ g.label }}</option>
+                </select>
+              </FormField>
+              <FormField :label="t('detail.status')">
+                <select v-model="profileForm.status" class="select">
+                  <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.label }}</option>
+                </select>
+              </FormField>
+              <FormField :label="t('new.class')" hint="换班会自动记录一条转班事件">
+                <select v-model="profileForm.class_id" class="select">
+                  <option :value="null">{{ t("students.ungrouped") }}</option>
+                  <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
+                </select>
+              </FormField>
+            </div>
+            <div class="form-grid">
+              <FormField :label="t('new.guardianName')" optional>
+                <input v-model="profileForm.guardian_name" class="input" type="text" />
+              </FormField>
+              <FormField :label="t('new.guardianPhone')" optional>
+                <input v-model="profileForm.guardian_phone" class="input" type="tel" maxlength="40" />
+              </FormField>
+              <FormField :label="t('new.birthDate')" optional>
+                <input v-model="profileForm.birth_date" class="input" type="date" />
+              </FormField>
+              <FormField :label="t('new.address')" optional>
+                <input v-model="profileForm.address" class="input" type="text" />
+              </FormField>
+            </div>
+
+            <p v-if="profileError" class="field__error" style="margin-bottom: 12px">
+              <Icon name="alert-circle" :size="13" /> {{ profileError }}
+            </p>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn--primary" :disabled="profileSaving">
+                <span v-if="profileSaving" class="spinner" />
+                {{ profileSaving ? t("action.saving") : t("action.save") }}
+              </button>
+              <button type="button" class="btn btn--ghost" @click="cancelProfileEdit">
+                {{ t("action.cancel") }}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </template>
