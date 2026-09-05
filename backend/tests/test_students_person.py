@@ -17,7 +17,7 @@ import pytest
 
 from app import eventing
 from app.eventing import MANUAL_EVENT_TYPES, next_birthday_date
-from app.models import AuthSession, Class, Enrollment, Event, Person, Tag
+from app.models import AuthSession, Class, Enrollment, Event, Person, Tag, student_guardians
 from app.payloads import validate_person_payload
 from app.routers import students
 from app.security import hash_password
@@ -29,23 +29,33 @@ from app.security import hash_password
 
 def _seed_person(db, name: str, admission_no: str, *, birth_date: str | None = None,
                  active: bool = True) -> Person:
-    payload = validate_person_payload("student", {"name": name, "admission_no": admission_no})
+    # `name` is a typed person column; the payload carries only student data
+    payload = validate_person_payload("student", {"admission_no": admission_no})
     if birth_date:
         payload["birth_date"] = birth_date
     if not active:
         payload["is_active"] = False
-    p = Person(password_hash=hash_password(uuid.uuid4().hex), payload=payload)
+    p = Person(name=name, password_hash=hash_password(uuid.uuid4().hex), payload=payload)
     db.add(p)
     db.flush()
     return p
 
 
 def _seed_teacher(db, phone: str = "13800000001") -> Person:
-    p = Person(phone=phone, password_hash=hash_password("123456"),
-               payload=validate_person_payload("teacher", {"name": "王老师"}))
+    p = Person(name="王老师", phone=phone, password_hash=hash_password("123456"),
+               payload=validate_person_payload("teacher", {}))
     db.add(p)
     db.flush()
     return p
+
+
+def _seed_guardian(db, name: str, phone: str) -> Person:
+    """A guardian is a Person too — link it to a student through student_guardians."""
+    g = Person(name=name, phone=phone, password_hash=hash_password(uuid.uuid4().hex),
+               payload=validate_person_payload("guardian", {"phone": phone}))
+    db.add(g)
+    db.flush()
+    return g
 
 
 def _headers(db, person: Person, token: str = "t" * 64) -> dict:
@@ -150,9 +160,20 @@ def test_create_student_201_old_keys_seeds_payload_enrollment_enrolled_event(mak
 
     person = db.get(Person, uuid.UUID(body["id"]))
     assert person is not None
-    assert person.payload["name"] == "林新"
+    assert person.name == "林新"
+    assert person.payload["admission_no"] == "S8"
     assert person.payload["birth_date"] == "2013-06-01"
     assert person.payload["is_active"] is True
+
+    # the guardian is a Person linked through student_guardians, not a flat
+    # student payload key
+    linked = (
+        db.query(Person)
+        .join(student_guardians, student_guardians.c.guardian_id == Person.id)
+        .filter(student_guardians.c.student_id == person.id)
+        .all()
+    )
+    assert [g.name for g in linked] == ["林爸爸"]
 
     enrollments = db.query(Enrollment).filter(Enrollment.person_id == person.id).all()
     assert len(enrollments) == 1 and enrollments[0].class_id == cls.id
@@ -190,7 +211,7 @@ def test_get_student_shape_scores_and_404(make_client, db, headers):
     assert r.status_code == 200, r.text
     body = r.json()
     assert set(body) == {"id", "admission_no", "name", "gender", "birth_date",
-                         "guardian_name", "guardian_phone", "address", "status",
+                         "guardians", "address", "status",
                          "class", "scores", "tags"}
     assert body["birth_date"] == "2012-05-14"
     assert body["class"] == {"id": str(cls.id), "name": cls.name}
@@ -217,11 +238,9 @@ def test_get_student_shape_scores_and_404(make_client, db, headers):
 # ---------------------------------------------------------------------------
 
 def test_patch_student_partial_merge_keeps_other_payload_keys(make_client, db, headers):
-    s = _seed_person(db, "林晓雨", "S001")
-    payload = dict(s.payload or {})
-    payload["guardian_name"] = "林爸爸"
-    payload["guardian_phone"] = "13810001000"
-    s.payload = payload  # reassign: JSON columns don't see in-place mutation
+    s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
+    g = _seed_guardian(db, "林爸爸", "13810001000")
+    db.execute(student_guardians.insert().values(student_id=s.id, guardian_id=g.id))
     db.commit()
     client = make_client(students.router)
 
@@ -232,10 +251,10 @@ def test_patch_student_partial_merge_keeps_other_payload_keys(make_client, db, h
     assert set(body) == {"id", "admission_no", "name", "gender", "status", "class"}
     db.refresh(s)
     assert s.payload["address"] == "幸福路1号"
-    # partial patch must not drop sibling payload keys
-    assert s.payload["guardian_name"] == "林爸爸"
+    # partial patch must not drop sibling payload keys or the name column
+    assert s.payload["birth_date"] == "2012-05-14"
     assert s.payload["admission_no"] == "S001"
-    assert s.payload["name"] == "林晓雨"
+    assert s.name == "林晓雨"
 
     r = client.patch(f"/api/students/{uuid.UUID(int=1)}", json={"address": "x"},
                      headers=headers)
@@ -505,11 +524,18 @@ def test_manual_event_create_list_patch_delete(make_client, db, headers):
 
 def test_events_lists_events_the_teacher_attends(make_client, db, headers):
     teacher = db.query(Person).filter(Person.phone == "13800000001").one()
-    s1 = Person(password_hash=hash_password(uuid.uuid4().hex),
-                payload=validate_person_payload("student", {
-                    "name": "林晓雨", "admission_no": "S001",
-                    "guardian_name": "林女士"}))
+    s1 = Person(name="林晓雨", password_hash=hash_password(uuid.uuid4().hex),
+                payload=validate_person_payload("student", {"admission_no": "S001"}))
     db.add(s1)
+    db.flush()
+    # a guardian Person of record, linked through student_guardians — the home
+    # visit snapshots its name into the event payload
+    g1 = Person(name="林女士", phone="13810001000",
+                password_hash=hash_password(uuid.uuid4().hex),
+                payload=validate_person_payload("guardian", {"phone": "13810001000"}))
+    db.add(g1)
+    db.flush()
+    db.execute(student_guardians.insert().values(student_id=s1.id, guardian_id=g1.id))
     s2 = _seed_person(db, "王小明", "S002")
     db.commit()  # the API session must see the new students
     client = make_client(students.router)

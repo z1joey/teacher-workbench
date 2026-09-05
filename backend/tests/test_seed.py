@@ -42,10 +42,10 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
 
     db = SessionLocal()
     try:
-        # roles: 1 admin + 2 teachers + 24 students
+        # roles: 1 admin + 2 teachers + 24 students + 24 guardians (one each)
         role_of = Person.payload["role"].as_string()
         roles = dict(db.query(role_of, func.count(Person.id)).group_by(role_of).all())
-        assert roles == {"admin": 1, "teacher": 2, "student": 24}
+        assert roles == {"admin": 1, "teacher": 2, "student": 24, "guardian": 24}
 
         # events by type: 6 graded sittings + 1 upcoming exam, every
         # student-subject of the graded sittings scored, the correction
@@ -102,7 +102,8 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         admin = db.query(Person).filter(Person.phone == "13800000000").one()
         chen = db.query(Person).filter(Person.phone == "13800000001").one()
         assert admin.role == "admin" and chen.role == "teacher"
-        assert chen.payload["subject"] == "math"
+        # `name` is a typed person column — it is not part of the payload
+        assert chen.name == "陈老师"
         assert verify_password("admin123", admin.password_hash)
         assert verify_password("123456", chen.password_hash)
         assert not verify_password("admin123", chen.password_hash)

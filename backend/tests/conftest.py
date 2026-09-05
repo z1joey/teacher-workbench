@@ -116,21 +116,20 @@ def client(engine):
 
 
 def seed_person(db, phone: str | None, *, role: str = "teacher", active: bool = True,
-                name: str = "用户", subject: str | None = None,
-                admission_no: str | None = None):
+                name: str = "用户", admission_no: str | None = None):
     """Insert a Person row with a registry-validated payload (the common
-    arrange step of the router tests)."""
+    arrange step of the router tests). `name` is a typed person column; the
+    payload holds only role-specific attributes."""
     from app.models import Person
 
-    data = {"name": name}
-    if subject is not None:
-        data["subject"] = subject
+    data = {}
     if admission_no is not None:
         data["admission_no"] = admission_no
-    payload = validate_person_payload(role, data)
     if not active:
-        payload["is_active"] = False
-    p = Person(phone=phone, password_hash=hash_password("123456"), payload=payload)
+        data["is_active"] = False
+    payload = validate_person_payload(role, data)
+    p = Person(name=name, phone=phone, password_hash=hash_password("123456"),
+               payload=payload)
     db.add(p)
     db.flush()
     return p

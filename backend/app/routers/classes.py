@@ -43,12 +43,12 @@ def class_out(
         "grade_level": c.grade_level,
         "academic_year": c.academic_year,
         "homeroom_teacher_id": str(c.homeroom_person_id) if c.homeroom_person_id else None,
-        "homeroom_teacher": (teacher.payload or {}).get("name") if teacher else None,
+        "homeroom_teacher": teacher.name if teacher else None,
         "student_count": len(students),
         "students": [
             {
                 "id": str(s.id),
-                "name": (s.payload or {}).get("name"),
+                "name": s.name,
                 "gender": (s.payload or {}).get("gender"),
                 "admission_no": (s.payload or {}).get("admission_no"),
                 "home_visited": s.id in (visited or set()),
@@ -93,7 +93,7 @@ def _recent_events(db: Session, person_ids: list[uuid.UUID], limit: int = 50) ->
         {
             "id": str(ev.id),
             "student_id": str(person.id),
-            "student_name": (person.payload or {}).get("name"),
+            "student_name": person.name,
             "event_type": ev.type,
             "occurred_at": ev.start_time.isoformat(),
         }
@@ -266,10 +266,10 @@ def get_class(class_id: uuid.UUID, db: Session = Depends(get_db)):
             "grade_level": c.grade_level,
             "academic_year": c.academic_year,
             "homeroom_teacher_id": str(c.homeroom_person_id) if c.homeroom_person_id else None,
-            "homeroom_teacher": (teacher.payload or {}).get("name") if teacher else None,
+            "homeroom_teacher": teacher.name if teacher else None,
         },
         "students": [
-            {"id": str(s.id), "name": (s.payload or {}).get("name"),
+            {"id": str(s.id), "name": s.name,
              "gender": (s.payload or {}).get("gender"),
              "admission_no": (s.payload or {}).get("admission_no")}
             for s in current_students(db, class_id)

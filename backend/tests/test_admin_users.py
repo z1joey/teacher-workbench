@@ -1,8 +1,9 @@
 """Behavior lock for /admin/users: require_admin gating, role filtering,
 update rules, delete-with-evidence guard. Adapted from the User-based file to
-Person + payload identities: ids are UUID strings, is_active/name/subject live
-in the payload, and tokens are seeded directly (make_client replaces the
-full-app fixture while routers are mid-migration)."""
+Person + payload identities: ids are UUID strings, name lives on the column
+and is_active/role/role-attributes live in the payload, and tokens are seeded
+directly (make_client replaces the full-app fixture while routers are mid-
+migration)."""
 from __future__ import annotations
 
 import uuid
@@ -32,16 +33,17 @@ def client(make_client, db):
     tc = make_client(auth.router, admin.router, auth_dependency=False)
 
     admin_p = seed_person(db, "13600000000", role="admin", name="管理员")
-    teacher = seed_person(db, "13600000001", name="陈老师", subject="math")
-    teacher2 = seed_person(db, "13600000002", name="赵老师", subject="english")
+    teacher = seed_person(db, "13600000001", name="陈老师")
+    teacher2 = seed_person(db, "13600000002", name="赵老师")
 
     klass = Class(name="七年级1班", grade_level=7, academic_year="2025/2026",
                   homeroom_person_id=teacher.id)
     db.add(klass)
     db.flush()
     student = Person(
+        name="林小明",
         password_hash=hash_password("123456"),
-        payload=validate_person_payload("student", {"name": "林小明", "admission_no": "S1"}),
+        payload=validate_person_payload("student", {"admission_no": "S1"}),
     )
     db.add(student)
     db.flush()
@@ -87,7 +89,6 @@ def test_admin_lists_users_with_role_filter(client):
 
     teachers = tc.get("/api/admin/users", params={"role": "teacher"}).json()
     assert {u["id"] for u in teachers} == {ids["teacher"], ids["teacher2"]}
-    assert next(u for u in teachers if u["id"] == ids["teacher"])["subject"] == "math"
     assert tc.get("/api/admin/users", params={"role": "boss"}).status_code == 400
 
 
@@ -100,9 +101,10 @@ def test_patch_role_validation_and_self_demote_guard(client):
     assert tc.patch(f"/api/admin/users/{ids['teacher']}",
                     json={"role": "admin"}).json() == {"ok": True}
     # The role flip rewrote the payload role (subject has no place in an
-    # admin payload), keeping the person active.
+    # admin payload), keeping the person active. The name stays on the column.
     row = next(u for u in tc.get("/api/admin/users").json() if u["id"] == ids["teacher"])
     assert row["role"] == "admin"
+    assert row["name"] == "陈老师"
     assert row["is_active"] is True
 
 
@@ -145,8 +147,8 @@ def test_delete_referenced_user_409_and_clean_user_ok(client, db):
 
 
 def test_patch_student_rejected_and_payload_untouched(client, db):
-    """A role change rebuilds the payload from {name, is_active} only — it
-    must never touch a student profile (admission_no/birth_date/guardian)."""
+    """A role change rebuilds the payload from {is_active} only — it
+    must never touch a student profile (admission_no/birth_date)."""
     tc, ids = client
     r = tc.patch(f"/api/admin/users/{ids['student']}", json={"role": "teacher"})
     assert r.status_code == 400
@@ -154,7 +156,7 @@ def test_patch_student_rejected_and_payload_untouched(client, db):
     db.expire_all()
     row = db.get(Person, uuid.UUID(ids["student"]))
     assert row.payload["role"] == "student"
-    assert row.payload["name"] == "林小明"
+    assert row.name == "林小明"
     assert row.payload["admission_no"] == "S1"  # not wiped
 
 

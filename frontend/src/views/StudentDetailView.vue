@@ -287,14 +287,28 @@ async function removeTag(tag) {
 
 // -------------------------------------------------------------- 资料编辑
 
+// guardians is now a list of Person objects (name/phone/relationship) linked
+// through student_guardians; render them as one line, "、" separated.
+const guardianText = computed(() => {
+  const gs = student.value?.guardians ?? []
+  if (!gs.length) return t("common.none")
+  return gs
+    .map(
+      (g) =>
+        `${g.name}${g.relationship ? `（${g.relationship}）` : ""} · ${g.phone || t("common.none")}`,
+    )
+    .join("、")
+})
+
 function startProfileEdit() {
   profileEditing.value = true
   profileError.value = ""
+  const g = (student.value.guardians ?? [])[0]
   profileForm.value = {
     name: student.value.name,
     gender: student.value.gender || "",
-    guardian_name: student.value.guardian_name || "",
-    guardian_phone: student.value.guardian_phone || "",
+    guardian_name: g?.name || "",
+    guardian_phone: g?.phone || "",
     birth_date: student.value.birth_date || "",
     address: student.value.address || "",
     status: student.value.status || "active",
@@ -528,8 +542,7 @@ function fmtDate(d) {
                   <span v-if="student.class" class="pill pill--outline">{{ student.class.name }}</span>
                 </div>
                 <p class="stat__sub" style="margin-top: 8px">
-                  {{ t("detail.guardian") }}：{{ student.guardian_name || t("common.none") }}
-                  · {{ student.guardian_phone || t("common.none") }}
+                  {{ t("detail.guardian") }}：{{ guardianText }}
                 </p>
                 <p v-if="student.address" class="stat__sub">{{ student.address }}</p>
               </div>

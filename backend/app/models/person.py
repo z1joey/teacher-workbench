@@ -1,8 +1,9 @@
 """Person: the single identity table.
 
-Role ("student" | "teacher" | "admin") and role-specific attributes live in
-the payload JSONB — e.g. {"role": "student", "name": ..., "admission_no":
-...} — only login credentials are typed columns. Adding a role is a new
+Every human is a Person — a student, teacher, admin, or a student's
+guardian. `name` and the login credentials (phone/password_hash/email) are
+typed columns; only role-specific attributes live in the payload JSONB —
+e.g. {"role": "student", "admission_no": ...}. Adding a role is a new
 payload shape plus a validation-layer entry, no DDL.
 
 Role-specific rules (only students get tags/enrollments/score events, a
@@ -24,6 +25,11 @@ class Person(Base):
     __tablename__ = "person"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # display name — shared identity field for every person role.
+    # server_default lets the historical 0005 migration insert legacy rows
+    # (whose name still lives in the payload at that checkpoint) without the
+    # NOT NULL column rejecting them; 0007 extracts payload->>'name' into it.
+    name: Mapped[str] = mapped_column(String(100), default="", server_default="")
     # login credential for teachers/admins; NULL for students (they don't log in)
     phone: Mapped[str | None] = mapped_column(String(40), unique=True)
     password_hash: Mapped[str] = mapped_column(String(200))
@@ -36,6 +42,21 @@ class Person(Base):
     tags = relationship("Tag", secondary="person_tags", back_populates="people")
     events = relationship("Event", secondary="person_events", back_populates="attendees")
     enrollments = relationship("Enrollment", back_populates="person")
+    # student ↔ guardian: a student has many guardians, a guardian many students
+    guardians = relationship(
+        "Person",
+        secondary="student_guardians",
+        primaryjoin="Person.id == student_guardians.c.student_id",
+        secondaryjoin="Person.id == student_guardians.c.guardian_id",
+        back_populates="students",
+    )
+    students = relationship(
+        "Person",
+        secondary="student_guardians",
+        primaryjoin="Person.id == student_guardians.c.guardian_id",
+        secondaryjoin="Person.id == student_guardians.c.student_id",
+        back_populates="guardians",
+    )
     sessions = relationship(
         "AuthSession", back_populates="person", cascade="all, delete-orphan"
     )

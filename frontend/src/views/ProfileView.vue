@@ -11,7 +11,7 @@ import { clearMe, me } from "../auth"
 import { ask } from "../confirm"
 import { notify } from "../feedback"
 import { clearAll } from "../feedback"
-import { friendlyError, genderLabel, subject, t } from "../strings"
+import { friendlyError, genderLabel, t } from "../strings"
 
 const router = useRouter()
 
@@ -20,7 +20,7 @@ const error = ref("")
 const loading = ref(true)
 const editing = ref(false)
 const saving = ref(false)
-const editForm = ref({ name: "", email: "", subject: "" })
+const editForm = ref({ name: "", email: "" })
 const errors = ref({})
 
 async function load() {
@@ -38,7 +38,7 @@ onMounted(load)
 
 function startEdit() {
   const user = profile.value.user
-  editForm.value = { name: user.name || "", email: user.email || "", subject: user.subject || "" }
+  editForm.value = { name: user.name || "", email: user.email || "" }
   errors.value = {}
   editing.value = true
 }
@@ -62,7 +62,6 @@ async function saveProfile() {
     const updated = await api.patch("/profile", {
       name: editForm.value.name.trim(),
       email: editForm.value.email.trim() || null,
-      subject: editForm.value.subject.trim() || null,
     })
     profile.value.user = updated
     if (me.value) me.value = { ...me.value, ...updated } // keep the sidebar name in sync
@@ -136,9 +135,6 @@ const activity = computed(() => {
                   <span v-if="profile.user.email" class="pill pill--outline">
                     {{ t("profile.email") }}：{{ profile.user.email }}
                   </span>
-                  <span v-if="profile.user.subject" class="pill pill--outline">
-                    {{ t("profile.subject") }}：{{ subject(profile.user.subject) }}
-                  </span>
                 </div>
               </div>
             </div>
@@ -151,9 +147,6 @@ const activity = computed(() => {
               </FormField>
               <FormField :label="t('profile.email')" optional>
                 <input v-model="editForm.email" class="input" type="email" />
-              </FormField>
-              <FormField :label="t('profile.subject')" optional hint="填学科名，比如「数学」">
-                <input v-model="editForm.subject" class="input" type="text" />
               </FormField>
             </div>
             <div class="form-actions">

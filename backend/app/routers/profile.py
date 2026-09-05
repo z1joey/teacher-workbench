@@ -14,10 +14,9 @@ def user_out(u: Person) -> dict:
     payload = u.payload or {}
     return {
         "id": str(u.id),
-        "name": payload.get("name"),
+        "name": u.name,
         "phone": u.phone,
         "email": u.email,
-        "subject": payload.get("subject"),
         "role": payload.get("role"),
     }
 
@@ -25,7 +24,6 @@ def user_out(u: Person) -> dict:
 class ProfileIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     email: str | None = None
-    subject: str | None = None
 
 
 @router.get("/profile")
@@ -56,7 +54,7 @@ def get_profile(
                 "students": [
                     {
                         "id": str(s.id),
-                        "name": (s.payload or {}).get("name"),
+                        "name": s.name,
                         "gender": (s.payload or {}).get("gender"),
                         "admission_no": (s.payload or {}).get("admission_no"),
                     }
@@ -88,10 +86,8 @@ def update_profile(
     person: Person = Depends(get_current_person),
 ):
     payload = dict(person.payload or {})
-    payload["name"] = body.name.strip()
+    person.name = body.name.strip()
     person.email = (body.email or "").strip() or None
-    if person.role == "teacher":
-        payload["subject"] = (body.subject or "").strip() or None
     person.payload = payload  # reassign: JSON columns don't see in-place mutation
     db.commit()
     return user_out(person)

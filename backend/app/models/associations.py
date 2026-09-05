@@ -7,7 +7,7 @@ person_events links an event to its attendees: a student-scoped event
 """
 from __future__ import annotations
 
-from sqlalchemy import Column, ForeignKey, Index, Table
+from sqlalchemy import Column, ForeignKey, Index, String, Table
 
 from ._common import Base
 
@@ -25,4 +25,14 @@ person_events = Table(
     Column("person_id", ForeignKey("person.id", ondelete="CASCADE"), primary_key=True),
     Column("event_id", ForeignKey("event.id", ondelete="CASCADE"), primary_key=True),
     Index("ix_person_events_event", "event_id"),
+)
+
+# student ↔ guardian: both are Person rows. `relationship` documents the link
+# (父亲/母亲/...), guardians are independent of the student's lifecycle.
+student_guardians = Table(
+    "student_guardians",
+    Base.metadata,
+    Column("student_id", ForeignKey("person.id", ondelete="CASCADE"), primary_key=True),
+    Column("guardian_id", ForeignKey("person.id", ondelete="CASCADE"), primary_key=True),
+    Column("relationship", String(50), nullable=True),
 )

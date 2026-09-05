@@ -1,7 +1,10 @@
 """Students: CRUD on Person payloads, tags, and the Event timeline.
 
-Students are Person rows whose payload role is "student" (name, admission_no,
-guardian contact… all live in the JSONB payload — see app.payloads). Every
+Students are Person rows whose payload role is "student"; `name` is a typed
+column and the per-student attributes (admission_no, gender, birth_date,
+address) live in the JSONB payload — see app.models.payloads. A student's
+guardians are Person rows of role "guardian" linked through student_guardians
+(no flattened guardian_name/phone on the student anymore). Every
 history/timeline item is an Event row linked through person_events; birthdays
 are NOT persisted anymore — the timeline projects the next occurrence from
 payload["birth_date"] (see student_timeline).
@@ -29,7 +32,16 @@ from ..eventing import (
     create_event,
     next_birthday_date,
 )
-from ..models import Class, Enrollment, Event, Person, Tag, person_events, person_tags
+from ..models import (
+    Class,
+    Enrollment,
+    Event,
+    Person,
+    Tag,
+    person_events,
+    person_tags,
+    student_guardians,
+)
 from ..models._common import utcnow
 from ..payloads import validate_event_payload, validate_person_payload
 from ..security import hash_password
@@ -134,6 +146,75 @@ def _status_of(person: Person) -> str:
     return "active" if (person.payload or {}).get("is_active", True) else "inactive"
 
 
+def _guardians_of(db: Session, student_id: uuid.UUID):
+    """The guardian Persons of a student (with the link's relationship),
+    ordered by creation."""
+    return (
+        db.query(Person, student_guardians.c.relationship)
+        .join(student_guardians, student_guardians.c.guardian_id == Person.id)
+        .filter(student_guardians.c.student_id == student_id)
+        .order_by(Person.created_at)
+        .all()
+    )
+
+
+def _find_or_create_guardian(db: Session, name: str, phone: str | None) -> Person:
+    """Locate an existing guardian by phone (or name), else mint a new Person
+    of role "guardian". Guardians are independent of the student's lifecycle,
+    so two students sharing a phone share one guardian row."""
+    name = name.strip()
+    phone = (phone or "").strip() or None
+    guardian = (
+        db.query(Person)
+        .filter(Person.payload["role"].as_string() == "guardian", Person.phone == phone)
+        .first()
+        if phone
+        else None
+    )
+    if guardian is None:
+        guardian = (
+            db.query(Person)
+            .filter(Person.payload["role"].as_string() == "guardian", Person.name == name)
+            .first()
+        )
+    if guardian is not None:
+        if name:
+            guardian.name = name
+        if phone:
+            guardian.phone = phone
+        guardian.payload = validate_person_payload("guardian", {"phone": phone})
+        return guardian
+    guardian = Person(
+        name=name,
+        phone=phone,
+        password_hash=hash_password(uuid.uuid4().hex),
+        payload=validate_person_payload("guardian", {"phone": phone}),
+    )
+    db.add(guardian)
+    db.flush()
+    return guardian
+
+
+def _set_primary_guardian(db: Session, student_id: uuid.UUID,
+                          name: str | None, phone: str | None) -> None:
+    """Upsert the student's primary guardian (the single one the form edits):
+    merge a matching guardian Person if it exists and link it, dropping the
+    school's previous primary link when the name/phone is cleared."""
+    existing = _guardians_of(db, student_id)
+    if not name and not phone:
+        # no guardian supplied — leave the current links untouched
+        return
+    guardian = _find_or_create_guardian(db, name or "", phone)
+    linked_ids = {g.id for g, _ in existing}
+    if guardian.id in linked_ids:
+        return
+    # promote the chosen guardian: drop any other primary links, then add it
+    db.execute(student_guardians.delete().where(student_guardians.c.student_id == student_id))
+    db.execute(
+        student_guardians.insert().values(student_id=student_id, guardian_id=guardian.id)
+    )
+
+
 def _score_events(db: Session, person_id: uuid.UUID,
                   order_desc: bool = False) -> list[Event]:
     q = (
@@ -219,7 +300,7 @@ def list_students(db: Session = Depends(get_db)):
             {
                 "id": str(s.id),
                 "admission_no": (s.payload or {}).get("admission_no"),
-                "name": (s.payload or {}).get("name"),
+                "name": s.name,
                 "gender": (s.payload or {}).get("gender"),
                 "status": _status_of(s),
                 "class": {"id": str(cls.id), "name": cls.name} if cls else None,
@@ -328,25 +409,27 @@ def create_student(
     payload = validate_person_payload(
         "student",
         {
-            "name": body.name.strip(),
             "admission_no": admission_no,
             "gender": body.gender or None,
             "birth_date": body.birth_date.isoformat() if body.birth_date else None,
-            "guardian_name": body.guardian_name or None,
-            "guardian_phone": body.guardian_phone.strip() if body.guardian_phone else None,
             "address": body.address or None,
         },
     )
-    person = Person(password_hash=hash_password(uuid.uuid4().hex), payload=payload)
+    person = Person(
+        name=body.name.strip(),
+        password_hash=hash_password(uuid.uuid4().hex),
+        payload=payload,
+    )
     db.add(person)
     db.flush()
+    _set_primary_guardian(db, person.id, body.guardian_name, body.guardian_phone)
     db.add(Enrollment(person_id=person.id, class_id=cls.id,
                       valid_from=date.today(), reason="admitted"))
     create_event(db, event_type="enrolled", title="入学", start_time=utcnow(),
                  payload={"class_name": cls.name}, attendee_ids=[person.id])
     # no persisted birthday event: the timeline projects it from birth_date
     db.commit()
-    return {"id": str(person.id), "admission_no": admission_no, "name": payload["name"]}
+    return {"id": str(person.id), "admission_no": admission_no, "name": person.name}
 
 
 @router.get("/students/{student_id}")
@@ -373,14 +456,22 @@ def get_student(student_id: uuid.UUID, db: Session = Depends(get_db)):
                 "status": "absent" if pl.get("absent") else "entered",
             }
         )
+    guardians = [
+        {
+            "id": str(g.id),
+            "name": g.name,
+            "phone": (g.payload or {}).get("phone"),
+            "relationship": rel,
+        }
+        for g, rel in _guardians_of(db, s.id)
+    ]
     return {
         "id": str(s.id),
         "admission_no": (s.payload or {}).get("admission_no"),
-        "name": (s.payload or {}).get("name"),
+        "name": s.name,
         "gender": (s.payload or {}).get("gender"),
         "birth_date": (s.payload or {}).get("birth_date"),
-        "guardian_name": (s.payload or {}).get("guardian_name"),
-        "guardian_phone": (s.payload or {}).get("guardian_phone"),
+        "guardians": guardians,
         "address": (s.payload or {}).get("address"),
         "status": _status_of(s),
         "class": {"id": str(cls.id), "name": cls.name} if cls else None,
@@ -451,8 +542,9 @@ def create_event_record(
                               body.follow_up_needed, body.follow_up_note)
     if body.event_type == "home_visited":
         # a visit involves the guardian of record — snapshot the name at
-        # visit time, the student's payload may change later
-        payload["guardian"] = (person.payload or {}).get("guardian_name")
+        # visit time; the student's guardian links may change later
+        guardians = _guardians_of(db, person.id)
+        payload["guardian"] = guardians[0][0].name if guardians else None
     event = create_event(
         db,
         event_type=body.event_type,
@@ -547,9 +639,9 @@ def list_events(
                 "id": str(ev.id),
                 "title": ev.title,
                 "student_id": str(student.id) if student else None,
-                "student_name": (student.payload or {}).get("name") if student else None,
+                "student_name": student.name if student else None,
                 "students": [
-                    {"id": str(s.id), "name": (s.payload or {}).get("name")}
+                    {"id": str(s.id), "name": s.name}
                     for s in roster
                 ],
                 "event_type": ev.type,
@@ -777,15 +869,11 @@ def update_student(
     # copy-modify-reassign so a partial patch never drops sibling payload keys
     payload = dict(s.payload or {})
     if body.name is not None:
-        payload["name"] = body.name.strip()
+        s.name = body.name.strip()
     if body.gender is not None:
         payload["gender"] = body.gender or None
     if body.birth_date is not None:
         payload["birth_date"] = body.birth_date.isoformat()
-    if body.guardian_name is not None:
-        payload["guardian_name"] = body.guardian_name or None
-    if body.guardian_phone is not None:
-        payload["guardian_phone"] = body.guardian_phone.strip()
     if body.address is not None:
         payload["address"] = body.address or None
     if body.status is not None:
@@ -793,6 +881,11 @@ def update_student(
             raise HTTPException(status_code=400, detail="status must be 'active' or 'inactive'")
         payload["is_active"] = body.status == "active"
     s.payload = validate_person_payload("student", payload)
+
+    # Guardian upsert: name/phone drive the linked guardian Person (if either
+    # is supplied) — see _set_primary_guardian for the merge/link semantics.
+    if body.guardian_name is not None or body.guardian_phone is not None:
+        _set_primary_guardian(db, s.id, body.guardian_name, body.guardian_phone)
 
     # Class change: close current enrollment, open a new one, record event.
     if body.class_id is not None:
@@ -832,7 +925,7 @@ def update_student(
     return {
         "id": str(s.id),
         "admission_no": (s.payload or {}).get("admission_no"),
-        "name": (s.payload or {}).get("name"),
+        "name": s.name,
         "gender": (s.payload or {}).get("gender"),
         "status": _status_of(s),
         "class": {"id": str(cls.id), "name": cls.name} if cls else None,

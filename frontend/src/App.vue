@@ -219,7 +219,7 @@ watch(paletteOpen, (v) => {
           <span class="avatar">{{ me.name.charAt(0) }}</span>
           <span class="sidebar-user__meta">
             <span class="sidebar-user__name">{{ me.name }}</span>
-            <span class="sidebar-user__role">{{ me.subject || t("nav.profile") }}</span>
+            <span class="sidebar-user__role">{{ t("nav.profile") }}</span>
           </span>
         </router-link>
 

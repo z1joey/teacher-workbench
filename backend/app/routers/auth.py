@@ -37,10 +37,9 @@ def user_out(u: Person) -> dict:
     payload = u.payload or {}
     return {
         "id": str(u.id),
-        "name": payload.get("name"),
+        "name": u.name,
         "phone": u.phone,
         "email": u.email,
-        "subject": payload.get("subject"),
         "role": payload.get("role"),
     }
 
@@ -60,10 +59,9 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
     if db.query(Person).filter(Person.phone == phone).first() is not None:
         raise HTTPException(status_code=409, detail="该手机号已注册")
-    payload = validate_person_payload(
-        "teacher", {"name": (body.name or "").strip() or phone}
-    )
+    payload = validate_person_payload("teacher", {})
     person = Person(
+        name=(body.name or "").strip() or phone,
         phone=phone,
         email=(body.email or "").strip() or None,
         password_hash=hash_password(body.password),

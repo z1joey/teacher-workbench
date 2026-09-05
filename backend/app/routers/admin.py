@@ -59,10 +59,9 @@ def list_users(
     return [
         {
             "id": str(u.id),
-            "name": (u.payload or {}).get("name"),
+            "name": u.name,
             "phone": u.phone,
             "email": u.email,
-            "subject": (u.payload or {}).get("subject"),
             "role": u.role,
             "is_active": (u.payload or {}).get("is_active") is not False,
             "created_at": u.created_at.isoformat() if u.created_at else None,
@@ -106,13 +105,11 @@ def update_user(
         if body.role not in ("admin", "teacher"):
             raise HTTPException(status_code=400, detail="角色不合法")
         # Re-validate under the new role: payload shapes differ (a teacher's
-        # `subject` has no place in an admin payload and vice versa).
+        # `is_active` flag is fine for an admin payload too, but the strict
+        # schemas would reject fields from the other role).
         payload = validate_person_payload(
             body.role,
-            {
-                "name": payload.get("name") or u.phone or "",
-                "is_active": payload.get("is_active", True),
-            },
+            {"is_active": payload.get("is_active", True)},
         )
     if body.is_active is not None:
         payload["is_active"] = body.is_active
@@ -148,8 +145,7 @@ def delete_user(
     if referenced is not None:
         raise HTTPException(status_code=409, detail="该账号仍有关联记录，无法删除")
     # Login sessions go with the account (tags/events ride the ORM's
-    # many-to-many secondary cleanup; subject lives in the payload now, so
-    # the old teacher_profile bulk-delete is gone).
+    # many-to-many secondary cleanup; the payload is dropped with the row).
     db.query(AuthSession).filter(AuthSession.person_id == user_id).delete()
     db.delete(u)
     db.commit()
@@ -171,7 +167,7 @@ def list_sessions(
         {
             "token": sess.token[:8] + "…",
             "user_id": str(person.id),
-            "user_name": (person.payload or {}).get("name"),
+            "user_name": person.name,
             "created_at": sess.created_at.isoformat() if sess.created_at else None,
         }
         for sess, person in sessions

@@ -83,7 +83,7 @@ def month_calendar(
             "id": str(ev.id),
             "event_type": ev.type,
             "student_id": str(student.id),
-            "student_name": (student.payload or {}).get("name"),
+            "student_name": student.name,
             "actor": None,  # the actor column is gone (see students.py)
             "payload": ev.payload or {},
         })
@@ -149,7 +149,7 @@ def dashboard(
         .all()
     )
     return {
-        "user": {"id": str(user.id), "name": (user.payload or {}).get("name")},
+        "user": {"id": str(user.id), "name": user.name},
         "counts": counts,
         "upcoming_exams": [
             {
@@ -163,7 +163,7 @@ def dashboard(
         "follow_ups": [
             {
                 "student_id": str(person.id),
-                "student_name": (person.payload or {}).get("name"),
+                "student_name": person.name,
                 "event_type": ev.type,
                 "occurred_at": ev.start_time.isoformat(),
                 "purpose": None,  # no payload slot anymore (see students.py)
@@ -176,7 +176,7 @@ def dashboard(
             {
                 "id": str(event.id),
                 "student_id": str(person.id),
-                "student_name": (person.payload or {}).get("name"),
+                "student_name": person.name,
                 "event_type": event.type,
                 "occurred_at": event.start_time.isoformat(),
                 "payload": event.payload or {},

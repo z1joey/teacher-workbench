@@ -4,8 +4,9 @@ router imports its models from here.
 
 Design (2026-09 discussion):
 
-- person is the single identity table; role ("student" | "teacher" |
-  "admin") and role-specific attributes live in person.payload.
+- person is the single identity table; name and login credentials are typed
+  columns, role ("student" | "teacher" | "admin" | "guardian") and
+  role-specific attributes live in person.payload.
 - everything is an Event: a calendar-style row (title, description,
   start/end, location, attendees) plus a type that gives the payload its
   meaning. Events are individual — no event references another. Exam scores
@@ -14,8 +15,9 @@ Design (2026-09 discussion):
   now"), with the partial unique index keeping at most one current
   membership per person.
 - Tags attach to persons (students only, by convention) via person_tags.
+- Guardians are Persons linked to students via student_guardians.
 """
-from .associations import person_events, person_tags
+from .associations import person_events, person_tags, student_guardians
 from .class_ import Class, Enrollment
 from .event import EVENT_TYPES, Event
 from .person import AuthSession, Person
@@ -31,4 +33,5 @@ __all__ = [
     "Tag",
     "person_events",
     "person_tags",
+    "student_guardians",
 ]

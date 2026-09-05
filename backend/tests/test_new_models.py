@@ -27,8 +27,10 @@ def test_legacy_event_types_are_valid(db):
 
 
 def test_student_person_has_no_phone(db):
-    p = m.Person(password_hash="x",
-                 payload={"role": "student", "name": "王明", "admission_no": "S1"})
+    # name lives on the typed column; the payload carries only role-specific data
+    p = m.Person(name="王明", password_hash="x",
+                 payload={"role": "student", "admission_no": "S1"})
     db.add(p)
     db.commit()
     assert p.phone is None
+    assert p.name == "王明"

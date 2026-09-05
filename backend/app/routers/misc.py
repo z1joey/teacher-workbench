@@ -19,8 +19,7 @@ def list_teachers(db: Session = Depends(get_db)):
     return [
         {
             "id": str(p.id),
-            "name": (p.payload or {}).get("name"),
-            "subject": (p.payload or {}).get("subject"),
+            "name": p.name,
             "email": p.email,
         }
         for p in rows

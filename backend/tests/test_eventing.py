@@ -22,8 +22,8 @@ def db():
 
 @pytest.fixture()
 def person(db):
-    p = Person(phone="13800000000", password_hash="x",
-               payload={"role": "student", "name": "王明", "admission_no": "S1",
+    p = Person(name="王明", phone="13800000000", password_hash="x",
+               payload={"role": "student", "admission_no": "S1",
                         "birth_date": "2012-05-14"})
     db.add(p)
     db.commit()

@@ -32,18 +32,18 @@ from app.security import hash_password
 
 def _seed_person(db, name: str, admission_no: str, *, role: str = "student",
                  active: bool = True) -> Person:
-    payload = validate_person_payload(role, {"name": name, "admission_no": admission_no})
+    payload = validate_person_payload(role, {"admission_no": admission_no})
     if not active:
         payload["is_active"] = False
-    p = Person(password_hash=hash_password(uuid.uuid4().hex), payload=payload)
+    p = Person(name=name, password_hash=hash_password(uuid.uuid4().hex), payload=payload)
     db.add(p)
     db.flush()
     return p
 
 
 def _seed_teacher(db, phone: str = "13800000001", name: str = "王老师") -> Person:
-    p = Person(phone=phone, password_hash=hash_password("123456"),
-               payload=validate_person_payload("teacher", {"name": name}))
+    p = Person(name=name, phone=phone, password_hash=hash_password("123456"),
+               payload=validate_person_payload("teacher", {}))
     db.add(p)
     db.flush()
     return p

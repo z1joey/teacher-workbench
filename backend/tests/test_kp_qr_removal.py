@@ -80,7 +80,7 @@ def _seed_student_with_evidence(db):
     from app import eventing
     from app.models import Class, Enrollment
 
-    teacher = seed_person(db, "13900000001", name="陈老师", subject="math")
+    teacher = seed_person(db, "13900000001", name="陈老师")
     seed_token(db, teacher, TEACHER_TOKEN)
     student = seed_person(db, None, role="student", name="林小明", admission_no="S901")
     klass = Class(name="七年级1班", grade_level=7, academic_year="2025/2026",

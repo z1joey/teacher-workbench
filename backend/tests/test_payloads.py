@@ -6,24 +6,34 @@ from app.payloads import validate_event_payload, validate_person_payload
 
 
 def test_student_payload_roundtrip():
-    out = validate_person_payload("student", {"name": "王明", "admission_no": "S1",
+    out = validate_person_payload("student", {"admission_no": "S1",
                                               "birth_date": "2012-05-14"})
     assert out["role"] == "student" and out["is_active"] is True
+    assert "name" not in out  # name lives on the person column, not the payload
 
 
 def test_student_requires_admission_no():
     with pytest.raises(ValidationError):
-        validate_person_payload("student", {"name": "王明"})
+        validate_person_payload("student", {})
 
 
-def test_teacher_requires_subject_key_allowed():
-    out = validate_person_payload("teacher", {"name": "李老师", "subject": "数学"})
-    assert out["subject"] == "数学"
+def test_teacher_payload_carries_no_subject():
+    out = validate_person_payload("teacher", {})
+    assert out == {"role": "teacher", "is_active": True}
+
+
+def test_guardian_payload_recognized():
+    out = validate_person_payload("guardian", {"phone": "13900000001",
+                                               "relationship": "父亲"})
+    assert out["role"] == "guardian"
+    assert out["phone"] == "13900000001"
+    assert out["relationship"] == "父亲"
+    assert out["is_active"] is True
 
 
 def test_unknown_role_rejected():
     with pytest.raises(ValueError):
-        validate_person_payload("guardian", {"name": "x"})
+        validate_person_payload("coach", {})
 
 
 def test_score_payload_absent_has_no_score():

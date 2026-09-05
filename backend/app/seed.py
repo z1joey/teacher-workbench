@@ -3,12 +3,14 @@
 Demo content is Chinese-only: names, visits and notes are stored as plain text.
 
 Event-centric schema: a person carries role + profile in a registry-validated
-payload (app.payloads); exam sittings are Event(type="exam") rows with the
-per-subject full scores in payload["full_scores"], scores are per-student
-score Events titled "<exam name>·<subject>", and the manual timeline (visits,
-notes) is written through app.eventing.create_event. Class/Enrollment keep
-current membership; tags attach to persons. Birthdays are NOT persisted — the
-timeline projects them from payload["birth_date"].
+payload (app.payloads); `name` is a typed person column and a student's
+guardians are Person rows of role "guardian" linked through student_guardians
+(not flattened onto the student payload). Exam sittings are Event(type="exam")
+rows with the per-subject full scores in payload["full_scores"], scores are
+per-student score Events titled "<exam name>·<subject>", and the manual
+timeline (visits, notes) is written through app.eventing.create_event.
+Class/Enrollment keep current membership; tags attach to persons. Birthdays
+are NOT persisted — the timeline projects them from payload["birth_date"].
 
 Re-seeding an existing database duplicates the demo data — remove the SQLite
 file (or drop the schema) first.
@@ -22,8 +24,9 @@ from sqlalchemy.orm import Session
 
 from .database import Base, SessionLocal, engine
 from .eventing import create_event
-from .models import Class, Enrollment, Event, Person, Tag
+from .models import Class, Enrollment, Event, Person, Tag, student_guardians
 from .payloads import validate_person_payload
+from .routers.students import _guardians_of, _find_or_create_guardian
 from .security import hash_password
 
 random.seed(2026)
@@ -65,15 +68,15 @@ def clamp(v: float, lo: float, hi: float) -> float:
 def seed(db: Session) -> None:
     # staff accounts — same phones/passwords as ever, so existing logins keep
     # working (students get no phone and a throwaway password hash)
-    admin = Person(phone="13800000000", email="admin@school.dev",
+    admin = Person(name="开发者", phone="13800000000", email="admin@school.dev",
                    password_hash=hash_password("admin123"),
-                   payload=validate_person_payload("admin", {"name": "开发者"}))
-    chen = Person(phone="13800000001", email="chen@school.edu",
+                   payload=validate_person_payload("admin", {}))
+    chen = Person(name="陈老师", phone="13800000001", email="chen@school.edu",
                   password_hash=hash_password("123456"),
-                  payload=validate_person_payload("teacher", {"name": "陈老师", "subject": "math"}))
-    zhao = Person(phone="13800000002", email="zhao@school.edu",
+                  payload=validate_person_payload("teacher", {}))
+    zhao = Person(name="赵老师", phone="13800000002", email="zhao@school.edu",
                   password_hash=hash_password("123456"),
-                  payload=validate_person_payload("teacher", {"name": "赵老师", "subject": "english"}))
+                  payload=validate_person_payload("teacher", {}))
     db.add_all([admin, chen, zhao])
     db.flush()
 
@@ -102,17 +105,22 @@ def seed(db: Session) -> None:
     def make_students(names: list[tuple[str, str]], cls: Class, start_no: int) -> None:
         for i, (name, gender) in enumerate(names):
             payload = validate_person_payload("student", {
-                "name": name,
                 "admission_no": f"S2025{start_no + i:03d}",
                 "gender": gender,
                 "birth_date": date(2012, random.randint(1, 12), random.randint(1, 28)).isoformat(),
-                "guardian_name": f"{name[0]}女士",
-                "guardian_phone": f"139{random.randint(10_000_000, 99_999_999)}",
                 "address": f"解放路{100 + i}号",
             })
-            s = Person(password_hash=hash_password(uuid.uuid4().hex), payload=payload)
+            s = Person(name=name, password_hash=hash_password(uuid.uuid4().hex),
+                       payload=payload)
             db.add(s)
             db.flush()
+            # guardian of record: an independent Person linked via student_guardians
+            guardian = _find_or_create_guardian(
+                db, f"{name[0]}女士", f"139{random.randint(10_000_000, 99_999_999)}"
+            )
+            db.execute(student_guardians.insert().values(
+                student_id=s.id, guardian_id=guardian.id
+            ))
             db.add(Enrollment(person_id=s.id, class_id=cls.id,
                               valid_from=ENROLL_DATE, reason="admitted"))
             create_event(db, event_type="enrolled", title="入学",
@@ -129,7 +137,7 @@ def seed(db: Session) -> None:
     rep_tag = Tag(name="课代表", color="#177245")
     db.add_all([focus_tag, rep_tag])
     db.flush()
-    by_name = {s.payload["name"]: s for s in students}
+    by_name = {s.name: s for s in students}
     for tag, names in ((focus_tag, ["林晓雨", "王浩"]), (rep_tag, ["宋雅轩", "郭浩然"])):
         for n in names:
             s = by_name.get(n)
@@ -169,9 +177,9 @@ def seed(db: Session) -> None:
             "biology": random.gauss(71, 9),
         }
     # Story: 林晓雨数学偏弱，王浩数学方程部分薄弱（表现为 math 能力下调）。
-    lin = next(s for s in students if s.payload["name"] == "林晓雨")
-    hao = next(s for s in students if s.payload["name"] == "王浩")
-    guo = next(s for s in students if s.payload["name"] == "郭浩然")
+    lin = next(s for s in students if s.name == "林晓雨")
+    hao = next(s for s in students if s.name == "王浩")
+    guo = next(s for s in students if s.name == "郭浩然")
     ability[lin.id]["math"] = 58.0
     ability[hao.id]["math"] = 62.0
 
@@ -262,8 +270,8 @@ def seed(db: Session) -> None:
 
     # --- home visits + notes -------------------------------------------------
     # Visits involve 陈老师 (the visiting teacher), the student and the
-    # guardian of record (snapshotted from the student payload); notes involve
-    # her and the student. Home-visit purpose folds into the summary
+    # guardian of record (snapshotted from the linked guardian Person); notes
+    # involve her and the student. Home-visit purpose folds into the summary
     # (HomeVisitPayload has summary/follow_up/guardian only) and
     # follow_up_needed collapses into the note (students.py rule).
     visits = [
@@ -278,9 +286,10 @@ def seed(db: Session) -> None:
          None),
     ]
     for student, when, summary, follow_up in visits:
+        guardians = _guardians_of(db, student.id)
         create_event(db, event_type="home_visited", title="家访", start_time=when,
                      payload={"summary": summary, "follow_up": follow_up,
-                              "guardian": (student.payload or {}).get("guardian_name")},
+                              "guardian": guardians[0][0].name if guardians else None},
                      attendee_ids=[student.id, chen.id])
 
     create_event(db, event_type="note_added", title="随笔",

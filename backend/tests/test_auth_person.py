@@ -27,7 +27,6 @@ def test_register_login_me_logout_flow(make_client, db):
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["user"]["role"] == "teacher"
-    assert body["user"]["subject"] is None
     uuid.UUID(body["user"]["id"])  # id is a UUID string now
     assert db.get(AuthSession, body["token"]).person_id == uuid.UUID(body["user"]["id"])
 
@@ -37,7 +36,7 @@ def test_register_login_me_logout_flow(make_client, db):
 
     me = client.get("/api/auth/me", headers=headers)
     assert me.status_code == 200, me.text
-    assert set(me.json()) == {"id", "name", "phone", "email", "subject", "role"}
+    assert set(me.json()) == {"id", "name", "phone", "email", "role"}
     assert me.json()["id"] == body["user"]["id"]
     assert me.json()["name"] == "李老师"
     assert me.json()["role"] == "teacher"
@@ -90,26 +89,26 @@ def test_disabled_person_gets_403_on_me(make_client, db):
     assert r.status_code == 403
 
 
-def test_profile_patch_get_round_trips_subject(make_client, db):
+def test_profile_patch_get_round_trips_name(make_client, db):
     client = make_client(profile.router)
     person = seed_person(db, "13800000015", name="陈老师")
     token = seed_token(db, person, "b" * 64)
     headers = {"Authorization": f"Bearer {token}"}
 
-    r = client.patch("/api/profile", json={"name": "陈老师", "subject": "math"}, headers=headers)
+    r = client.patch("/api/profile", json={"name": "陈老师"}, headers=headers)
     assert r.status_code == 200, r.text
-    assert set(r.json()) == {"id", "name", "phone", "email", "subject", "role"}
-    assert r.json()["subject"] == "math"
+    assert set(r.json()) == {"id", "name", "phone", "email", "role"}
+    assert r.json()["name"] == "陈老师"
 
     r = client.get("/api/profile", headers=headers)
     assert r.status_code == 200, r.text
     assert set(r.json()) == {"user", "classes", "stats"}
-    assert r.json()["user"]["subject"] == "math"
+    assert r.json()["user"]["name"] == "陈老师"
 
 
 def test_teachers_lists_only_teachers(make_client, db):
     client = make_client(misc.router)
-    seed_person(db, "13800000016", name="张老师", subject="语文")
+    seed_person(db, "13800000016", name="张老师")
     seed_person(db, "13800000017", role="admin", name="管理员")
     seed_person(db, "13800000018", role="student", name="林小明", admission_no="S9")
     token = seed_token(db, db.query(Person).filter_by(phone="13800000016").one(), "c" * 64)
@@ -118,5 +117,4 @@ def test_teachers_lists_only_teachers(make_client, db):
     assert r.status_code == 200, r.text
     rows = r.json()
     assert [row["name"] for row in rows] == ["张老师"]
-    assert rows[0]["subject"] == "语文"
-    assert set(rows[0]) == {"id", "name", "subject", "email"}
+    assert set(rows[0]) == {"id", "name", "email"}
