@@ -25,6 +25,7 @@ export const SHORTCUTS = [
   { keys: ["G", "S"], label: "前往 学生" },
   { keys: ["G", "C"], label: "前往 班级" },
   { keys: ["G", "E"], label: "前往 考试" },
+  { keys: ["G", "V"], label: "前往 家访" },
   { keys: ["G", "R"], label: "前往 事件" },
   { keys: ["Esc"], label: "关闭弹窗 / 取消当前操作" },
 ]

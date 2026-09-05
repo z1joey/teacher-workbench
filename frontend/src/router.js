@@ -5,6 +5,7 @@ import HomeView from "./views/HomeView.vue"
 import LoginView from "./views/LoginView.vue"
 import ProfileView from "./views/ProfileView.vue"
 import RecordsView from "./views/RecordsView.vue"
+import HomeVisitsView from "./views/HomeVisitsView.vue"
 import ClassesView from "./views/ClassesView.vue"
 import ClassDetailView from "./views/ClassDetailView.vue"
 import StudentsView from "./views/StudentsView.vue"
@@ -20,7 +21,7 @@ import NotFoundView from "./views/NotFoundView.vue"
 // Routes that only teachers (non-admin) may enter. Admin accounts get
 // redirected away — they are developers, not classroom teachers.
 const TEACHER_ROUTE_PREFIXES = [
-  "/", "/profile", "/classes", "/students", "/exams", "/records",
+  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/records",
 ]
 
 function isTeacherRoute(path) {
@@ -36,6 +37,7 @@ export const router = createRouter({
     { path: "/login", name: "login", component: LoginView, meta: { title: "登录" } },
     { path: "/profile", name: "profile", component: ProfileView, meta: { title: "个人中心" } },
     { path: "/records", name: "records", component: RecordsView, meta: { title: "事件" } },
+    { path: "/visits", name: "visits", component: HomeVisitsView, meta: { title: "家访" } },
     { path: "/classes", name: "classes", component: ClassesView, meta: { title: "班级" } },
     {
       path: "/classes/:id",

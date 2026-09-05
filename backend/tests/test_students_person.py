@@ -551,6 +551,10 @@ def test_records_lists_events_the_teacher_attends(make_client, db, headers):
     visit = rows[1]
     assert visit["title"] == "家访"
     assert visit["payload"] == {"summary": "开学前家访", "guardian": "林女士"}
+    # the type param narrows the feed (the 家访 page reads home_visited only)
+    r = client.get("/api/records?type=home_visited", headers=headers)
+    assert [(row["event_type"], row["student_name"]) for row in r.json()] == [
+        ("home_visited", "林晓雨")]
     # both records carry the teacher as an attendee alongside the student
     for row in rows:
         ev = db.get(Event, uuid.UUID(row["id"]))

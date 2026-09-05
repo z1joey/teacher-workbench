@@ -4,7 +4,8 @@ export const TEACHER_NAV = [
   { key: "students", label: "学生", to: "/students", icon: "users", hint: "档案 · 成绩 · 时间线", g: "s" },
   { key: "classes", label: "班级", to: "/classes", icon: "building", hint: "名单 · 班均", g: "c" },
   { key: "exams", label: "考试", to: "/exams", icon: "clipboard", hint: "科目 · 平均分", g: "e" },
-  { key: "records", label: "事件", to: "/records", icon: "checklist", hint: "全部事件", g: "r" },
+  { key: "visits", label: "家访", to: "/visits", icon: "map-pin", hint: "记录 · 待跟进", g: "v" },
+  { key: "records", label: "事件", to: "/records", icon: "checklist", hint: "我参与的", g: "r" },
 ]
 
 export const ADMIN_NAV = [

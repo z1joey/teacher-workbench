@@ -176,6 +176,16 @@ const messages = {
   "records.emptyTitle": "还没有事件",
   "records.emptyDesc": "你参与的考试、家访和跟进记录会汇聚到这里。",
 
+  // --- 家访 ---
+  "visits.title": "家访",
+  "visits.subtitle": "共 {count} 次 · 覆盖 {students} 名学生",
+  "visits.emptyTitle": "还没有家访记录",
+  "visits.emptyDesc": "家访记录来自学生档案里的「记录事件」，勾选「需要跟进」的会出现在待跟进里。",
+  "visits.filterAll": "全部",
+  "visits.filterFollowUps": "待跟进",
+  "visits.followUp": "需跟进",
+  "visits.record": "记录家访",
+
   // --- 新建学生 ---
   "new.title": "添加学生",
   "new.subtitle": "新学生会加入所选班级，并自动记录一条入学时间线",

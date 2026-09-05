@@ -150,13 +150,13 @@ function onKeydown(e) {
     return
   }
 
-  // g 之后接 h / s / c / e / r / p —— 高手不用摸鼠标
+  // g 之后接 h / s / c / e / v / r / p —— 高手不用摸鼠标
   if (e.key.toLowerCase() === "g") {
     lastG = Date.now()
     return
   }
   if (lastG && Date.now() - lastG < 1400) {
-    const to = { h: "/", s: "/students", c: "/classes", e: "/exams", r: "/records", p: "/profile" }[
+    const to = { h: "/", s: "/students", c: "/classes", e: "/exams", v: "/visits", r: "/records", p: "/profile" }[
       e.key.toLowerCase()
     ]
     lastG = 0

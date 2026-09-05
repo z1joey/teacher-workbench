@@ -491,6 +491,7 @@ def list_student_events(
 
 @router.get("/records")
 def list_records(
+    type: str | None = None,
     db: Session = Depends(get_db),
     user: Person = Depends(get_current_person),
 ):
@@ -499,14 +500,18 @@ def list_records(
     Events carry participant sets (person_events) — an exam sitting involves
     the creating teacher plus its students, a home visit the teacher, student
     and guardian, a note the teacher and student — so "my records" is
-    attendance, not a school-wide listing. student_id/name point at the
-    primary student (the sole student attendee; sittings have a roster
-    instead, so they come back null).
+    attendance, not a school-wide listing. `type` narrows the feed to one
+    event type (the 家访 page reads /records?type=home_visited).
+    student_id/name point at the primary student (the sole student attendee;
+    sittings have a roster instead, so they come back null).
     """
+    conds = [person_events.c.person_id == user.id]
+    if type is not None:
+        conds.append(Event.type == type)
     rows = (
         db.query(Event)
         .join(person_events, person_events.c.event_id == Event.id)
-        .filter(person_events.c.person_id == user.id)
+        .filter(*conds)
         .order_by(Event.start_time.desc(), Event.created_at.desc())
         .limit(200)
         .all()
