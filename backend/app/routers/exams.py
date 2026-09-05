@@ -251,7 +251,8 @@ def create_exam(
         start_time=datetime.combine(body.exam_date, EXAM_HOUR),
         end_time=datetime.combine(body.end_date, time.max) if body.end_date else None,
         payload={"term": body.term, "full_scores": full_scores_of(body.subjects)},
-        attendee_ids=_attendee_ids(db, body.class_id),
+        # the sitting involves the teacher arranging it plus its students
+        attendee_ids=[user.id, *_attendee_ids(db, body.class_id)],
     )
     db.commit()
     return {"id": str(exam.id), "name": exam.title,

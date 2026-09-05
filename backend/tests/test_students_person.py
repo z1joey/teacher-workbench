@@ -502,26 +502,60 @@ def test_manual_event_create_list_patch_delete(make_client, db, headers):
 # /records, /teachers/me/event-types
 # ---------------------------------------------------------------------------
 
-def test_records_lists_record_events_school_wide(make_client, db, headers):
-    s1 = _seed_person(db, "林晓雨", "S001")
+def test_records_lists_events_the_teacher_attends(make_client, db, headers):
+    teacher = db.query(Person).filter(Person.phone == "13800000001").one()
+    s1 = Person(password_hash=hash_password(uuid.uuid4().hex),
+                payload=validate_person_payload("student", {
+                    "name": "林晓雨", "admission_no": "S001",
+                    "guardian_name": "林女士"}))
+    db.add(s1)
     s2 = _seed_person(db, "王小明", "S002")
-    _manual_event(db, s1, "home_visited", "开学前家访", datetime(2026, 3, 15, 19, 0))
-    _manual_event(db, s2, "note_added", "作业潦草", datetime(2026, 3, 20, 9, 0))
-    _score_event(db, s1, "期中考试", "math", score=90.0)  # score events list too
-    db.commit()
+    db.commit()  # the API session must see the new students
     client = make_client(students.router)
+
+    # events the teacher creates involve student + teacher, and a home visit
+    # snapshots the guardian of record into its payload
+    r = client.post(f"/api/students/{s1.id}/events",
+                    json={"event_type": "home_visited", "summary": "开学前家访",
+                          "occurred_at": "2026-03-15T19:00:00"},
+                    headers=headers)
+    assert r.status_code == 201, r.text
+    r = client.post(f"/api/students/{s2.id}/events",
+                    json={"event_type": "note_added", "summary": "作业潦草",
+                          "occurred_at": "2026-03-20T09:00:00"},
+                    headers=headers)
+    assert r.status_code == 201, r.text
+
+    _score_event(db, s1, "期中考试", "math", score=90.0)  # student-only, not hers
+    other = _seed_teacher(db, phone="13800000002")
+    other_headers = _headers(db, other, token="o" * 64)
+    r = make_client(students.router).post(
+        f"/api/students/{s2.id}/events",
+        json={"event_type": "talk", "summary": "另一位老师的谈话",
+              "occurred_at": "2026-03-21T10:00:00"},
+        headers=other_headers)
+    assert r.status_code == 201, r.text
+    db.commit()
 
     r = client.get("/api/records", headers=headers)
     assert r.status_code == 200, r.text
     rows = r.json()
-    # every Event school-wide, newest first — records are just a subset
+    # only the signed-in teacher's own events, newest first
     assert [(row["event_type"], row["student_name"]) for row in rows] == [
-        ("score", "林晓雨"), ("note_added", "王小明"), ("home_visited", "林晓雨")]
-    note = next(row for row in rows if row["event_type"] == "note_added")
-    assert set(note) == {"id", "student_id", "student_name", "event_type",
-                         "occurred_at", "actor", "payload"}
-    assert note["student_id"] == str(s2.id)
-    assert note["payload"] == {"notes": "作业潦草"}
+        ("note_added", "王小明"), ("home_visited", "林晓雨")]
+    assert set(rows[0]) == {"id", "title", "student_id", "student_name",
+                            "event_type", "occurred_at", "actor", "payload"}
+    assert rows[0]["student_id"] == str(s2.id)
+    assert rows[0]["title"] == "随笔"
+    assert rows[0]["payload"] == {"notes": "作业潦草"}
+    visit = rows[1]
+    assert visit["title"] == "家访"
+    assert visit["payload"] == {"summary": "开学前家访", "guardian": "林女士"}
+    # both records carry the teacher as an attendee alongside the student
+    for row in rows:
+        ev = db.get(Event, uuid.UUID(row["id"]))
+        assert {p.id for p in ev.attendees} == {s2.id if row is rows[0] else s1.id,
+                                                teacher.id}
 
 
 def test_teachers_me_event_types_returns_manual_list(make_client, db, headers):

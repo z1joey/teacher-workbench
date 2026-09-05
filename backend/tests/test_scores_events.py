@@ -185,7 +185,8 @@ def test_create_exam_creates_event_with_class_attendees(make_client, db, headers
     assert exam.type == "exam"
     assert exam.title == "期中考试"
     assert exam.start_time.date().isoformat() == "2026-05-20"
-    assert {str(p.id) for p in exam.attendees} == {str(a.id), str(b.id)}
+    teacher = db.query(Person).filter(Person.phone == "13800000001").one()
+    assert {str(p.id) for p in exam.attendees} == {str(a.id), str(b.id), str(teacher.id)}
     # the per-subject full_score config round-trips through the registry
     assert exam.payload == {"full_scores": {"语文": 120.0, "数学": 100.0}}
 
@@ -209,7 +210,9 @@ def test_create_exam_creates_event_with_class_attendees(make_client, db, headers
     )
     assert ok.status_code == 201
     wide = db.get(Event, uuid.UUID(ok.json()["id"]))
-    assert {p.payload["admission_no"] for p in wide.attendees} == {"S1", "S2", "S4"}
+    assert {p.payload.get("admission_no") for p in wide.attendees
+            if p.role == "student"} == {"S1", "S2", "S4"}
+    assert any(p.role == "teacher" for p in wide.attendees)  # the arranger attends
 
 
 def test_exam_list_and_detail_shapes(make_client, db, headers):

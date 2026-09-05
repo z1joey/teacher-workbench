@@ -170,11 +170,11 @@ const messages = {
   "home.calLegendExam": "考试",
   "home.calLegendRecord": "跟进记录",
 
-  // --- 跟进记录 ---
+  // --- 事件（我参与的） ---
   "records.title": "事件",
-  "records.subtitle": "共 {count} 条 · 点击学生名查看完整时间线",
+  "records.subtitle": "共 {count} 条 · 只显示我参与的事件，点击学生名查看完整时间线",
   "records.emptyTitle": "还没有事件",
-  "records.emptyDesc": "学生档案里的记录、考试、成绩和系统动作都会汇聚到这里。",
+  "records.emptyDesc": "你参与的考试、家访和跟进记录会汇聚到这里。",
 
   // --- 新建学生 ---
   "new.title": "添加学生",
@@ -340,6 +340,8 @@ const messages = {
   // --- 时间线事件 ---
   "tl.enrolled": "入学",
   "tl.class_moved": "转班",
+  "tl.exam": "考试",
+  "tl.score": "成绩",
   "tl.exam_taken": "参加考试",
   "tl.result_changed": "成绩更正",
   "tl.birthday": "生日",
@@ -511,13 +513,15 @@ export function describeEvent(type, p = {}) {
     }
     case "home_visited":
     case "parent_call":
-      return `${p.purpose ? p.purpose + " — " : ""}${p.summary || ""}`
+      return `${p.guardian ? `与${p.guardian} · ` : ""}${p.purpose ? p.purpose + " — " : ""}${p.summary || ""}`
     case "talk":
     case "tutoring":
     case "note_added":
-      return p.summary ?? p.note ?? ""
-    case "exam":
-      return p.term ? `${p.term}考试` : "考试"
+      return p.notes ?? p.summary ?? p.note ?? ""
+    case "exam": {
+      const subjects = p.full_scores ? Object.keys(p.full_scores).map(subject).join("、") : ""
+      return [p.term ? `${p.term}考试` : "", subjects].filter(Boolean).join(" · ") || "考试"
+    }
     case "score":
       return `${subject(p.subject)}：${p.absent ? "缺考" : `${p.score ?? "-"}/${p.max_score ?? "-"}`}`
     default:

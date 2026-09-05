@@ -435,20 +435,27 @@ def create_event_record(
     student_id: uuid.UUID,
     body: EventRecordIn,
     db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
 ):
     person = db.get(Person, student_id)
     if person is None or person.role != "student":
         raise HTTPException(status_code=404, detail="student not found")
     if body.event_type not in _RECORDABLE_TYPES:
         raise HTTPException(status_code=400, detail="不支持的事件类型")
+    payload = _record_payload(body.event_type, body.summary, body.purpose,
+                              body.follow_up_needed, body.follow_up_note)
+    if body.event_type == "home_visited":
+        # a visit involves the guardian of record — snapshot the name at
+        # visit time, the student's payload may change later
+        payload["guardian"] = (person.payload or {}).get("guardian_name")
     event = create_event(
         db,
         event_type=body.event_type,
         title=_record_title(body.event_type),
         start_time=body.occurred_at or utcnow(),
-        payload=_record_payload(body.event_type, body.summary, body.purpose,
-                                body.follow_up_needed, body.follow_up_note),
-        attendee_ids=[person.id],
+        payload=payload,
+        # the record involves its student and the teacher who made it
+        attendee_ids=[person.id, user.id],
     )
     db.commit()
     return {"id": str(event.id), "status": "created"}
@@ -485,28 +492,56 @@ def list_student_events(
 @router.get("/records")
 def list_records(
     db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
 ):
-    """所有事件: every Event school-wide (records are just a subset), newest first."""
+    """我的事件: every Event the signed-in person attends, newest first.
+
+    Events carry participant sets (person_events) — an exam sitting involves
+    the creating teacher plus its students, a home visit the teacher, student
+    and guardian, a note the teacher and student — so "my records" is
+    attendance, not a school-wide listing. student_id/name point at the
+    primary student (the sole student attendee; sittings have a roster
+    instead, so they come back null).
+    """
     rows = (
-        db.query(Event, Person)
+        db.query(Event)
         .join(person_events, person_events.c.event_id == Event.id)
-        .join(Person, Person.id == person_events.c.person_id)
+        .filter(person_events.c.person_id == user.id)
         .order_by(Event.start_time.desc(), Event.created_at.desc())
         .limit(200)
         .all()
     )
-    return [
-        {
-            "id": str(ev.id),
-            "student_id": str(person.id),
-            "student_name": (person.payload or {}).get("name"),
-            "event_type": ev.type,
-            "occurred_at": ev.start_time.isoformat(),
-            "actor": None,
-            "payload": ev.payload or {},
-        }
-        for ev, person in rows
-    ]
+    students: dict[uuid.UUID, list[Person]] = {}
+    if rows:
+        for event_id, person in (
+            db.query(person_events.c.event_id, Person)
+            .join(Person, Person.id == person_events.c.person_id)
+            .filter(
+                person_events.c.event_id.in_([e.id for e in rows]),
+                Person.payload["role"].as_string() == "student",
+            )
+            .all()
+        ):
+            students.setdefault(event_id, []).append(person)
+    out = []
+    for ev in rows:
+        roster = students.get(ev.id, [])
+        # link the student timeline only when the event IS about one student —
+        # a sitting with its whole roster has no primary student
+        student = roster[0] if len(roster) == 1 else None
+        out.append(
+            {
+                "id": str(ev.id),
+                "title": ev.title,
+                "student_id": str(student.id) if student else None,
+                "student_name": (student.payload or {}).get("name") if student else None,
+                "event_type": ev.type,
+                "occurred_at": ev.start_time.isoformat(),
+                "actor": None,
+                "payload": ev.payload or {},
+            }
+        )
+    return out
 
 
 @router.get("/teachers/me/event-types")

@@ -1,5 +1,6 @@
 <script setup>
-// 事件：所有事件（跟进记录、考试、成绩、系统动作）按时间倒序排列，点学生名直达他的时间线。
+// 事件：只显示我（当前登录老师）参与的事件，按时间倒序排列，点学生名直达他的时间线。
+// 考试没有单一学生，主文案直接显示考试名。
 import { onMounted, ref } from "vue"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
@@ -67,7 +68,8 @@ function fmtDate(ts) {
             <div class="feed__body">
               <div class="feed__head">
                 <span>
-                  <router-link :to="`/students/${r.student_id}`">{{ r.student_name }}</router-link>
+                  <router-link v-if="r.student_id" :to="`/students/${r.student_id}`">{{ r.student_name }}</router-link>
+                  <template v-else>{{ r.title }}</template>
                   · {{ eventTypeLabel(r.event_type) }}
                   <template v-if="r.actor"> · {{ r.actor }}</template>
                 </span>

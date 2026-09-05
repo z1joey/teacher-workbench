@@ -140,14 +140,14 @@ def seed(db: Session) -> None:
     # --- exam sittings: one Event(type="exam") each; the per-subject full
     # score config rides in payload["full_scores"] (the score-entry flow reads
     # it to set each score payload's max_score). School-wide sitting, so the
-    # whole active student body attends.
+    # whole active student body plus both homeroom teachers attend.
     exams_by_key: dict[str, Event] = {}
     for exam_key, exam_name, exam_date in EXAM_PLAN:
         exams_by_key[exam_key] = create_event(
             db, event_type="exam", title=exam_name,
             start_time=dt(exam_date, EXAM_HOUR),
             payload={"full_scores": dict(SUBJECT_FULL_SCORES)},
-            attendee_ids=[s.id for s in students],
+            attendee_ids=[chen.id, zhao.id, *[s.id for s in students]],
         )
     db.flush()
 
@@ -261,9 +261,11 @@ def seed(db: Session) -> None:
                  attendee_ids=[hao.id])
 
     # --- home visits + notes -------------------------------------------------
-    # No actor concept: the new Event row has no teacher column. Home-visit
-    # purpose folds into the summary (HomeVisitPayload has summary/follow_up
-    # only) and follow_up_needed collapses into the note (students.py rule).
+    # Visits involve 陈老师 (the visiting teacher), the student and the
+    # guardian of record (snapshotted from the student payload); notes involve
+    # her and the student. Home-visit purpose folds into the summary
+    # (HomeVisitPayload has summary/follow_up/guardian only) and
+    # follow_up_needed collapses into the note (students.py rule).
     visits = [
         (hao, datetime(2026, 3, 20, 19, 0),
          "频繁迟到：父母上早班，商定由爷爷负责早餐和晨间作息。",
@@ -277,17 +279,18 @@ def seed(db: Session) -> None:
     ]
     for student, when, summary, follow_up in visits:
         create_event(db, event_type="home_visited", title="家访", start_time=when,
-                     payload={"summary": summary, "follow_up": follow_up},
-                     attendee_ids=[student.id])
+                     payload={"summary": summary, "follow_up": follow_up,
+                              "guardian": (student.payload or {}).get("guardian_name")},
+                     attendee_ids=[student.id, chen.id])
 
     create_event(db, event_type="note_added", title="随笔",
                  start_time=datetime(2026, 4, 20, 15, 0),
                  payload={"notes": "对多步骤分数应用题掌握不牢，建议用画图法辅助理解。"},
-                 attendee_ids=[lin.id])
+                 attendee_ids=[lin.id, chen.id])
     create_event(db, event_type="note_added", title="随笔",
                  start_time=datetime(2026, 3, 22, 15, 0),
                  payload={"notes": "家庭约定后，出勤情况明显改善。"},
-                 attendee_ids=[hao.id])
+                 attendee_ids=[hao.id, chen.id])
 
 
 def run() -> None:

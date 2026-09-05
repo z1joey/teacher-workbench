@@ -57,6 +57,9 @@ class NotesPayload(_Strict):
 class HomeVisitPayload(_Strict):
     summary: str | None = None
     follow_up: str | None = None
+    # guardian of record at visit time (snapshots the student payload;
+    # guardians are student attributes, not accounts)
+    guardian: str | None = None
 
 
 class ExamPayload(_Strict):
