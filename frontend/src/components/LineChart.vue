@@ -10,7 +10,23 @@ const props = defineProps({
   series: { type: Array, default: () => [] },
   yMax: { type: Number, default: 100 },
   highlightIndex: { type: Number, default: -1 },
+  // 可选：自定义悬停数值的显示（如原始分 + 满分），入参 (series, value, index)
+  formatTip: { type: Function, default: null },
 })
+
+// 图例点击可隐藏/显示对应科目线，9 条线挤在一起时便于聚焦
+const hidden = ref(new Set())
+
+function toggleSeries(key) {
+  const next = new Set(hidden.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  hidden.value = next
+}
+
+const visibleSeries = computed(() =>
+  props.series.filter((s) => !hidden.value.has(s.key))
+)
 
 const W = 640
 const H = 300
@@ -36,7 +52,7 @@ const ticks = computed(() =>
 
 const lines = computed(() => {
   const out = []
-  for (const s of props.series) {
+  for (const s of visibleSeries.value) {
     let run = []
     const flush = () => {
       if (run.length > 1) out.push({ key: s.key, color: s.color, points: run.join(" ") })
@@ -56,7 +72,7 @@ const lines = computed(() => {
 
 const dots = computed(() => {
   const out = []
-  for (const s of props.series) {
+  for (const s of visibleSeries.value) {
     s.values.forEach((v, i) => {
       if (v != null) {
         out.push({ key: `${s.key}-${i}`, color: s.color, x: xFor(i), y: yFor(v) })
@@ -70,8 +86,14 @@ const hover = ref(-1)
 
 const tip = computed(() => {
   if (hover.value < 0 || hover.value >= props.labels.length) return null
-  const rows = props.series
-    .map((s) => ({ label: s.label, color: s.color, value: s.values[hover.value] }))
+  const rows = visibleSeries.value
+    .map((s) => ({
+      label: s.label,
+      color: s.color,
+      value: props.formatTip
+        ? props.formatTip(s, s.values[hover.value], hover.value)
+        : s.values[hover.value],
+    }))
     .filter((r) => r.value != null)
   return { label: props.labels[hover.value], rows, x: xFor(hover.value) }
 })
@@ -210,10 +232,18 @@ const xLabels = computed(() => {
     </div>
 
     <div class="chart__legend">
-      <span v-for="s in series" :key="s.key" class="chart__legend-item">
+      <button
+        v-for="s in series"
+        :key="s.key"
+        type="button"
+        class="chart__legend-item"
+        :class="{ 'is-off': hidden.has(s.key) }"
+        :aria-pressed="!hidden.has(s.key)"
+        @click="toggleSeries(s.key)"
+      >
         <span class="chart__dot" :style="{ background: s.color }" />{{ s.label }}
-      </span>
-      <span class="muted" style="font-size: 12px">← → 逐场查看</span>
+      </button>
+      <span class="muted" style="font-size: 12px">← → 逐场查看 · 点击科目显示/隐藏</span>
     </div>
   </div>
 </template>

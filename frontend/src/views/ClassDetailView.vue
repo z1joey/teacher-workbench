@@ -106,17 +106,28 @@ async function removeClass() {
   })
 }
 
+// 语数英 120 分、其余 100 分——原始分同轴比较不公平，统一画成得分率（%）
 const trendChart = computed(() => {
   if (!detail.value || !detail.value.trend.exams.length) return null
-  return {
-    labels: detail.value.trend.exams.map((e) => e.name),
-    series: detail.value.trend.series.map((s) => ({
+  const series = detail.value.trend.series.map((s) => {
+    const full = s.full_score || 100
+    return {
       key: s.subject,
       label: subject(s.subject),
       color: subjectColor(s.subject),
-      values: s.values,
-    })),
-    yMax: Math.max(100, ...detail.value.trend.series.map((s) => s.full_score || 0)),
+      values: s.values.map((v) => (v == null ? null : Math.round((v / full) * 1000) / 10)),
+    }
+  })
+  return {
+    labels: detail.value.trend.exams.map((e) => e.name),
+    series,
+    yMax: 100,
+    formatTip: (s, pct, i) => {
+      const orig = detail.value.trend.series.find((x) => x.subject === s.key)
+      const raw = orig ? orig.values[i] : null
+      const full = orig ? orig.full_score || 100 : 100
+      return raw != null ? `${pct}%（${raw}/${full} 分）` : `${pct}%`
+    },
   }
 })
 
@@ -206,6 +217,7 @@ function fmtPct(score, full) {
                 :labels="trendChart.labels"
                 :series="trendChart.series"
                 :y-max="trendChart.yMax"
+                :format-tip="trendChart.formatTip"
               />
             </div>
           </div>

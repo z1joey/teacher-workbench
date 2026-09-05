@@ -125,10 +125,13 @@ const examScoreGroups = computed(() => {
 })
 
 // multi-subject score trend: one line per subject across exams (chronological)
+// 语数英 120 分、其余 100 分——统一换算成得分率（%）才可比
 const scoreTrend = computed(() => {
   if (!student.value || !student.value.scores.length) return null
   const byExam = new Map()
+  const fullBySubject = {}
   for (const row of student.value.scores) {
+    fullBySubject[row.subject] = row.full_score
     const key = `${row.exam_date}|${row.exam_id}`
     if (!byExam.has(key)) {
       byExam.set(key, { label: row.exam_name, date: row.exam_date, perSubject: {} })
@@ -137,14 +140,28 @@ const scoreTrend = computed(() => {
   }
   const exams = [...byExam.values()].sort((a, b) => a.date.localeCompare(b.date))
   const subjects = [...new Set(student.value.scores.map((s) => s.subject))]
-  const series = subjects.map((sub) => ({
-    key: sub,
-    label: subject(sub),
-    color: subjectColor(sub),
-    values: exams.map((e) => e.perSubject[sub] ?? null),
-  }))
-  const yMax = Math.max(100, ...student.value.scores.map((s) => s.full_score || 0))
-  return { labels: exams.map((e) => e.label), series, yMax }
+  const series = subjects.map((sub) => {
+    const full = fullBySubject[sub] || 100
+    return {
+      key: sub,
+      label: subject(sub),
+      color: subjectColor(sub),
+      values: exams.map((e) => {
+        const v = e.perSubject[sub]
+        return v == null ? null : Math.round((v / full) * 1000) / 10
+      }),
+    }
+  })
+  return {
+    labels: exams.map((e) => e.label),
+    series,
+    yMax: 100,
+    formatTip: (s, pct, i) => {
+      const raw = exams[i]?.perSubject[s.key]
+      const full = fullBySubject[s.key] || 100
+      return raw == null ? `${pct}%` : `${pct}%（${raw}/${full} 分）`
+    },
+  }
 })
 
 function subjectInitial(sub) {

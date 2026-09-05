@@ -2204,7 +2204,17 @@ a.chip:hover {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
 }
+.chart__legend-item:hover { border-color: var(--primary); color: var(--text); }
+.chart__legend-item.is-off { opacity: 0.4; text-decoration: line-through; }
 
 /* ==========================================================================
    19. 可折叠区块
