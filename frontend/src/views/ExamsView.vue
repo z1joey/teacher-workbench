@@ -5,7 +5,7 @@ import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
-import { friendlyError, subject, t } from "../strings"
+import { friendlyError, formatDateRange, subject, t } from "../strings"
 
 const exams = ref([])
 const loading = ref(true)
@@ -23,14 +23,6 @@ async function load() {
   }
 }
 onMounted(load)
-
-function fmtDate(d) {
-  return new Date(d).toLocaleDateString("zh-CN", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  })
-}
 </script>
 
 <template>
@@ -71,7 +63,7 @@ function fmtDate(d) {
         <div class="card__head">
           <div class="grow">
             <h2 class="card__title" style="font-size: 16px">{{ e.name }}</h2>
-            <p class="card__desc">{{ fmtDate(e.exam_date) }}</p>
+            <p class="card__desc">{{ formatDateRange(e.exam_date, e.end_date) }}</p>
           </div>
           <Icon name="chevron-right" :size="16" style="color: var(--muted)" />
         </div>

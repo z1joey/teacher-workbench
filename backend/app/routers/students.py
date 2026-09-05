@@ -147,7 +147,8 @@ def _score_events(db: Session, person_id: uuid.UUID,
 
 def _exam_event_id(db: Session, exam_name: str, exam_date: str,
                    cache: dict | None = None) -> str | None:
-    """The exam Event of a sitting, matched by title + date (str id), or None."""
+    """The exam Event of a sitting, matched by title + the day falling inside
+    its [first_day, last_day] span (str id), or None."""
     if cache is not None and (exam_name, exam_date) in cache:
         return cache[(exam_name, exam_date)]
     day = date.fromisoformat(exam_date)
@@ -156,8 +157,9 @@ def _exam_event_id(db: Session, exam_name: str, exam_date: str,
         .filter(
             Event.type == "exam",
             Event.title == exam_name,
-            Event.start_time >= datetime.combine(day, time.min),
-            Event.start_time < datetime.combine(day, time.min) + timedelta(days=1),
+            Event.start_time <= datetime.combine(day, time.max),
+            func.coalesce(Event.end_time, Event.start_time)
+            >= datetime.combine(day, time.min),
         )
         .first()
     )
@@ -484,12 +486,11 @@ def list_student_events(
 def list_records(
     db: Session = Depends(get_db),
 ):
-    """跟进记录: every record-type Event school-wide, newest first."""
+    """所有事件: every Event school-wide (records are just a subset), newest first."""
     rows = (
         db.query(Event, Person)
         .join(person_events, person_events.c.event_id == Event.id)
         .join(Person, Person.id == person_events.c.person_id)
-        .filter(Event.type.in_(list(RECORD_EVENT_TYPES)))
         .order_by(Event.start_time.desc(), Event.created_at.desc())
         .limit(200)
         .all()

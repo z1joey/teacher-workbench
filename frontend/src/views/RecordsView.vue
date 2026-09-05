@@ -1,5 +1,5 @@
 <script setup>
-// 跟进记录：所有手动记录的事件按时间倒序排列，点学生名直达他的时间线。
+// 事件：所有事件（跟进记录、考试、成绩、系统动作）按时间倒序排列，点学生名直达他的时间线。
 import { onMounted, ref } from "vue"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"

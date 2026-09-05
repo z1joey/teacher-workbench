@@ -1076,6 +1076,10 @@ code {
   border-bottom: 0;
   padding-bottom: 0;
 }
+.card__head--plain.is-collapsed {
+  /* 折叠时下方没有内容，补齐底部留白，避免标题贴到卡片下边缘 */
+  padding-bottom: var(--sp-4);
+}
 .card__title {
   display: flex;
   align-items: center;

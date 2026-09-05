@@ -35,7 +35,7 @@ export const router = createRouter({
     { path: "/", name: "home", component: HomeView, meta: { title: "首页" } },
     { path: "/login", name: "login", component: LoginView, meta: { title: "登录" } },
     { path: "/profile", name: "profile", component: ProfileView, meta: { title: "个人中心" } },
-    { path: "/records", name: "records", component: RecordsView, meta: { title: "跟进记录" } },
+    { path: "/records", name: "records", component: RecordsView, meta: { title: "事件" } },
     { path: "/classes", name: "classes", component: ClassesView, meta: { title: "班级" } },
     {
       path: "/classes/:id",

@@ -108,7 +108,7 @@ function toggleGroup(group) {
 
     <div class="stack">
       <section v-for="g in groups" :key="g.name" class="card">
-        <div class="card__head card__head--plain">
+        <div class="card__head card__head--plain" :class="{ 'is-collapsed': isCollapsed(g) }">
           <button
             :id="`group-head-${g.name}`"
             class="card__title"

@@ -53,7 +53,11 @@ watch(() => props.id, load)
 function startEdit() {
   editing.value = true
   editError.value = ""
-  editForm.value = { name: exam.value.name, exam_date: exam.value.exam_date }
+  editForm.value = {
+    name: exam.value.name,
+    exam_date: exam.value.exam_date,
+    end_date: exam.value.end_date || "",
+  }
 }
 function cancelEdit() {
   editing.value = false
@@ -67,11 +71,16 @@ async function saveEdit() {
     editError.value = t("examnew.nameRequired")
     return
   }
+  if (editForm.value.end_date && editForm.value.end_date < editForm.value.exam_date) {
+    editError.value = t("examnew.endDateInvalid")
+    return
+  }
   editSaving.value = true
   try {
     const updated = await api.patch(`/exams/${props.id}`, {
       name: editForm.value.name.trim(),
       exam_date: editForm.value.exam_date,
+      end_date: editForm.value.end_date || null,
     })
     exam.value = updated
     editing.value = false
@@ -134,9 +143,6 @@ const classRows = computed(() => {
   return Object.entries(byClass).map(([name, cells]) => ({ label: name, cells }))
 })
 
-function fmtDate(d) {
-  return new Date(d).toLocaleDateString("zh-CN", { year: "numeric", month: "short", day: "numeric" })
-}
 function pct(score, full) {
   return full ? Math.round((score / full) * 100) : 0
 }
@@ -147,7 +153,7 @@ function pct(score, full) {
     <template v-if="averages && exam">
       <PageHeader
         :title="exam.name"
-        :subtitle="`${fmtDate(exam.exam_date)} · ${t('exam.attributionNote')}`"
+        :subtitle="`${formatDateRange(exam.exam_date, exam.end_date)} · ${t('exam.attributionNote')}`"
       >
         <template #actions>
           <button class="btn" @click="startEdit">
@@ -179,6 +185,17 @@ function pct(score, full) {
             </FormField>
             <FormField :label="t('examnew.date')" required>
               <input v-model="editForm.exam_date" class="input" type="date" />
+            </FormField>
+            <FormField
+              :label="t('examnew.endDate')"
+              :hint="t('examnew.endDateHint')"
+            >
+              <input
+                v-model="editForm.end_date"
+                class="input"
+                type="date"
+                :min="editForm.exam_date || undefined"
+              />
             </FormField>
           </div>
           <p class="field__hint" style="margin-bottom: 12px">{{ t("exam.subjectLockNote") }}</p>

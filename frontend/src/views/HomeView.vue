@@ -13,6 +13,7 @@ import {
   eventTypeColor,
   eventTypeIcon,
   eventTypeLabel,
+  formatDateRange,
   friendlyError,
   t,
 } from "../strings"
@@ -171,7 +172,7 @@ function countdownLabel(d) {
             >
               <div class="stat__label">{{ countdownLabel(e.exam_date) }}</div>
               <div class="stat__value" style="font-size: 18px">{{ e.name }}</div>
-              <div class="stat__sub">{{ fmtDate(e.exam_date) }}</div>
+              <div class="stat__sub">{{ formatDateRange(e.exam_date, e.end_date) }}</div>
             </router-link>
           </div>
         </div>

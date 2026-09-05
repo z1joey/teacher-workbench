@@ -1,7 +1,8 @@
 """Exams: a sitting is one Event(type="exam") row, scores are score Events.
 
-The sitting Event is titled with the exam name and dated the exam day
-(start_time 09:00); an optional class_id scopes its attendees to that class's
+The sitting Event is titled with the exam name and dated the first exam day
+(start_time 09:00); multi-day sittings (中考/高考 style) put the last day in
+end_time. An optional class_id scopes its attendees to that class's
 enrolled students (otherwise the whole active student body attends). There
 are no ExamSubject rows: the per-subject full_score config posted to
 POST/PATCH /exams lives in the sitting Event's registry-validated payload as
@@ -10,8 +11,8 @@ score-entry flow reads each subject's max_score from before writing
 per-student score Events. description stays plain free text.
 
 Score rows follow the students-router convention: one Event(type="score") per
-student per subject, title "<exam name>·<subject>", start_time on the exam
-day, payload {subject, max_score, score|absent}. With no parent link, a
+student per subject, title "<exam name>·<subject>", start_time on the exam's
+first day, payload {subject, max_score, score|absent}. With no parent link, a
 sitting's scores are matched by title prefix ("{exam.title}·") AND the
 sitting's date window (see sitting_score_conds) — the same rule students.py
 uses to resolve exam_id. Averages aggregate payload["score"] over entered
@@ -45,16 +46,26 @@ router = APIRouter(
 EXAM_HOUR = time(9, 0)  # sitting Events are dated the exam day at 09:00
 
 
-def day_window(day: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(day, time.min)
-    return start, start + timedelta(days=1)
+def day_window(start_day: date, end_day: date | None = None) -> tuple[datetime, datetime]:
+    """Inclusive window: [00:00 on start_day, 23:59:59.999999 on end_day]
+    (single-day when end_day is omitted)."""
+    lo = datetime.combine(start_day, time.min)
+    hi = datetime.combine(end_day or start_day, time.max)
+    return lo, hi
 
 
-def sitting_score_conds(title_prefix: str, day: date) -> list:
-    """Score Events of one sitting: title "<prefix>·<subject>", exam day,
-    entered only — absent=true excluded (validated payloads always carry
-    absent:false explicitly, so NULL never occurs) and score present."""
-    lo, hi = day_window(day)
+def exam_days(e: Event) -> tuple[date, date]:
+    """(first_day, last_day) of a sitting; single-day when end_time is unset."""
+    return e.start_time.date(), (e.end_time or e.start_time).date()
+
+
+def sitting_score_conds(title_prefix: str, start_day: date,
+                        end_day: date | None = None) -> list:
+    """Score Events of one sitting: title "<prefix>·<subject>", within the
+    sitting's date window, entered only — absent=true excluded (validated
+    payloads always carry absent:false explicitly, so NULL never occurs) and
+    score present."""
+    lo, hi = day_window(start_day, end_day)
     return [
         Event.type == "score",
         Event.title.startswith(f"{title_prefix}·", autoescape=True),
@@ -65,10 +76,11 @@ def sitting_score_conds(title_prefix: str, day: date) -> list:
     ]
 
 
-def any_sitting_score_conds(title_prefix: str, day: date) -> list:
+def any_sitting_score_conds(title_prefix: str, start_day: date,
+                            end_day: date | None = None) -> list:
     """Score Events of a sitting regardless of entered state (the
     structure-frozen check in PATCH /exams mirrors the old any-ExamResult rule)."""
-    lo, hi = day_window(day)
+    lo, hi = day_window(start_day, end_day)
     return [
         Event.type == "score",
         Event.title.startswith(f"{title_prefix}·", autoescape=True),
@@ -77,7 +89,8 @@ def any_sitting_score_conds(title_prefix: str, day: date) -> list:
     ]
 
 
-def subject_averages(db: Session, title_prefix: str, day: date,
+def subject_averages(db: Session, title_prefix: str, start_day: date,
+                     end_day: date | None = None,
                      person_ids: list[uuid.UUID] | None = None) -> dict[str, dict]:
     """Per-subject aggregate over one sitting's entered score Events:
     {subject: {avg, min, max, count, full}} — full is the max payload
@@ -98,7 +111,7 @@ def subject_averages(db: Session, title_prefix: str, day: date,
     )
     if person_ids is not None:
         q = q.filter(person_events.c.person_id.in_(person_ids))
-    rows = q.filter(*sitting_score_conds(title_prefix, day)).group_by(subject).all()
+    rows = q.filter(*sitting_score_conds(title_prefix, start_day, end_day)).group_by(subject).all()
     return {
         s: {"avg": avg, "min": min_, "max": max_, "count": count, "full": full}
         for s, avg, min_, max_, count, full in rows
@@ -106,16 +119,16 @@ def subject_averages(db: Session, title_prefix: str, day: date,
 
 
 def find_exam_event(db: Session, name: str, day: date) -> Event | None:
-    """The sitting Event of a name + date (students.py resolves score rows'
-    exam_id with the same title + date-window match)."""
-    lo, hi = day_window(day)
+    """The sitting Event of a name whose [first_day, last_day] contains day
+    (students.py resolves score rows' exam_id with the same rule)."""
     return (
         db.query(Event)
         .filter(
             Event.type == "exam",
             Event.title == name,
-            Event.start_time >= lo,
-            Event.start_time < hi,
+            Event.start_time <= datetime.combine(day, time.max),
+            func.coalesce(Event.end_time, Event.start_time)
+            >= datetime.combine(day, time.min),
         )
         .first()
     )
@@ -160,6 +173,7 @@ def exam_out(exam: Event) -> dict:
         "id": str(exam.id),
         "name": exam.title,
         "exam_date": exam.start_time.date().isoformat(),
+        "end_date": exam.end_time.date().isoformat() if exam.end_time else None,
         "subjects": sorted(
             (
                 {"id": c["id"], "subject": c["subject"], "full_score": c["full_score"]}
@@ -199,6 +213,7 @@ class SubjectIn(BaseModel):
 class ExamIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     exam_date: date
+    end_date: date | None = None  # last day of a multi-day sitting
     subjects: list[SubjectIn] = Field(min_length=1)
     class_id: uuid.UUID | None = None  # scope attendees to one class
     term: str | None = None
@@ -211,7 +226,21 @@ def create_exam(
     user: Person = Depends(get_current_person),
 ):
     name = body.name.strip()
-    if find_exam_event(db, name, body.exam_date) is not None:
+    if body.end_date is not None and body.end_date < body.exam_date:
+        raise HTTPException(status_code=400, detail="结束日期不能早于考试日期")
+    # duplicate rule: same-named exam overlapping the [start, end] span
+    lo, hi = day_window(body.exam_date, body.end_date)
+    overlap = (
+        db.query(Event.id)
+        .filter(
+            Event.type == "exam",
+            Event.title == name,
+            Event.start_time <= hi,
+            func.coalesce(Event.end_time, Event.start_time) >= lo,
+        )
+        .first()
+    )
+    if overlap is not None:
         raise HTTPException(status_code=409, detail="该日期已存在同名考试")
     if body.class_id is not None and db.get(Class, body.class_id) is None:
         raise HTTPException(status_code=400, detail="class not found")
@@ -220,12 +249,14 @@ def create_exam(
         event_type="exam",
         title=name,
         start_time=datetime.combine(body.exam_date, EXAM_HOUR),
+        end_time=datetime.combine(body.end_date, time.max) if body.end_date else None,
         payload={"term": body.term, "full_scores": full_scores_of(body.subjects)},
         attendee_ids=_attendee_ids(db, body.class_id),
     )
     db.commit()
     return {"id": str(exam.id), "name": exam.title,
-            "exam_date": exam.start_time.date().isoformat()}
+            "exam_date": exam.start_time.date().isoformat(),
+            "end_date": exam.end_time.date().isoformat() if exam.end_time else None}
 
 
 @router.get("/exams")
@@ -242,7 +273,10 @@ def exams_trend(db: Session = Depends(get_db), user: Person = Depends(get_curren
     index_of = {e.id: i for i, e in enumerate(exams)}
     per_subject: dict[str, dict] = {}
     for e in exams:
-        for subject, agg in subject_averages(db, e.title, e.start_time.date()).items():
+        start_day, end_day = exam_days(e)
+        for subject, agg in subject_averages(
+            db, e.title, start_day, end_day
+        ).items():
             rec = per_subject.setdefault(
                 subject, {"full_score": 0.0, "values": [None] * len(exams)}
             )
@@ -278,7 +312,7 @@ def exam_averages(exam_id: uuid.UUID, db: Session = Depends(get_db)):
     exam = db.get(Event, exam_id)
     if exam is None or exam.type != "exam":
         raise HTTPException(status_code=404, detail="exam not found")
-    day = exam.start_time.date()
+    start_day, end_day = exam_days(exam)
 
     school = [
         {
@@ -290,12 +324,13 @@ def exam_averages(exam_id: uuid.UUID, db: Session = Depends(get_db)):
             "count": agg["count"],
         }
         for subject, agg in sorted(
-            subject_averages(db, exam.title, day).items()
+            subject_averages(db, exam.title, start_day, end_day).items()
         )
     ]
 
     # per-class averages attribute each score to the class roster valid at the
-    # exam date (the old enrollment-valid-at-exam_date rule)
+    # exam date (the old enrollment-valid-at-exam_date rule; attribution uses
+    # the first day — scores follow the sitting window)
     class_rows = (
         db.query(
             Class.id,
@@ -311,12 +346,12 @@ def exam_averages(exam_id: uuid.UUID, db: Session = Depends(get_db)):
             Enrollment,
             and_(
                 Enrollment.person_id == Person.id,
-                Enrollment.valid_from <= day,
-                or_(Enrollment.valid_to.is_(None), Enrollment.valid_to >= day),
+                Enrollment.valid_from <= start_day,
+                or_(Enrollment.valid_to.is_(None), Enrollment.valid_to >= start_day),
             ),
         )
         .join(Class, Class.id == Enrollment.class_id)
-        .filter(*sitting_score_conds(exam.title, day))
+        .filter(*sitting_score_conds(exam.title, start_day, end_day))
         .group_by(Class.id, Class.name, Event.payload["subject"].as_string())
         .order_by(Class.name, Event.payload["subject"].as_string())
         .all()
@@ -326,7 +361,8 @@ def exam_averages(exam_id: uuid.UUID, db: Session = Depends(get_db)):
         "exam": {
             "id": str(exam.id),
             "name": exam.title,
-            "exam_date": day.isoformat(),
+            "exam_date": start_day.isoformat(),
+            "end_date": end_day.isoformat() if exam.end_time else None,
         },
         "school": school,
         "classes": [
@@ -345,6 +381,7 @@ def exam_averages(exam_id: uuid.UUID, db: Session = Depends(get_db)):
 class ExamUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     exam_date: date | None = None
+    end_date: date | None = None  # last day of a multi-day sitting
     subjects: list[SubjectIn] | None = None
 
 
@@ -359,11 +396,21 @@ def update_exam(
     if e is None or e.type != "exam":
         raise HTTPException(status_code=404, detail="exam not found")
 
-    old_name, old_day = e.title, e.start_time.date()
+    old_name, (old_start, old_end) = e.title, exam_days(e)
+    new_start = body.exam_date or old_start
+    # end_date present-but-null clears the span (back to a single day);
+    # absent means "no change" (PATCH semantics)
+    if "end_date" in body.model_fields_set:
+        new_end = body.end_date or new_start
+    else:
+        new_end = old_end
+    if new_end < new_start:
+        raise HTTPException(status_code=400, detail="结束日期不能早于考试日期")
+
     if body.subjects is not None:
         if (
             db.query(Event.id)
-            .filter(*any_sitting_score_conds(old_name, old_day))
+            .filter(*any_sitting_score_conds(old_name, old_start, old_end))
             .first()
             is not None
         ):
@@ -378,13 +425,20 @@ def update_exam(
         e.title = body.name.strip()
     if body.exam_date is not None:
         e.start_time = datetime.combine(body.exam_date, e.start_time.time())
+    if body.end_date is not None:
+        e.end_time = datetime.combine(body.end_date, time.max)
+    elif "end_date" in body.model_fields_set:
+        e.end_time = None  # explicitly cleared: single-day sitting again
 
     # renaming / re-dating the sitting must not orphan its scores: the results
-    # follow the exam (the old FK behavior — results stayed attached)
-    if e.title != old_name or e.start_time.date() != old_day:
-        shift = (e.start_time.date() - old_day).days
+    # follow the exam (the old FK behavior — results stayed attached); scores
+    # are dated on the first day, so only a start-day shift moves them
+    if e.title != old_name or e.start_time.date() != old_start:
+        shift = (e.start_time.date() - old_start).days
         for score in (
-            db.query(Event).filter(*any_sitting_score_conds(old_name, old_day)).all()
+            db.query(Event)
+            .filter(*any_sitting_score_conds(old_name, old_start, old_end))
+            .all()
         ):
             subject = score.title.rsplit("·", 1)[-1]
             score.title = f"{e.title}·{subject}"

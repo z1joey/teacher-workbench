@@ -95,7 +95,7 @@ const paletteActions = computed(() => {
     { id: "new-student", label: "添加学生", icon: "plus", hint: "新建", run: () => router.push("/students/new") },
     { id: "new-exam", label: "新建考试", icon: "clipboard", hint: "新建", run: () => router.push("/exams/new") },
     { id: "new-class", label: "新建班级", icon: "building", hint: "新建", run: () => router.push("/classes?create=1") },
-    { id: "records", label: "查看跟进记录", icon: "checklist", run: () => router.push("/records") },
+    { id: "records", label: "查看事件", icon: "checklist", run: () => router.push("/records") },
     { id: "profile", label: "个人中心", icon: "user", run: () => router.push("/profile") },
     { id: "help", label: "帮助与快捷键", icon: "help", hint: "?", run: () => openHelp() },
     { id: "logout", label: "退出登录", icon: "logout", run: onLogout },

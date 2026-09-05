@@ -13,10 +13,10 @@ there; follow-ups are home visits whose payload follow_up note is set (the
 old follow_up_needed flag collapsed into it — see students.py).
 """
 from calendar import monthrange
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -49,17 +49,22 @@ def month_calendar(
     items = []
     lo = datetime.combine(first, time.min)
     hi = datetime.combine(last, time.max)
+    # multi-day sittings appear on every day of their span (中考/高考 style)
     for e in (
         db.query(Event)
         .filter(
             Event.type == "exam",
-            Event.start_time >= lo,
             Event.start_time <= hi,
+            func.coalesce(Event.end_time, Event.start_time) >= lo,
         )
         .all()
     ):
-        items.append({"date": e.start_time.date().isoformat(), "kind": "exam",
-                      "id": str(e.id), "name": e.title})
+        day = e.start_time.date()
+        last_day = (e.end_time or e.start_time).date()
+        while day <= last_day:
+            items.append({"date": day.isoformat(), "kind": "exam",
+                          "id": str(e.id), "name": e.title})
+            day += timedelta(days=1)
     rows = (
         db.query(Event, Person)
         .join(person_events, person_events.c.event_id == Event.id)
@@ -151,6 +156,7 @@ def dashboard(
                 "id": str(exam.id),
                 "name": exam.title,
                 "exam_date": exam.start_time.date().isoformat(),
+                "end_date": (exam.end_time.date().isoformat() if exam.end_time else None),
             }
             for exam in upcoming
         ],

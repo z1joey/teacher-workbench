@@ -171,10 +171,10 @@ const messages = {
   "home.calLegendRecord": "跟进记录",
 
   // --- 跟进记录 ---
-  "records.title": "跟进记录",
+  "records.title": "事件",
   "records.subtitle": "共 {count} 条 · 点击学生名查看完整时间线",
-  "records.emptyTitle": "还没有跟进记录",
-  "records.emptyDesc": "在学生档案里点「记录事件」，家访、谈心、家长沟通都会出现在这里。",
+  "records.emptyTitle": "还没有事件",
+  "records.emptyDesc": "学生档案里的记录、考试、成绩和系统动作都会汇聚到这里。",
 
   // --- 新建学生 ---
   "new.title": "添加学生",
@@ -228,6 +228,9 @@ const messages = {
   "examnew.saving": "创建中…",
   "examnew.subjectsRequired": "请至少选择一个科目",
   "examnew.dateInvalid": "请选择一个 2000–2100 年之间的考试日期",
+  "examnew.endDate": "结束日期",
+  "examnew.endDateHint": "多天考试（如中考、高考）可填写结束日期",
+  "examnew.endDateInvalid": "结束日期不能早于考试日期",
 
   "exatype.monthly": "月考",
   "exatype.midterm": "期中考试",
@@ -369,6 +372,22 @@ export function dateLocale() {
   return "zh-CN"
 }
 
+// 日期区间文案：单日返回完整日期；跨天（多日考试）返回 "6月7日 – 6月9日"
+export function formatDateRange(d1, d2) {
+  const fmtFull = (d) =>
+    new Date(d).toLocaleDateString("zh-CN", { year: "numeric", month: "short", day: "numeric" })
+  if (!d2 || d1 === d2) return fmtFull(d1)
+  const start = new Date(d1)
+  const end = new Date(d2)
+  const endText = end.toLocaleDateString(
+    "zh-CN",
+    start.getFullYear() === end.getFullYear()
+      ? { month: "short", day: "numeric" }
+      : { year: "numeric", month: "short", day: "numeric" }
+  )
+  return `${fmtFull(d1)} – ${endText}`
+}
+
 // ------------------------------------------------------------------ 学科
 
 const SUBJECTS = {
@@ -455,6 +474,8 @@ const EVENT_TYPES = {
   tutoring: { icon: "board", color: "#854D0E" },
   note_added: { icon: "note", color: "#5C6B63" },
   birthday: { icon: "cake", color: "#9A5B07" },
+  exam: { icon: "clipboard", color: "#2E6BA8" },
+  score: { icon: "clipboard", color: "#1D4ED8" },
 }
 
 export function eventTypeIcon(type) {
@@ -495,6 +516,10 @@ export function describeEvent(type, p = {}) {
     case "tutoring":
     case "note_added":
       return p.summary ?? p.note ?? ""
+    case "exam":
+      return p.term ? `${p.term}考试` : "考试"
+    case "score":
+      return `${subject(p.subject)}：${p.absent ? "缺考" : `${p.score ?? "-"}/${p.max_score ?? "-"}`}`
     default:
       return p.summary ?? JSON.stringify(p)
   }

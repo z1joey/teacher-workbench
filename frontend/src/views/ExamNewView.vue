@@ -15,6 +15,7 @@ const SUBJECT_OPTIONS = ["math", "english", "chinese", "physics", "chemistry"]
 const form = ref({
   name: "",
   exam_date: "",
+  end_date: "",
   full_score: 100,
   selected: { math: true, english: true, chinese: false, physics: false, chemistry: false },
 })
@@ -30,12 +31,21 @@ function dateError() {
   return ""
 }
 
+function endDateError() {
+  if (form.value.end_date && form.value.exam_date && form.value.end_date < form.value.exam_date) {
+    return t("examnew.endDateInvalid")
+  }
+  return ""
+}
+
 function validate() {
   const e = {}
   if (!form.value.name.trim()) e.name = t("examnew.nameRequired")
   if (!selectedSubjects.value.length) e.subjects = t("examnew.subjectsRequired")
   const de = dateError()
   if (de) e.exam_date = de
+  const ee = endDateError()
+  if (ee) e.end_date = ee
   errors.value = e
   return !Object.keys(e).length
 }
@@ -48,6 +58,7 @@ async function submit() {
     const res = await api.post("/exams", {
       name: form.value.name.trim(),
       exam_date: form.value.exam_date,
+      end_date: form.value.end_date || null,
       subjects: selectedSubjects.value.map((s) => ({
         subject: s,
         full_score: Number(form.value.full_score),
@@ -92,9 +103,19 @@ function toggleSubject(s) {
           />
         </FormField>
         <FormField
-          :label="t('examnew.fullScore')"
-          hint="所有科目共用同一个满分"
+          :label="t('examnew.endDate')"
+          :hint="t('examnew.endDateHint')"
+          :error="errors.end_date || ''"
         >
+          <input
+            v-model="form.end_date"
+            class="input"
+            type="date"
+            :min="form.exam_date || undefined"
+            :aria-invalid="!!errors.end_date"
+          />
+        </FormField>
+        <FormField :label="t('examnew.fullScore')" hint="所有科目共用同一个满分">
           <input
             v-model="form.full_score"
             class="input"

@@ -25,7 +25,7 @@ export const SHORTCUTS = [
   { keys: ["G", "S"], label: "前往 学生" },
   { keys: ["G", "C"], label: "前往 班级" },
   { keys: ["G", "E"], label: "前往 考试" },
-  { keys: ["G", "R"], label: "前往 跟进记录" },
+  { keys: ["G", "R"], label: "前往 事件" },
   { keys: ["Esc"], label: "关闭弹窗 / 取消当前操作" },
 ]
 
@@ -92,9 +92,9 @@ export const PAGE_HELP = {
     ],
   },
   records: {
-    title: "跟进记录",
+    title: "事件",
     items: [
-      "这里按时间倒序列出所有手动记录的事件，点学生名可以直接跳到他的时间线。",
+      "这里按时间倒序列出所有事件（跟进记录、考试、成绩、系统动作），点学生名可以直接跳到他的时间线。",
     ],
   },
   profile: {
