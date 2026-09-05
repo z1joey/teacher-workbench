@@ -181,6 +181,8 @@ const messages = {
   "eventNew.studentsHint": "点班级名整班参加，或勾选单个学生；选中的学生会作为参与者出现在事件里",
   "eventNew.classChipTitle": "点击整班参加，再次点击取消全班",
   "eventNew.searchPlaceholder": "搜索姓名或学号",
+  "eventNew.specifyStudents": "指定学生",
+  "eventNew.hideStudentList": "收起学生列表",
   "eventNew.noStudentMatch": "没有匹配的学生",
   "eventNew.selectedCount": "已选 {n} 名学生",
   "eventNew.saving": "创建中…",

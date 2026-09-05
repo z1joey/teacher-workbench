@@ -20,6 +20,7 @@ const form = ref({
 const students = ref([])
 const selected = ref(new Set())
 const query = ref("")
+const studentListOpen = ref(false) // 点「指定学生」才展开学生列表
 const loading = ref(true)
 const busy = ref(false)
 const error = ref("")
@@ -152,38 +153,52 @@ async function submit() {
               >
                 {{ c.name }} {{ classSelectedCount(c) }}/{{ c.list.length }}
               </button>
+              <button
+                type="button"
+                class="chip"
+                :style="
+                  studentListOpen
+                    ? { background: '#2e6ba8', borderColor: '#2e6ba8', color: '#fff' }
+                    : {}
+                "
+                @click="studentListOpen = !studentListOpen"
+              >
+                {{ studentListOpen ? t("eventNew.hideStudentList") : t("eventNew.specifyStudents") }}
+              </button>
             </div>
-            <input
-              v-model="query"
-              class="input"
-              type="search"
-              :placeholder="t('eventNew.searchPlaceholder')"
-              style="margin-bottom: 10px"
-            />
-            <div v-if="!loading" class="card card--link" style="max-height: 260px; overflow-y: auto">
-              <div class="card__body card__body--tight">
-                <label
-                  v-for="s in filtered"
-                  :key="s.id"
-                  class="feed__item"
-                  style="cursor: pointer; align-items: center"
-                >
-                  <input
-                    type="checkbox"
-                    :checked="selected.has(s.id)"
-                    @change="toggle(s.id)"
-                  />
-                  <span style="margin-left: 8px">
-                    {{ s.name }}
-                    <span class="muted tnum" style="margin-left: 6px">{{ s.admission_no }}</span>
-                    <span v-if="s.class" class="muted" style="margin-left: 6px">{{ s.class.name }}</span>
-                  </span>
-                </label>
-                <p v-if="!filtered.length" class="feed__desc" style="padding: 8px">
-                  {{ t("eventNew.noStudentMatch") }}
-                </p>
+            <template v-if="studentListOpen">
+              <input
+                v-model="query"
+                class="input"
+                type="search"
+                :placeholder="t('eventNew.searchPlaceholder')"
+                style="margin-bottom: 10px"
+              />
+              <div v-if="!loading" class="card card--link" style="max-height: 260px; overflow-y: auto">
+                <div class="card__body card__body--tight">
+                  <label
+                    v-for="s in filtered"
+                    :key="s.id"
+                    class="feed__item"
+                    style="cursor: pointer; align-items: center"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="selected.has(s.id)"
+                      @change="toggle(s.id)"
+                    />
+                    <span style="margin-left: 8px">
+                      {{ s.name }}
+                      <span class="muted tnum" style="margin-left: 6px">{{ s.admission_no }}</span>
+                      <span v-if="s.class" class="muted" style="margin-left: 6px">{{ s.class.name }}</span>
+                    </span>
+                  </label>
+                  <p v-if="!filtered.length" class="feed__desc" style="padding: 8px">
+                    {{ t("eventNew.noStudentMatch") }}
+                  </p>
+                </div>
               </div>
-            </div>
+            </template>
             <p class="field__hint">
               {{ t("eventNew.selectedCount", { n: selected.size }) }}
             </p>
