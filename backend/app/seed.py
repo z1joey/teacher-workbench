@@ -74,16 +74,15 @@ def seed(db: Session) -> None:
     chen = Person(name="陈老师", phone="13800000001", email="chen@school.edu",
                   password_hash=hash_password("123456"),
                   payload=validate_person_payload("teacher", {}))
-    zhao = Person(name="赵老师", phone="13800000002", email="zhao@school.edu",
-                  password_hash=hash_password("123456"),
-                  payload=validate_person_payload("teacher", {}))
-    db.add_all([admin, chen, zhao])
+    # single-teacher product: 陈老师 is THE teacher (the signed-in 班主任);
+    # no second teacher account exists
+    db.add_all([admin, chen])
     db.flush()
 
     c71 = Class(name="七年级1班", grade_level=7,
                 academic_year=ACADEMIC_YEAR, homeroom_person_id=chen.id)
     c72 = Class(name="七年级2班", grade_level=7,
-                academic_year=ACADEMIC_YEAR, homeroom_person_id=zhao.id)
+                academic_year=ACADEMIC_YEAR, homeroom_person_id=chen.id)
     db.add_all([c71, c72])
     db.flush()
 
@@ -159,14 +158,14 @@ def seed(db: Session) -> None:
     # --- exam sittings: one Event(type="exam") each; the per-subject full
     # score config rides in payload["full_scores"] (the score-entry flow reads
     # it to set each score payload's max_score). School-wide sitting, so the
-    # whole active student body plus both homeroom teachers attend.
+    # whole active student body plus the homeroom teacher attends.
     exams_by_key: dict[str, Event] = {}
     for exam_key, exam_name, exam_date in EXAM_PLAN:
         exams_by_key[exam_key] = create_event(
             db, event_type="exam", title=exam_name,
             start_time=dt(exam_date, EXAM_HOUR),
             payload={"full_scores": dict(SUBJECT_FULL_SCORES)},
-            attendee_ids=[chen.id, zhao.id, *[s.id for s in students]],
+            attendee_ids=[chen.id, *[s.id for s in students]],
         )
     db.flush()
 

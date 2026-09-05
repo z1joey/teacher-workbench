@@ -42,11 +42,11 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
 
     db = SessionLocal()
     try:
-        # roles: 1 admin + 2 teachers + 24 students + 25 guardians (王秀英
+        # roles: 1 admin + 1 teacher (the sole 班主任) + 24 students + 25 guardians (王秀英
         # is shared by 王浩 and 邓晓彤, so 24 primary + 1 shared)
         role_of = Person.payload["role"].as_string()
         roles = dict(db.query(role_of, func.count(Person.id)).group_by(role_of).all())
-        assert roles == {"admin": 1, "teacher": 2, "student": 24, "guardian": 25}
+        assert roles == {"admin": 1, "teacher": 1, "student": 24, "guardian": 25}
 
         # guardian scenarios: 王浩 has two guardians; 王秀英 covers two students
         wang = db.query(Person).filter(Person.name == "王浩").one()
