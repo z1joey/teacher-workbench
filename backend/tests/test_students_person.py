@@ -584,11 +584,66 @@ def test_events_lists_events_the_teacher_attends(make_client, db, headers):
     r = client.get("/api/events?type=home_visited", headers=headers)
     assert [(row["event_type"], row["student_name"]) for row in r.json()] == [
         ("home_visited", "林晓雨")]
-    # both records carry the teacher as an attendee alongside the student
+    # both records carry the teacher as an attendee alongside the student;
+    # the visit's fallback guardian-of-record attends too
     for row in rows:
         ev = db.get(Event, uuid.UUID(row["id"]))
-        assert {p.id for p in ev.attendees} == {s2.id if row is rows[0] else s1.id,
-                                                teacher.id}
+        expected = {s2.id if row is rows[0] else s1.id, teacher.id}
+        if row is rows[1]:
+            expected.add(g1.id)
+        assert {p.id for p in ev.attendees} == expected
+
+
+def test_home_visit_guardian_participants(make_client, db, headers):
+    s = Person(name="林晓雨", password_hash=hash_password(uuid.uuid4().hex),
+               payload=validate_person_payload("student", {"admission_no": "S001"}))
+    db.add(s)
+    db.flush()
+    g_mom = Person(name="林女士", phone="13810001000",
+                   password_hash=hash_password(uuid.uuid4().hex),
+                   payload=validate_person_payload("guardian", {"phone": "13810001000"}))
+    g_dad = Person(name="林先生", phone="13810001001",
+                   password_hash=hash_password(uuid.uuid4().hex),
+                   payload=validate_person_payload("guardian", {"phone": "13810001001"}))
+    db.add_all([g_mom, g_dad])
+    db.flush()
+    db.execute(student_guardians.insert().values(student_id=s.id, guardian_id=g_mom.id))
+    db.execute(student_guardians.insert().values(student_id=s.id, guardian_id=g_dad.id))
+    stranger = Person(name="路人", phone="13810001999",
+                      password_hash=hash_password(uuid.uuid4().hex),
+                      payload=validate_person_payload("guardian", {"phone": "13810001999"}))
+    db.add(stranger)
+    teacher = db.query(Person).filter(Person.phone == "13800000001").one()
+    db.commit()
+    client = make_client(students.router)
+
+    # selected guardians attend the visit and their names ride in the payload
+    r = client.post(f"/api/students/{s.id}/events",
+                    json={"event_type": "home_visited", "summary": "开学前家访",
+                          "guardian_ids": [str(g_dad.id), str(g_mom.id)]},
+                    headers=headers)
+    assert r.status_code == 201, r.text
+    ev = db.get(Event, uuid.UUID(r.json()["id"]))
+    assert {p.id for p in ev.attendees} == {s.id, g_mom.id, g_dad.id, teacher.id}
+    assert ev.payload["guardian"] == "林先生、林女士"
+
+    # explicit empty selection: no guardian attended, no snapshot
+    r = client.post(f"/api/students/{s.id}/events",
+                    json={"event_type": "home_visited", "summary": "学生独自在家",
+                          "guardian_ids": []},
+                    headers=headers)
+    assert r.status_code == 201, r.text
+    ev2 = db.get(Event, uuid.UUID(r.json()["id"]))
+    assert "guardian" not in ev2.payload
+    assert {p.role for p in ev2.attendees} == {"student", "teacher"}
+
+    # a guardian person not linked to this student is rejected
+    r = client.post(f"/api/students/{s.id}/events",
+                    json={"event_type": "home_visited", "summary": "x",
+                          "guardian_ids": [str(stranger.id)]},
+                    headers=headers)
+    assert r.status_code == 400
+    assert r.json()["detail"] == "监护人不属于该学生"
 
 
 def test_create_activity_event_from_the_events_page(make_client, db, headers):

@@ -524,6 +524,10 @@ class EventRecordIn(BaseModel):
     follow_up_needed: bool = False
     follow_up_note: str | None = None
     occurred_at: datetime | None = None
+    # home visits: the guardian persons who attended. Absent (old clients)
+    # falls back to the student's guardian of record; present-but-empty means
+    # no guardian attended.
+    guardian_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 @router.post("/students/{student_id}/events", status_code=201)
@@ -540,19 +544,32 @@ def create_event_record(
         raise HTTPException(status_code=400, detail="不支持的事件类型")
     payload = _record_payload(body.event_type, body.summary, body.purpose,
                               body.follow_up_needed, body.follow_up_note)
+    guardian_people: list[Person] = []
     if body.event_type == "home_visited":
-        # a visit involves the guardian of record — snapshot the name at
-        # visit time; the student's guardian links may change later
-        guardians = _guardians_of(db, person.id)
-        payload["guardian"] = guardians[0][0].name if guardians else None
+        # a visit involves the guardians who were there: selected guardian
+        # persons attend the event, and the payload snapshots their names at
+        # visit time (the student's guardian links may change later)
+        if "guardian_ids" in body.model_fields_set:
+            linked = {g.id for g, _ in _guardians_of(db, person.id)}
+            requested = list(dict.fromkeys(body.guardian_ids))
+            if not set(requested) <= linked:
+                raise HTTPException(status_code=400, detail="监护人不属于该学生")
+            by_id = {g.id: g for g, _ in _guardians_of(db, person.id)}
+            guardian_people = [by_id[i] for i in requested]
+        else:
+            # old clients without a guardian picker: the guardian of record
+            guardian_people = [g for g, _ in _guardians_of(db, person.id)][:1]
+        if guardian_people:
+            payload["guardian"] = "、".join(g.name for g in guardian_people)
     event = create_event(
         db,
         event_type=body.event_type,
         title=_record_title(body.event_type),
         start_time=body.occurred_at or utcnow(),
         payload=payload,
-        # the record involves its student and the teacher who made it
-        attendee_ids=[person.id, user.id],
+        # the record involves its student, the guardians who attended,
+        # and the teacher who made it
+        attendee_ids=[person.id, *[g.id for g in guardian_people], user.id],
     )
     db.commit()
     return {"id": str(event.id), "status": "created"}

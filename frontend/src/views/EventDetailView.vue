@@ -32,6 +32,14 @@ const notFound = ref(false)
 
 const form = ref(emptyForm())
 const errors = ref({})
+// 记录家访时到场的监护人（Person），默认全部勾选
+const selectedGuardians = ref(new Set())
+
+function toggleGuardian(id) {
+  const next = new Set(selectedGuardians.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  selectedGuardians.value = next
+}
 
 function emptyForm() {
   return {
@@ -59,6 +67,10 @@ onMounted(async () => {
     const res = await Promise.all(tasks)
     student.value = res[0]
     customEventTypes.value = res[1] || []
+    if (isCreate.value) {
+      // 家访默认所有登记监护人都到场
+      selectedGuardians.value = new Set((student.value.guardians ?? []).map((g) => g.id))
+    }
     if (!isCreate.value) {
       const ev = res[2]
       event.value = ev
@@ -133,7 +145,8 @@ async function save() {
       payload.occurred_at = new Date(form.value.occurred_at).toISOString()
     }
     if (isCreate.value) {
-      await api.post(`/students/${props.studentId}/events`, payload)
+      const body = { ...payload, guardian_ids: [...selectedGuardians.value] }
+      await api.post(`/students/${props.studentId}/events`, body)
     } else {
       await api.patch(`/students/${props.studentId}/events/${props.eventId}`, payload)
     }
@@ -228,6 +241,28 @@ function goBack() {
             :hint="t('event.purposeHint')"
           >
             <input v-model="form.purpose" class="input" type="text" />
+          </FormField>
+
+          <!-- 记录家访时勾选到场的监护人：他们和学生会一起成为事件参与者 -->
+          <FormField
+            v-if="isCreate && student?.guardians?.length"
+            label="到场的监护人"
+            optional
+            hint="默认全部到场，没来的可以取消勾选；监护人会和这次家访关联起来"
+          >
+            <div class="row-wrap">
+              <label v-for="g in student.guardians" :key="g.id" class="check">
+                <input
+                  type="checkbox"
+                  :checked="selectedGuardians.has(g.id)"
+                  @change="toggleGuardian(g.id)"
+                />
+                <span>
+                  {{ g.name }}{{ g.relationship ? `（${g.relationship}）` : ""
+                  }}<template v-if="g.phone"> · {{ g.phone }}</template>
+                </span>
+              </label>
+            </div>
           </FormField>
 
           <FormField :label="t('event.summary')" required :error="errors.summary || ''">
