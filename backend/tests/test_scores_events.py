@@ -175,9 +175,10 @@ def test_create_exam_creates_event_with_class_attendees(make_client, db, headers
     )
     assert body.status_code == 201, body.text
     data = body.json()
-    assert set(data) == {"id", "name", "exam_date"}
+    assert set(data) == {"id", "name", "exam_date", "end_date"}
     assert data["name"] == "期中考试"
     assert data["exam_date"] == "2026-05-20"
+    assert data["end_date"] is None  # single-day sitting
     uuid.UUID(data["id"])
 
     exam = db.get(Event, uuid.UUID(data["id"]))
@@ -220,7 +221,8 @@ def test_exam_list_and_detail_shapes(make_client, db, headers):
 
     rows = client.get("/api/exams", headers=headers).json()
     assert [r["name"] for r in rows] == ["期末考试", "期中考试"]  # exam_date desc
-    assert set(rows[0]) == {"id", "name", "exam_date", "subjects"}
+    assert set(rows[0]) == {"id", "name", "exam_date", "end_date", "subjects"}
+    assert all(r["end_date"] is None for r in rows)  # both single-day
     zhong = next(r for r in rows if r["id"] == e1["id"])
     assert [s["subject"] for s in zhong["subjects"]] == ["数学", "语文"]  # subject order
     assert zhong["subjects"][0] == {"id": zhong["subjects"][0]["id"], "subject": "数学",
@@ -292,7 +294,8 @@ def test_exam_averages_school_and_classes_exclude_absent(graded):
     r = ctx["client"].get(f"/api/exams/{e1.id}/averages", headers=ctx["headers"])
     assert r.status_code == 200, r.text
     data = r.json()
-    assert data["exam"] == {"id": str(e1.id), "name": "期中考试", "exam_date": "2026-05-20"}
+    assert data["exam"] == {"id": str(e1.id), "name": "期中考试",
+                            "exam_date": "2026-05-20", "end_date": None}
     assert data["school"] == [
         {"subject": "数学", "full_score": 100.0, "avg": 60.0, "min": 60.0,
          "max": 60.0, "count": 1},

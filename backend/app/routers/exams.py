@@ -399,9 +399,12 @@ def update_exam(
     old_name, (old_start, old_end) = e.title, exam_days(e)
     new_start = body.exam_date or old_start
     # end_date present-but-null clears the span (back to a single day);
-    # absent means "no change" (PATCH semantics)
+    # absent means "no change" (PATCH semantics) — except a single-day
+    # sitting has no explicit end, so its implied end follows the start
     if "end_date" in body.model_fields_set:
         new_end = body.end_date or new_start
+    elif e.end_time is None:
+        new_end = new_start
     else:
         new_end = old_end
     if new_end < new_start:

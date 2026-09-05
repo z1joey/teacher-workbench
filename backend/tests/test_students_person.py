@@ -507,19 +507,21 @@ def test_records_lists_record_events_school_wide(make_client, db, headers):
     s2 = _seed_person(db, "王小明", "S002")
     _manual_event(db, s1, "home_visited", "开学前家访", datetime(2026, 3, 15, 19, 0))
     _manual_event(db, s2, "note_added", "作业潦草", datetime(2026, 3, 20, 9, 0))
-    _score_event(db, s1, "期中考试", "math", score=90.0)  # not a record type
+    _score_event(db, s1, "期中考试", "math", score=90.0)  # score events list too
     db.commit()
     client = make_client(students.router)
 
     r = client.get("/api/records", headers=headers)
     assert r.status_code == 200, r.text
     rows = r.json()
+    # every Event school-wide, newest first — records are just a subset
     assert [(row["event_type"], row["student_name"]) for row in rows] == [
-        ("note_added", "王小明"), ("home_visited", "林晓雨")]
-    assert set(rows[0]) == {"id", "student_id", "student_name", "event_type",
-                            "occurred_at", "actor", "payload"}
-    assert rows[0]["student_id"] == str(s2.id)
-    assert rows[0]["payload"] == {"notes": "作业潦草"}
+        ("score", "林晓雨"), ("note_added", "王小明"), ("home_visited", "林晓雨")]
+    note = next(row for row in rows if row["event_type"] == "note_added")
+    assert set(note) == {"id", "student_id", "student_name", "event_type",
+                         "occurred_at", "actor", "payload"}
+    assert note["student_id"] == str(s2.id)
+    assert note["payload"] == {"notes": "作业潦草"}
 
 
 def test_teachers_me_event_types_returns_manual_list(make_client, db, headers):
