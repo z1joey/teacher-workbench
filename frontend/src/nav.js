@@ -5,7 +5,7 @@ export const TEACHER_NAV = [
   { key: "classes", label: "班级", to: "/classes", icon: "building", hint: "名单 · 班均", g: "c" },
   { key: "exams", label: "考试", to: "/exams", icon: "clipboard", hint: "科目 · 平均分", g: "e" },
   { key: "visits", label: "家访", to: "/visits", icon: "map-pin", hint: "记录 · 待跟进", g: "v" },
-  { key: "records", label: "事件", to: "/records", icon: "checklist", hint: "我参与的", g: "r" },
+  { key: "events", label: "事件", to: "/events", icon: "checklist", hint: "比赛 · 活动", g: "r" },
 ]
 
 export const ADMIN_NAV = [

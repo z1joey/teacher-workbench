@@ -170,11 +170,29 @@ const messages = {
   "home.calLegendExam": "考试",
   "home.calLegendRecord": "跟进记录",
 
-  // --- 事件（我参与的） ---
-  "records.title": "事件",
-  "records.subtitle": "共 {count} 条 · 只显示我参与的事件，点击学生名查看完整时间线",
-  "records.emptyTitle": "还没有事件",
-  "records.emptyDesc": "你参与的考试、家访和跟进记录会汇聚到这里。",
+  // --- 事件（普通事件） ---
+  "events.title": "事件",
+  "events.subtitle": "共 {count} 条普通事件 · 比赛、活动等",
+  "events.emptyTitle": "还没有普通事件",
+  "events.emptyDesc": "用「新建事件」记录比赛、活动等；考试和家访有各自的页面。",
+  "events.create": "新建事件",
+
+  // --- 新建普通事件 ---
+  "eventNew.title": "新建事件",
+  "eventNew.subtitle": "记录比赛、活动等普通事件，参与的学生会同步出现在他们的时间线里。",
+  "eventNew.nameLabel": "事件名称",
+  "eventNew.namePlaceholder": "如：市级数学竞赛",
+  "eventNew.nameHint": "写清楚是什么比赛或活动，方便日后回看",
+  "eventNew.titleRequired": "请填写事件名称",
+  "eventNew.dateLabel": "日期",
+  "eventNew.notesLabel": "说明",
+  "eventNew.studentsLabel": "参与学生",
+  "eventNew.studentsHint": "选中的学生会作为参与者出现在事件里",
+  "eventNew.searchPlaceholder": "搜索姓名或学号",
+  "eventNew.noStudentMatch": "没有匹配的学生",
+  "eventNew.selectedCount": "已选 {n} 名学生",
+  "eventNew.saving": "创建中…",
+  "eventNew.submit": "创建事件",
 
   // --- 家访 ---
   "visits.title": "家访",
@@ -357,6 +375,7 @@ const messages = {
   "tl.birthday": "生日",
   "tl.home_visited": "家访",
   "tl.parent_call": "家长沟通",
+  "tl.activity": "活动",
   "tl.talk": "谈心",
   "tl.tutoring": "辅导",
   "tl.note_added": "教师备注",
@@ -486,6 +505,7 @@ const EVENT_TYPES = {
   tutoring: { icon: "board", color: "#854D0E" },
   note_added: { icon: "note", color: "#5C6B63" },
   birthday: { icon: "cake", color: "#9A5B07" },
+  activity: { icon: "flag", color: "#0E7490" },
   exam: { icon: "clipboard", color: "#2E6BA8" },
   score: { icon: "clipboard", color: "#1D4ED8" },
 }
@@ -521,6 +541,8 @@ export function describeEvent(type, p = {}) {
       const [y, m, d] = (p.birth_date ?? "").split("-")
       return y ? `出生于 ${y}年${parseInt(m)}月${parseInt(d)}日` : "生日"
     }
+    case "activity":
+      return p.notes ?? ""
     case "home_visited":
     case "parent_call":
       return `${p.guardian ? `与${p.guardian} · ` : ""}${p.purpose ? p.purpose + " — " : ""}${p.summary || ""}`

@@ -502,7 +502,7 @@ def test_manual_event_create_list_patch_delete(make_client, db, headers):
 # /records, /teachers/me/event-types
 # ---------------------------------------------------------------------------
 
-def test_records_lists_events_the_teacher_attends(make_client, db, headers):
+def test_events_lists_events_the_teacher_attends(make_client, db, headers):
     teacher = db.query(Person).filter(Person.phone == "13800000001").one()
     s1 = Person(password_hash=hash_password(uuid.uuid4().hex),
                 payload=validate_person_payload("student", {
@@ -537,22 +537,24 @@ def test_records_lists_events_the_teacher_attends(make_client, db, headers):
     assert r.status_code == 201, r.text
     db.commit()
 
-    r = client.get("/api/records", headers=headers)
+    r = client.get("/api/events", headers=headers)
     assert r.status_code == 200, r.text
     rows = r.json()
     # only the signed-in teacher's own events, newest first
     assert [(row["event_type"], row["student_name"]) for row in rows] == [
         ("note_added", "王小明"), ("home_visited", "林晓雨")]
     assert set(rows[0]) == {"id", "title", "student_id", "student_name",
-                            "event_type", "occurred_at", "actor", "payload"}
+                            "students", "event_type", "occurred_at", "actor",
+                            "payload"}
     assert rows[0]["student_id"] == str(s2.id)
+    assert rows[0]["students"] == [{"id": str(s2.id), "name": "王小明"}]
     assert rows[0]["title"] == "随笔"
     assert rows[0]["payload"] == {"notes": "作业潦草"}
     visit = rows[1]
     assert visit["title"] == "家访"
     assert visit["payload"] == {"summary": "开学前家访", "guardian": "林女士"}
     # the type param narrows the feed (the 家访 page reads home_visited only)
-    r = client.get("/api/records?type=home_visited", headers=headers)
+    r = client.get("/api/events?type=home_visited", headers=headers)
     assert [(row["event_type"], row["student_name"]) for row in r.json()] == [
         ("home_visited", "林晓雨")]
     # both records carry the teacher as an attendee alongside the student
@@ -560,6 +562,49 @@ def test_records_lists_events_the_teacher_attends(make_client, db, headers):
         ev = db.get(Event, uuid.UUID(row["id"]))
         assert {p.id for p in ev.attendees} == {s2.id if row is rows[0] else s1.id,
                                                 teacher.id}
+
+
+def test_create_activity_event_from_the_events_page(make_client, db, headers):
+    s1 = _seed_person(db, "林晓雨", "S001")
+    s2 = _seed_person(db, "王小明", "S002")
+    teacher = _seed_teacher(db, phone="13800000002")  # an extra person, not a student
+    db.commit()
+    client = make_client(students.router)
+
+    r = client.post("/api/events",
+                    json={"title": "市级数学竞赛", "occurred_at": "2026-09-01T09:00:00",
+                          "notes": "三名学生晋级复赛", "student_ids": [str(s1.id), str(s2.id)]},
+                    headers=headers)
+    assert r.status_code == 201, r.text
+    ev = db.query(Event).filter(Event.type == "activity").one()
+    assert ev.title == "市级数学竞赛"
+    assert ev.payload == {"notes": "三名学生晋级复赛"}
+    assert {p.id for p in ev.attendees} == {s1.id, s2.id,
+                                            db.query(Person).filter(
+                                                Person.phone == "13800000001").one().id}
+
+    # multi-student activities have no primary student, but list the roster
+    r = client.get("/api/events?type=activity", headers=headers)
+    (row,) = r.json()
+    assert row["title"] == "市级数学竞赛"
+    assert row["student_id"] is None
+    assert [s["name"] for s in row["students"]] == ["林晓雨", "王小明"]
+
+    # dedupe + unknown student ids
+    r = client.post("/api/events",
+                    json={"title": "运动会", "student_ids": [str(s1.id), str(s1.id),
+                                                            str(uuid.uuid4())]},
+                    headers=headers)
+    assert r.status_code == 404
+    r = client.post("/api/events",
+                    json={"title": "运动会", "student_ids": [str(teacher.id)]},
+                    headers=headers)
+    assert r.status_code == 400
+    assert r.json()["detail"] == "只有学生可以作为参与者"
+    # title is required and bounded
+    r = client.post("/api/events", json={"title": "  "}, headers=headers)
+    assert r.status_code == 400
+    assert r.json()["detail"] == "事件名称不能为空"
 
 
 def test_teachers_me_event_types_returns_manual_list(make_client, db, headers):

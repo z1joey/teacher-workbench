@@ -17,7 +17,7 @@ async function load() {
   loading.value = true
   error.value = ""
   try {
-    visits.value = await api.get("/records?type=home_visited")
+    visits.value = await api.get("/events?type=home_visited")
   } catch (e) {
     error.value = friendlyError(e)
   } finally {

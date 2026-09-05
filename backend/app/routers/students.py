@@ -489,8 +489,8 @@ def list_student_events(
     ]
 
 
-@router.get("/records")
-def list_records(
+@router.get("/events")
+def list_events(
     type: str | None = None,
     db: Session = Depends(get_db),
     user: Person = Depends(get_current_person),
@@ -499,11 +499,13 @@ def list_records(
 
     Events carry participant sets (person_events) — an exam sitting involves
     the creating teacher plus its students, a home visit the teacher, student
-    and guardian, a note the teacher and student — so "my records" is
+    and guardian, a note the teacher and student — so "my events" is
     attendance, not a school-wide listing. `type` narrows the feed to one
-    event type (the 家访 page reads /records?type=home_visited).
-    student_id/name point at the primary student (the sole student attendee;
-    sittings have a roster instead, so they come back null).
+    event type (the 事件 page reads ?type=activity, the 家访 page
+    ?type=home_visited). students lists every student attendee so multi-
+    student activities can render the whole roster; student_id/name stay as
+    the primary-student shortcut (the sole student attendee, null for
+    sittings and multi-student activities).
     """
     conds = [person_events.c.person_id == user.id]
     if type is not None:
@@ -525,6 +527,7 @@ def list_records(
                 person_events.c.event_id.in_([e.id for e in rows]),
                 Person.payload["role"].as_string() == "student",
             )
+            .order_by(Person.payload["admission_no"].as_string())
             .all()
         ):
             students.setdefault(event_id, []).append(person)
@@ -540,6 +543,10 @@ def list_records(
                 "title": ev.title,
                 "student_id": str(student.id) if student else None,
                 "student_name": (student.payload or {}).get("name") if student else None,
+                "students": [
+                    {"id": str(s.id), "name": (s.payload or {}).get("name")}
+                    for s in roster
+                ],
                 "event_type": ev.type,
                 "occurred_at": ev.start_time.isoformat(),
                 "actor": None,
@@ -547,6 +554,49 @@ def list_records(
             }
         )
     return out
+
+
+class ActivityIn(BaseModel):
+    """A 普通事件 (competition, activity, ...) — the events-page write path."""
+
+    title: str = Field(min_length=1, max_length=100)
+    occurred_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+    student_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+@router.post("/events", status_code=201)
+def create_activity(
+    body: ActivityIn,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="事件名称不能为空")
+    student_ids = list(dict.fromkeys(body.student_ids))  # dedupe, keep order
+    roster = []
+    if student_ids:
+        found = db.query(Person).filter(Person.id.in_(student_ids)).all()
+        by_id = {p.id: p for p in found}
+        missing = [str(i) for i in student_ids if i not in by_id]
+        if missing:
+            raise HTTPException(status_code=404, detail="student not found")
+        bad = [p for p in by_id.values() if p.role != "student"]
+        if bad:
+            raise HTTPException(status_code=400, detail="只有学生可以作为参与者")
+        roster = [by_id[i] for i in student_ids]
+    event = create_event(
+        db,
+        event_type="activity",
+        title=title,
+        start_time=body.occurred_at or utcnow(),
+        payload=validate_event_payload("activity", {"notes": body.notes}),
+        # the event involves the teacher recording it plus its students
+        attendee_ids=[user.id, *[p.id for p in roster]],
+    )
+    db.commit()
+    return {"id": str(event.id), "status": "created"}
 
 
 @router.get("/teachers/me/event-types")

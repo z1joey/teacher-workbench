@@ -69,6 +69,12 @@ class ExamPayload(_Strict):
     full_scores: dict[str, float] | None = None
 
 
+class ActivityPayload(_Strict):
+    # 普通事件 (competitions, activities, ...) created from the events page —
+    # the title carries what happened, notes the optional write-up
+    notes: str | None = None
+
+
 class EnrolledPayload(_Strict):
     class_name: str | None = None
 
@@ -87,6 +93,7 @@ EVENT_PAYLOAD_SCHEMAS = {
     "parent_call": NotesPayload,
     "note_added": NotesPayload,
     "exam": ExamPayload,
+    "activity": ActivityPayload,
     "enrolled": EnrolledPayload,
     "class_moved": ClassMovedPayload,
     # birthday / exam_taken / result_changed / parent_meeting: free-form

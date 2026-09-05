@@ -1,0 +1,165 @@
+<script setup>
+// 新建普通事件：比赛、活动等。学生可选参与名单 —— 事件会同时关联老师和学生，
+// 出现在双方的时间线里。
+import { computed, onMounted, ref } from "vue"
+import { useRouter } from "vue-router"
+import Icon from "../components/Icon.vue"
+import PageHeader from "../components/PageHeader.vue"
+import FormField from "../components/FormField.vue"
+import api from "../api"
+import { friendlyError, t } from "../strings"
+
+const router = useRouter()
+
+const today = new Date().toISOString().slice(0, 10)
+const form = ref({
+  title: "",
+  date: today,
+  notes: "",
+})
+const students = ref([])
+const selected = ref(new Set())
+const query = ref("")
+const loading = ref(true)
+const busy = ref(false)
+const error = ref("")
+const errors = ref({})
+
+onMounted(async () => {
+  try {
+    const rows = await api.get("/students")
+    students.value = rows.filter((s) => s.status === "active")
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    loading.value = false
+  }
+})
+
+const filtered = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return students.value
+  return students.value.filter(
+    (s) => s.name.toLowerCase().includes(q) || s.admission_no.toLowerCase().includes(q),
+  )
+})
+
+function toggle(id) {
+  const next = new Set(selected.value)
+  next.has(id) ? next.delete(id) : next.add(id)
+  selected.value = next
+}
+
+function validate() {
+  const e = {}
+  if (!form.value.title.trim()) e.title = t("eventNew.titleRequired")
+  errors.value = e
+  return !Object.keys(e).length
+}
+
+async function submit() {
+  error.value = ""
+  if (!validate()) return
+  busy.value = true
+  try {
+    await api.post("/events", {
+      title: form.value.title.trim(),
+      occurred_at: form.value.date ? `${form.value.date}T09:00:00` : null,
+      notes: form.value.notes.trim() || null,
+      student_ids: [...selected.value],
+    })
+    router.push("/events")
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    busy.value = false
+  }
+}
+</script>
+
+<template>
+  <PageHeader :title="t('eventNew.title')" :subtitle="t('eventNew.subtitle')" />
+
+  <div class="card">
+    <div class="card__body">
+      <form @submit.prevent="submit">
+        <FormField
+          :label="t('eventNew.nameLabel')"
+          required
+          :error="errors.title || ''"
+          :hint="t('eventNew.nameHint')"
+        >
+          <input
+            v-model="form.title"
+            class="input"
+            type="text"
+            maxlength="100"
+            :placeholder="t('eventNew.namePlaceholder')"
+            :aria-invalid="!!errors.title"
+          />
+        </FormField>
+
+        <div class="form-grid">
+          <FormField :label="t('eventNew.dateLabel')" optional>
+            <input v-model="form.date" class="input" type="date" />
+          </FormField>
+        </div>
+
+        <FormField :label="t('eventNew.notesLabel')" optional>
+          <textarea v-model="form.notes" class="input" rows="3" maxlength="2000" />
+        </FormField>
+
+        <FormField :label="t('eventNew.studentsLabel')" optional :hint="t('eventNew.studentsHint')">
+          <div>
+            <input
+              v-model="query"
+              class="input"
+              type="search"
+              :placeholder="t('eventNew.searchPlaceholder')"
+              style="margin-bottom: 10px"
+            />
+            <div v-if="!loading" class="card card--link" style="max-height: 260px; overflow-y: auto">
+              <div class="card__body card__body--tight">
+                <label
+                  v-for="s in filtered"
+                  :key="s.id"
+                  class="feed__item"
+                  style="cursor: pointer; align-items: center"
+                >
+                  <input
+                    type="checkbox"
+                    :checked="selected.has(s.id)"
+                    @change="toggle(s.id)"
+                  />
+                  <span style="margin-left: 8px">
+                    {{ s.name }}
+                    <span class="muted tnum" style="margin-left: 6px">{{ s.admission_no }}</span>
+                    <span v-if="s.class" class="muted" style="margin-left: 6px">{{ s.class.name }}</span>
+                  </span>
+                </label>
+                <p v-if="!filtered.length" class="feed__desc" style="padding: 8px">
+                  {{ t("eventNew.noStudentMatch") }}
+                </p>
+              </div>
+            </div>
+            <p class="field__hint">
+              {{ t("eventNew.selectedCount", { n: selected.size }) }}
+            </p>
+          </div>
+        </FormField>
+
+        <p v-if="error" class="field__error" style="margin-bottom: 12px">
+          <Icon name="alert-circle" :size="13" /> {{ error }}
+        </p>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary" :disabled="busy">
+            <span v-if="busy" class="spinner" />
+            {{ busy ? t("eventNew.saving") : t("eventNew.submit") }}
+          </button>
+          <router-link to="/events" class="btn btn--ghost">{{ t("action.cancel") }}</router-link>
+        </div>
+      </form>
+    </div>
+  </div>
+</template>

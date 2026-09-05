@@ -125,9 +125,6 @@ function countdownLabel(d) {
               <h2 class="card__title"><Icon name="trending" :size="16" /> {{ t("home.recentEvents") }}</h2>
               <p class="card__desc">{{ t("home.recentEventsSub") }}</p>
             </div>
-            <router-link to="/records" class="btn btn--sm btn--ghost">
-              {{ t("records.title") }} <Icon name="chevron-right" :size="13" />
-            </router-link>
           </div>
           <div class="card__body card__body--tight">
             <div class="feed">

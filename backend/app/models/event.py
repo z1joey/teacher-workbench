@@ -24,7 +24,7 @@ from ._common import Base, JSONType, utcnow
 
 EVENT_TYPES = (
     # new vocabulary
-    "birthday", "exam", "score", "parent_meeting",
+    "birthday", "exam", "score", "parent_meeting", "activity",
     # legacy timeline vocabulary — migrated rows + frontend strings keep working
     "enrolled", "class_moved", "exam_taken", "result_changed",
     "home_visited", "talk", "tutoring", "parent_call", "note_added",

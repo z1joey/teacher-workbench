@@ -4,8 +4,9 @@ import { loadMe, me } from "./auth"
 import HomeView from "./views/HomeView.vue"
 import LoginView from "./views/LoginView.vue"
 import ProfileView from "./views/ProfileView.vue"
-import RecordsView from "./views/RecordsView.vue"
+import EventsView from "./views/EventsView.vue"
 import HomeVisitsView from "./views/HomeVisitsView.vue"
+import ActivityNewView from "./views/ActivityNewView.vue"
 import ClassesView from "./views/ClassesView.vue"
 import ClassDetailView from "./views/ClassDetailView.vue"
 import StudentsView from "./views/StudentsView.vue"
@@ -21,7 +22,7 @@ import NotFoundView from "./views/NotFoundView.vue"
 // Routes that only teachers (non-admin) may enter. Admin accounts get
 // redirected away — they are developers, not classroom teachers.
 const TEACHER_ROUTE_PREFIXES = [
-  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/records",
+  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/events",
 ]
 
 function isTeacherRoute(path) {
@@ -36,7 +37,20 @@ export const router = createRouter({
     { path: "/", name: "home", component: HomeView, meta: { title: "首页" } },
     { path: "/login", name: "login", component: LoginView, meta: { title: "登录" } },
     { path: "/profile", name: "profile", component: ProfileView, meta: { title: "个人中心" } },
-    { path: "/records", name: "records", component: RecordsView, meta: { title: "事件" } },
+    {
+      path: "/events",
+      name: "events",
+      component: EventsView,
+      meta: { title: "事件" },
+    },
+    {
+      path: "/events/new",
+      name: "activityNew",
+      component: ActivityNewView,
+      meta: { title: "新建事件", parent: { label: "事件", to: "/events" } },
+    },
+    // 旧链接直达新地址
+    { path: "/records", redirect: { name: "events" } },
     { path: "/visits", name: "visits", component: HomeVisitsView, meta: { title: "家访" } },
     { path: "/classes", name: "classes", component: ClassesView, meta: { title: "班级" } },
     {
