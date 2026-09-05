@@ -580,6 +580,15 @@ def test_dashboard_summary_counts_and_panels(graded, db):
                   follow_up="需要二次跟进")
     _manual_event(db, a, "home_visited", "家访乙", datetime(2026, 6, 6, 10, 0))
     _manual_event(db, b, "note_added", "课堂随笔", datetime(2026, 6, 7, 10, 0))
+    # the recording teacher attends the visit too — digest rows stay
+    # student-centric: teacher/guardian attendees never surface as a row
+    teacher = db.query(Person).filter(Person.phone == "13800000001").one()
+    eventing.create_event(
+        db, event_type="home_visited", title="家访丙",
+        start_time=datetime(2026, 6, 8, 10, 0),
+        payload={"summary": "有老师同行的家访", "follow_up": "两周后回访"},
+        attendee_ids=[b.id, teacher.id],
+    )
     db.commit()  # release the write lock before the API session writes
     future1 = _create_exam(client, ctx["headers"], "十月月考",
                            date.today() + timedelta(days=30),
@@ -593,21 +602,28 @@ def test_dashboard_summary_counts_and_panels(graded, db):
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["user"]["name"] == "王老师"
-    assert data["counts"] == {"students": 3, "classes": 1, "exams": 4, "interactions": 3}
+    assert data["counts"] == {"students": 3, "classes": 1, "exams": 4, "interactions": 4}
 
     assert [e["name"] for e in data["upcoming_exams"]] == ["十月月考", "十一月月考"]
     assert data["upcoming_exams"][0]["exam_date"] == (date.today() + timedelta(days=30)).isoformat()
 
-    # follow_ups: only home visits with a follow-up note; purpose has no slot
-    assert [f["summary"] for f in data["follow_ups"]] == ["家访甲"]
-    assert data["follow_ups"][0]["follow_up_note"] == "需要二次跟进"
+    # follow_ups: only home visits with a follow-up note; purpose has no slot.
+    # 家访丙 has the teacher attending, yet the row is the student's alone.
+    assert [f["summary"] for f in data["follow_ups"]] == ["有老师同行的家访", "家访甲"]
+    assert [f["student_name"] for f in data["follow_ups"]] == ["李二", "张一"]
+    assert data["follow_ups"][0]["follow_up_note"] == "两周后回访"
     assert data["follow_ups"][0]["purpose"] is None
-    assert data["follow_ups"][0]["student_name"] == "张一"
+    assert data["follow_ups"][1]["follow_up_note"] == "需要二次跟进"
+    assert data["follow_ups"][1]["purpose"] is None
+    assert data["follow_ups"][1]["student_name"] == "张一"
 
     # recent events: timeline rows only (score/exam rows are not timeline items)
     types = [e["event_type"] for e in data["recent_events"]]
     assert "score" not in types and "exam" not in types
     assert set(types) <= {"home_visited", "note_added"}
+    # digest rows are student-centric — the attending teacher never shows up
+    # as a row (the old bug rendered 王老师 as if she were a student)
+    assert all(e["student_name"] in {"张一", "李二", "王三"} for e in data["recent_events"])
     newest = data["recent_events"][0]
     assert newest["student_name"] in {"张一", "李二"}
     assert newest["payload"]

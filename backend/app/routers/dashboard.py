@@ -33,6 +33,11 @@ router = APIRouter(
 # birthdays, system notes) — sittings and per-subject score rows are not that
 _DIGEST_EXCLUDED_TYPES = ("exam", "score")
 
+# digest rows are student-centric: teachers and guardians attend events too,
+# but they must never surface as the row's "student" (a teacher row would
+# render as a student named 陈老师 linking to a non-student page)
+_STUDENT_ATTENDEE = Person.payload["role"].as_string() == "student"
+
 
 @router.get("/calendar")
 def month_calendar(
@@ -71,6 +76,7 @@ def month_calendar(
         .join(Person, Person.id == person_events.c.person_id)
         .filter(
             Event.type.in_(list(RECORD_EVENT_TYPES)),
+            _STUDENT_ATTENDEE,
             Event.start_time >= lo,
             Event.start_time <= hi,
         )
@@ -119,6 +125,7 @@ def dashboard(
         .join(Person, Person.id == person_events.c.person_id)
         .filter(
             Event.type == "home_visited",
+            _STUDENT_ATTENDEE,
             # follow_up_needed collapsed into the follow_up note (students.py);
             # as_string() keeps the NULL compare a plain SQL NULL (a bare
             # JSON-path IS (NOT) NULL binds JSON 'null', matching every row)
@@ -132,7 +139,10 @@ def dashboard(
         db.query(Event, Person)
         .join(person_events, person_events.c.event_id == Event.id)
         .join(Person, Person.id == person_events.c.person_id)
-        .filter(Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)))
+        .filter(
+            Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)),
+            _STUDENT_ATTENDEE,
+        )
         .order_by(Event.start_time.desc(), Event.created_at.desc())
         .limit(8)
         .all()
