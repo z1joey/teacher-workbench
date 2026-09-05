@@ -44,6 +44,31 @@ const filtered = computed(() => {
   )
 })
 
+// 按班级分组：点班级 = 整班参加（全选/再次点击取消全班）
+const classGroups = computed(() => {
+  const map = new Map()
+  for (const s of students.value) {
+    const key = s.class?.id ?? "__none__"
+    if (!map.has(key)) {
+      map.set(key, { key, name: s.class?.name ?? t("students.ungrouped"), list: [] })
+    }
+    map.get(key).list.push(s)
+  }
+  return [...map.values()]
+})
+
+function classSelectedCount(c) {
+  return c.list.reduce((n, s) => n + (selected.value.has(s.id) ? 1 : 0), 0)
+}
+
+function toggleClass(c) {
+  const ids = c.list.map((s) => s.id)
+  const allIn = ids.every((id) => selected.value.has(id))
+  const next = new Set(selected.value)
+  ids.forEach((id) => (allIn ? next.delete(id) : next.add(id)))
+  selected.value = next
+}
+
 function toggle(id) {
   const next = new Set(selected.value)
   next.has(id) ? next.delete(id) : next.add(id)
@@ -111,6 +136,23 @@ async function submit() {
 
         <FormField :label="t('eventNew.studentsLabel')" optional :hint="t('eventNew.studentsHint')">
           <div>
+            <div v-if="classGroups.length > 1" class="row-wrap" style="margin-bottom: 10px">
+              <button
+                v-for="c in classGroups"
+                :key="c.key"
+                type="button"
+                class="chip"
+                :style="
+                  classSelectedCount(c) === c.list.length && c.list.length
+                    ? { background: '#2e6ba8', borderColor: '#2e6ba8', color: '#fff' }
+                    : {}
+                "
+                :title="t('eventNew.classChipTitle')"
+                @click="toggleClass(c)"
+              >
+                {{ c.name }} {{ classSelectedCount(c) }}/{{ c.list.length }}
+              </button>
+            </div>
             <input
               v-model="query"
               class="input"
