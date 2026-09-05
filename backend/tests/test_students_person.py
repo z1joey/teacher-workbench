@@ -646,6 +646,50 @@ def test_home_visit_guardian_participants(make_client, db, headers):
     assert r.json()["detail"] == "监护人不属于该学生"
 
 
+def test_guardian_linking_and_detail(make_client, db, headers):
+    s1 = _seed_person(db, "王浩", "S001")
+    s2 = _seed_person(db, "邓晓彤", "S002")
+    db.commit()
+    client = make_client(students.router)
+
+    # 王浩 gets two guardians
+    r = client.post(f"/api/students/{s1.id}/guardians",
+                    json={"name": "王女士", "phone": "13900000001", "relationship": "母亲"},
+                    headers=headers)
+    assert r.status_code == 201, r.text
+    r = client.post(f"/api/students/{s1.id}/guardians",
+                    json={"name": "王秀英", "phone": "13900000000", "relationship": "祖母",
+                          "address": "解放路108号"},
+                    headers=headers)
+    assert r.status_code == 201, r.text
+    grandmah = r.json()
+
+    # the same phone on another student's guardian merges into one Person
+    r = client.post(f"/api/students/{s2.id}/guardians",
+                    json={"name": "王秀英", "phone": "13900000000", "relationship": "外祖母"},
+                    headers=headers)
+    assert r.status_code == 201, r.text
+    assert r.json()["id"] == grandmah["id"]
+
+    # guardian detail: contact info plus both wards with their relationships
+    r = client.get(f"/api/guardians/{grandmah['id']}", headers=headers)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["name"] == "王秀英"
+    assert data["phone"] == "13900000000"
+    assert data["address"] == "解放路108号"
+    rels = {w["name"]: w["relationship"] for w in data["wards"]}
+    assert rels == {"王浩": "祖母", "邓晓彤": "外祖母"}
+
+    # unlink removes one student's link; the guardian Person survives
+    r = client.delete(f"/api/students/{s2.id}/guardians/{grandmah['id']}", headers=headers)
+    assert r.status_code == 200, r.text
+    r = client.get(f"/api/guardians/{grandmah['id']}", headers=headers)
+    assert [w["name"] for w in r.json()["wards"]] == ["王浩"]
+    r = client.delete(f"/api/students/{s2.id}/guardians/{grandmah['id']}", headers=headers)
+    assert r.status_code == 404
+
+
 def test_create_activity_event_from_the_events_page(make_client, db, headers):
     s1 = _seed_person(db, "林晓雨", "S001")
     s2 = _seed_person(db, "王小明", "S002")

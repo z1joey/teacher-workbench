@@ -7,6 +7,7 @@ import ProfileView from "./views/ProfileView.vue"
 import EventsView from "./views/EventsView.vue"
 import HomeVisitsView from "./views/HomeVisitsView.vue"
 import ActivityNewView from "./views/ActivityNewView.vue"
+import GuardianDetailView from "./views/GuardianDetailView.vue"
 import ClassesView from "./views/ClassesView.vue"
 import ClassDetailView from "./views/ClassDetailView.vue"
 import StudentsView from "./views/StudentsView.vue"
@@ -22,7 +23,7 @@ import NotFoundView from "./views/NotFoundView.vue"
 // Routes that only teachers (non-admin) may enter. Admin accounts get
 // redirected away — they are developers, not classroom teachers.
 const TEACHER_ROUTE_PREFIXES = [
-  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/events",
+  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/events", "/guardians",
 ]
 
 function isTeacherRoute(path) {
@@ -48,6 +49,13 @@ export const router = createRouter({
       name: "activityNew",
       component: ActivityNewView,
       meta: { title: "新建事件", parent: { label: "事件", to: "/events" } },
+    },
+    {
+      path: "/guardians/:id",
+      name: "guardianDetail",
+      component: GuardianDetailView,
+      props: true,
+      meta: { title: "监护人详情" },
     },
     // 旧链接直达新地址
     { path: "/records", redirect: { name: "events" } },

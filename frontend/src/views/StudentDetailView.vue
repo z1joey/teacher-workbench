@@ -287,28 +287,63 @@ async function removeTag(tag) {
 
 // -------------------------------------------------------------- 资料编辑
 
-// guardians is now a list of Person objects (name/phone/relationship) linked
-// through student_guardians; render them as one line, "、" separated.
-const guardianText = computed(() => {
-  const gs = student.value?.guardians ?? []
-  if (!gs.length) return t("common.none")
-  return gs
-    .map(
-      (g) =>
-        `${g.name}${g.relationship ? `（${g.relationship}）` : ""} · ${g.phone || t("common.none")}`,
-    )
-    .join("、")
-})
+// 监护人管理：添加（同手机号自动合并为同一人）与解除链接；名字点击进监护人详情
+const guardianFormOpen = ref(false)
+const guardianForm = ref({ name: "", phone: "", relationship: "", address: "" })
+const guardianSaving = ref(false)
+const guardianError = ref("")
+
+function openGuardianForm() {
+  guardianFormOpen.value = true
+  guardianForm.value = { name: "", phone: "", relationship: "", address: "" }
+  guardianError.value = ""
+}
+
+async function addGuardian() {
+  if (!guardianForm.value.name.trim()) {
+    guardianError.value = t("detail.nameRequired")
+    return
+  }
+  guardianSaving.value = true
+  guardianError.value = ""
+  try {
+    await api.post(`/students/${props.id}/guardians`, {
+      name: guardianForm.value.name.trim(),
+      phone: guardianForm.value.phone.trim() || null,
+      relationship: guardianForm.value.relationship.trim() || null,
+      address: guardianForm.value.address.trim() || null,
+    })
+    guardianFormOpen.value = false
+    await load()
+    notify({ tone: "ok", title: t("common.saved"), timeout: 2400 })
+  } catch (e) {
+    guardianError.value = friendlyError(e)
+  } finally {
+    guardianSaving.value = false
+  }
+}
+
+async function removeGuardian(g) {
+  const ok = await ask({
+    title: `解除与 ${g.name} 的监护人关联？`,
+    consequences: ["只解除与这名学生的关联，监护人账户本身不会被删除。"],
+    confirmLabel: t("action.delete"),
+  })
+  if (!ok) return
+  try {
+    await api.delete(`/students/${props.id}/guardians/${g.id}`)
+    await load()
+  } catch (e) {
+    notify({ tone: "error", title: friendlyError(e) })
+  }
+}
 
 function startProfileEdit() {
   profileEditing.value = true
   profileError.value = ""
-  const g = (student.value.guardians ?? [])[0]
   profileForm.value = {
     name: student.value.name,
     gender: student.value.gender || "",
-    guardian_name: g?.name || "",
-    guardian_phone: g?.phone || "",
     birth_date: student.value.birth_date || "",
     address: student.value.address || "",
     status: student.value.status || "active",
@@ -332,8 +367,6 @@ async function saveProfileEdit() {
     await api.patch(`/students/${props.id}`, {
       name: profileForm.value.name.trim(),
       gender: profileForm.value.gender || null,
-      guardian_name: profileForm.value.guardian_name.trim() || null,
-      guardian_phone: profileForm.value.guardian_phone.trim(),
       birth_date: profileForm.value.birth_date || null,
       address: profileForm.value.address.trim() || null,
       status: profileForm.value.status,
@@ -541,9 +574,56 @@ function fmtDate(d) {
                   </span>
                   <span v-if="student.class" class="pill pill--outline">{{ student.class.name }}</span>
                 </div>
-                <p class="stat__sub" style="margin-top: 8px">
-                  {{ t("detail.guardian") }}：{{ guardianText }}
-                </p>
+                <div class="stat__sub" style="margin-top: 8px">
+                  {{ t("detail.guardian") }}：
+                  <span v-if="!student.guardians.length">{{ t("common.none") }}</span>
+                  <span v-for="(g, i) in student.guardians" :key="g.id">
+                    <router-link :to="`/guardians/${g.id}`" class="">{{ g.name }}</router-link><template v-if="g.relationship">（{{ g.relationship }}）</template>
+                    <button
+                      class="tag__x"
+                      :aria-label="`解除关联 ${g.name}`"
+                      style="margin: 0 2px"
+                      @click="removeGuardian(g)"
+                    >
+                      <Icon name="close" :size="9" />
+                    </button><template v-if="i < student.guardians.length - 1">、</template>
+                  </span>
+                  <button class="btn btn--sm btn--ghost" style="margin-left: 6px" @click="openGuardianForm">
+                    <Icon name="plus" :size="11" /> {{ t("detail.addGuardian") }}
+                  </button>
+                </div>
+                <div v-if="guardianFormOpen" class="card card--nested" style="margin-top: 12px">
+                  <div class="card__body card__body--tight">
+                    <div class="form-grid">
+                      <FormField :label="t('new.guardianName')" required>
+                        <input v-model="guardianForm.name" class="input input--sm" type="text" maxlength="100" />
+                      </FormField>
+                      <FormField :label="t('new.guardianPhone')" optional hint="相同手机号视为同一监护人">
+                        <input v-model="guardianForm.phone" class="input input--sm" type="tel" maxlength="40" />
+                      </FormField>
+                    </div>
+                    <div class="form-grid">
+                      <FormField label="关系" optional>
+                        <input v-model="guardianForm.relationship" class="input input--sm" type="text" maxlength="50" placeholder="如：母亲 / 祖父" />
+                      </FormField>
+                      <FormField label="地址" optional>
+                        <input v-model="guardianForm.address" class="input input--sm" type="text" maxlength="200" />
+                      </FormField>
+                    </div>
+                    <p v-if="guardianError" class="field__error" style="margin: 8px 0">
+                      <Icon name="alert-circle" :size="12" /> {{ guardianError }}
+                    </p>
+                    <div class="row" style="gap: 8px; margin-top: 8px">
+                      <button type="button" class="btn btn--sm btn--primary" :disabled="guardianSaving" @click="addGuardian">
+                        <span v-if="guardianSaving" class="spinner" />
+                        {{ t("action.save") }}
+                      </button>
+                      <button type="button" class="btn btn--sm btn--ghost" @click="guardianFormOpen = false">
+                        {{ t("action.cancel") }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
                 <p v-if="student.address" class="stat__sub">{{ student.address }}</p>
               </div>
             </div>
@@ -634,12 +714,6 @@ function fmtDate(d) {
               </FormField>
             </div>
             <div class="form-grid">
-              <FormField :label="t('new.guardianName')" optional>
-                <input v-model="profileForm.guardian_name" class="input" type="text" />
-              </FormField>
-              <FormField :label="t('new.guardianPhone')" optional>
-                <input v-model="profileForm.guardian_phone" class="input" type="tel" maxlength="40" />
-              </FormField>
               <FormField :label="t('new.birthDate')" optional>
                 <input v-model="profileForm.birth_date" class="input" type="date" />
               </FormField>

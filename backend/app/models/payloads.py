@@ -34,9 +34,10 @@ class AdminPayload(_Strict):
 class GuardianPayload(_Strict):
     role: str = "guardian"
     # a guardian is a Person too: `name` lives on person.name, the student↔
-    # guardian link is student_guardians, contact details ride here
+    # guardian link is student_guardians (which carries the relationship),
+    # contact details ride here
     phone: str | None = None
-    relationship: str | None = None  # e.g. 父亲 / 母亲
+    address: str | None = None
     is_active: bool = True
 
 

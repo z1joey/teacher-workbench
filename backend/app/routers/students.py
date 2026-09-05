@@ -158,12 +158,14 @@ def _guardians_of(db: Session, student_id: uuid.UUID):
     )
 
 
-def _find_or_create_guardian(db: Session, name: str, phone: str | None) -> Person:
+def _find_or_create_guardian(db: Session, name: str, phone: str | None,
+                             address: str | None = None) -> Person:
     """Locate an existing guardian by phone (or name), else mint a new Person
     of role "guardian". Guardians are independent of the student's lifecycle,
     so two students sharing a phone share one guardian row."""
     name = name.strip()
     phone = (phone or "").strip() or None
+    address = (address or "").strip() or None
     guardian = (
         db.query(Person)
         .filter(Person.payload["role"].as_string() == "guardian", Person.phone == phone)
@@ -182,13 +184,18 @@ def _find_or_create_guardian(db: Session, name: str, phone: str | None) -> Perso
             guardian.name = name
         if phone:
             guardian.phone = phone
-        guardian.payload = validate_person_payload("guardian", {"phone": phone})
+        payload = dict(guardian.payload or {})
+        if phone:
+            payload["phone"] = phone
+        if address:
+            payload["address"] = address
+        guardian.payload = validate_person_payload("guardian", payload)
         return guardian
     guardian = Person(
         name=name,
         phone=phone,
         password_hash=hash_password(uuid.uuid4().hex),
-        payload=validate_person_payload("guardian", {"phone": phone}),
+        payload=validate_person_payload("guardian", {"phone": phone, "address": address}),
     )
     db.add(guardian)
     db.flush()
@@ -213,6 +220,110 @@ def _set_primary_guardian(db: Session, student_id: uuid.UUID,
     db.execute(
         student_guardians.insert().values(student_id=student_id, guardian_id=guardian.id)
     )
+
+
+class GuardianLinkIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    phone: str | None = Field(default=None, max_length=40)
+    relationship: str | None = Field(default=None, max_length=50)
+    address: str | None = Field(default=None, max_length=200)
+
+
+def _guardian_link(db: Session, student_id: uuid.UUID, guardian: Person,
+                   relationship: str | None) -> None:
+    """Link a guardian to a student (no-op when already linked); a supplied
+    relationship label refreshes the link's."""
+    linked = {g.id for g, _ in _guardians_of(db, student_id)}
+    if guardian.id in linked:
+        if relationship:
+            db.execute(
+                student_guardians.update()
+                .where(student_guardians.c.student_id == student_id,
+                       student_guardians.c.guardian_id == guardian.id)
+                .values(relationship=relationship)
+            )
+        return
+    db.execute(student_guardians.insert().values(
+        student_id=student_id, guardian_id=guardian.id,
+        relationship=relationship,
+    ))
+
+
+@router.post("/students/{student_id}/guardians", status_code=201)
+def add_student_guardian(
+    student_id: uuid.UUID,
+    body: GuardianLinkIn,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Link another guardian to the student. Same phone (or name) merges into
+    the same guardian Person — a parent of two students is one row."""
+    person = db.get(Person, student_id)
+    if person is None or person.role != "student":
+        raise HTTPException(status_code=404, detail="student not found")
+    guardian = _find_or_create_guardian(db, body.name, body.phone, body.address)
+    _guardian_link(db, student_id, guardian, body.relationship)
+    db.commit()
+    return {"id": str(guardian.id), "name": guardian.name,
+            "phone": (guardian.payload or {}).get("phone")}
+
+
+@router.delete("/students/{student_id}/guardians/{guardian_id}")
+def remove_student_guardian(
+    student_id: uuid.UUID,
+    guardian_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Unlink the guardian from this student; the guardian Person survives."""
+    person = db.get(Person, student_id)
+    if person is None or person.role != "student":
+        raise HTTPException(status_code=404, detail="student not found")
+    result = db.execute(student_guardians.delete().where(
+        student_guardians.c.student_id == student_id,
+        student_guardians.c.guardian_id == guardian_id,
+    ))
+    if result.rowcount == 0:
+        raise HTTPException(status_code=404, detail="guardian link not found")
+    db.commit()
+    return {"status": "removed"}
+
+
+@router.get("/guardians/{guardian_id}")
+def get_guardian(
+    guardian_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Guardian detail: contact info plus every student under their care."""
+    g = db.get(Person, guardian_id)
+    if g is None or g.role != "guardian":
+        raise HTTPException(status_code=404, detail="guardian not found")
+    wards = []
+    for person, rel in (
+        db.query(Person, student_guardians.c.relationship)
+        .join(student_guardians, student_guardians.c.student_id == Person.id)
+        .filter(student_guardians.c.guardian_id == guardian_id)
+        .order_by(Person.created_at)
+        .all()
+    ):
+        cls = current_class(db, person.id)
+        wards.append(
+            {
+                "id": str(person.id),
+                "name": person.name,
+                "admission_no": (person.payload or {}).get("admission_no"),
+                "relationship": rel,
+                "class": {"id": str(cls.id), "name": cls.name} if cls else None,
+            }
+        )
+    return {
+        "id": str(g.id),
+        "name": g.name,
+        "phone": (g.payload or {}).get("phone"),
+        "address": (g.payload or {}).get("address"),
+        "wards": wards,
+    }
 
 
 def _score_events(db: Session, person_id: uuid.UUID,

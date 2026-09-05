@@ -42,10 +42,18 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
 
     db = SessionLocal()
     try:
-        # roles: 1 admin + 2 teachers + 24 students + 24 guardians (one each)
+        # roles: 1 admin + 2 teachers + 24 students + 25 guardians (王秀英
+        # is shared by 王浩 and 邓晓彤, so 24 primary + 1 shared)
         role_of = Person.payload["role"].as_string()
         roles = dict(db.query(role_of, func.count(Person.id)).group_by(role_of).all())
-        assert roles == {"admin": 1, "teacher": 2, "student": 24, "guardian": 24}
+        assert roles == {"admin": 1, "teacher": 2, "student": 24, "guardian": 25}
+
+        # guardian scenarios: 王浩 has two guardians; 王秀英 covers two students
+        wang = db.query(Person).filter(Person.name == "王浩").one()
+        assert len(wang.guardians) == 2
+        grandmah = next(g for g in wang.guardians if g.name == "王秀英")
+        assert len(grandmah.students) == 2
+        assert {s.name for s in grandmah.students} == {"王浩", "邓晓彤"}
 
         # events by type: 6 graded sittings + 1 upcoming exam, every
         # student-subject of the graded sittings scored, the correction

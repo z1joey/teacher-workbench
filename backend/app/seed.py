@@ -132,12 +132,23 @@ def seed(db: Session) -> None:
     make_students(NAMES_7_2, c72, 101)
     db.flush()
 
+    # guardian scenarios: 王浩 has two guardians, and 王秀英 is shared by
+    # 王浩 (祖母) and 邓晓彤 (外祖母) — same name/phone merges into one Person
+    by_name = {s.name: s for s in students}
+    wang, deng = by_name["王浩"], by_name["邓晓彤"]
+    grandmah = _find_or_create_guardian(db, "王秀英", "13900000000",
+                                        address="解放路108号")
+    db.execute(student_guardians.insert().values(
+        student_id=wang.id, guardian_id=grandmah.id, relationship="祖母"))
+    db.execute(student_guardians.insert().values(
+        student_id=deng.id, guardian_id=grandmah.id, relationship="外祖母"))
+    db.flush()
+
     # demo tags (globally reusable once attached)
     focus_tag = Tag(name="需关注", color="#b42318")
     rep_tag = Tag(name="课代表", color="#177245")
     db.add_all([focus_tag, rep_tag])
     db.flush()
-    by_name = {s.name: s for s in students}
     for tag, names in ((focus_tag, ["林晓雨", "王浩"]), (rep_tag, ["宋雅轩", "郭浩然"])):
         for n in names:
             s = by_name.get(n)

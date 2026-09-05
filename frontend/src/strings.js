@@ -193,6 +193,14 @@ const messages = {
   "eventNew.saving": "创建中…",
   "eventNew.submit": "创建事件",
 
+  // --- 监护人 ---
+  "guardian.subtitle": "联系方式与名下的被监护人",
+  "guardian.phone": "电话",
+  "guardian.address": "地址",
+  "guardian.wardCount": "被监护学生",
+  "guardian.wards": "被监护学生",
+  "guardian.wardsSub": "同一监护人可能关联多名学生，点击姓名查看学生档案。",
+
   // --- 家访 ---
   "visits.title": "家访",
   "visits.subtitle": "共 {count} 次 · 覆盖 {students} 名学生",
@@ -316,6 +324,7 @@ const messages = {
   "detail.timelineSub": "由你添加的记录可以点开编辑；系统自动生成的不可编辑",
   "detail.trendTitle": "成绩变化趋势",
   "detail.trendSub": "各科成绩随考试变化",
+  "detail.addGuardian": "添加监护人",
   "detail.addTag": "添加标签",
   "detail.tagName": "标签名称",
   "detail.tagNameRequired": "请填写标签名称",
@@ -384,6 +393,8 @@ const messages = {
   "nf.backStudents": "去看看学生",
   "nf.eventGone": "这条记录不存在了",
   "nf.eventGoneSub": "它可能已经被删除。回到学生的时间线看看其他的记录。",
+  "nf.guardianGone": "这位监护人不存在了",
+  "nf.guardianGoneSub": "可能已经从学生档案里移除。",
   "nf.backTimeline": "返回学生时间线",
 }
 

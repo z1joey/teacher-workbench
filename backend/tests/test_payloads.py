@@ -24,10 +24,10 @@ def test_teacher_payload_carries_no_subject():
 
 def test_guardian_payload_recognized():
     out = validate_person_payload("guardian", {"phone": "13900000001",
-                                               "relationship": "父亲"})
+                                               "address": "解放路100号"})
     assert out["role"] == "guardian"
     assert out["phone"] == "13900000001"
-    assert out["relationship"] == "父亲"
+    assert out["address"] == "解放路100号"
     assert out["is_active"] is True
 
 
