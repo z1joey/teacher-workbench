@@ -733,6 +733,66 @@ def test_create_activity_event_from_the_events_page(make_client, db, headers):
     assert r.json()["detail"] == "事件名称不能为空"
 
 
+def test_activity_event_detail_update_delete(make_client, db, headers):
+    s1 = _seed_person(db, "林晓雨", "S001")
+    s2 = _seed_person(db, "王小明", "S002")
+    db.commit()
+    client = make_client(students.router)
+
+    r = client.post("/api/events",
+                    json={"title": "市级数学竞赛", "student_ids": [str(s1.id)]},
+                    headers=headers)
+    assert r.status_code == 201, r.text
+    event_id = r.json()["id"]
+
+    # detail: read shape plus the student roster
+    r = client.get(f"/api/events/{event_id}", headers=headers)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert set(data) == {"id", "title", "event_type", "occurred_at", "notes", "students"}
+    assert data["title"] == "市级数学竞赛"
+    assert [s["name"] for s in data["students"]] == ["林晓雨"]
+
+    # update: rename, note and a wholesale roster replacement
+    r = client.patch(f"/api/events/{event_id}",
+                     json={"title": "市级数学竞赛（改）", "notes": "三名学生晋级复赛",
+                           "student_ids": [str(s2.id)]},
+                     headers=headers)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["title"] == "市级数学竞赛（改）"
+    assert data["notes"] == "三名学生晋级复赛"
+    assert [s["name"] for s in data["students"]] == ["王小明"]
+    ev = db.get(Event, uuid.UUID(event_id))
+    assert ev.title == "市级数学竞赛（改）"
+    # the recording teacher stays a participant through the roster swap
+    assert {p.role for p in ev.attendees} == {"teacher", "student"}
+    assert s2 in ev.attendees and s1 not in ev.attendees
+
+    # blank title rejected
+    r = client.patch(f"/api/events/{event_id}", json={"title": "  "}, headers=headers)
+    assert r.status_code == 400
+
+    # non-activity events are not addressable through /events/{id}
+    visit = eventing.create_event(db, event_type="home_visited", title="家访",
+                                  start_time=datetime(2026, 3, 1, 9, 0),
+                                  payload={"summary": "x"}, attendee_ids=[s1.id])
+    db.commit()
+    for method, kwargs in ((client.get, {}),
+                           (client.patch, {"json": {"title": "x"}}),
+                           (client.delete, {})):
+        r = method(f"/api/events/{visit.id}", **kwargs, headers=headers)
+        assert r.status_code == 404, r.text
+
+    # delete removes the event entirely
+    r = client.delete(f"/api/events/{event_id}", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True}
+    db.expire_all()  # the API session deleted it; drop this session's cache
+    assert db.get(Event, uuid.UUID(event_id)) is None
+    assert client.get(f"/api/events/{event_id}", headers=headers).status_code == 404
+
+
 def test_teachers_me_event_types_returns_manual_list(make_client, db, headers):
     r = make_client(students.router).get("/api/teachers/me/event-types",
                                          headers=headers)

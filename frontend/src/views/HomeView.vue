@@ -2,6 +2,7 @@
 // 首页 = 今天该做什么：日历、考试倒计时、待跟进、最新动态。
 // 加载给骨架屏、失败给重试，不留空白也不甩一句「出错了」。
 import { computed, onMounted, ref } from "vue"
+import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
@@ -17,6 +18,8 @@ import {
   friendlyError,
   t,
 } from "../strings"
+
+const router = useRouter()
 
 const data = ref(null)
 const error = ref("")
@@ -128,19 +131,38 @@ function countdownLabel(d) {
           </div>
           <div class="card__body card__body--tight">
             <div class="feed">
-              <div v-for="e in data.recent_events" :key="e.id" class="feed__item">
+              <!-- 按事件一行：单一学生的记录以学生名为首，多参与者显示标题和名单；
+                   普通事件可点击进入详情 -->
+              <div
+                v-for="e in data.recent_events"
+                :key="e.id"
+                class="feed__item"
+                :style="e.event_type === 'activity' ? 'cursor: pointer' : ''"
+                @click="e.event_type === 'activity' && router.push(`/events/${e.id}`)"
+              >
                 <span class="feed__dot" :style="{ background: eventTypeColor(e.event_type) }">
                   <Icon :name="eventTypeIcon(e.event_type)" :size="13" />
                 </span>
                 <div class="feed__body">
                   <div class="feed__head">
                     <span>
-                      <router-link :to="`/students/${e.student_id}`">{{ e.student_name }}</router-link>
+                      <router-link
+                        v-if="e.students.length === 1"
+                        :to="`/students/${e.students[0].id}`"
+                      >{{ e.students[0].name }}</router-link>
+                      <template v-else>{{ e.title }}</template>
                       · {{ eventTypeLabel(e.event_type) }}
                     </span>
                     <time class="timeline__time">{{ fmtDate(e.occurred_at) }}</time>
                   </div>
-                  <p class="feed__desc">{{ describeEvent(e.event_type, e.payload) }}</p>
+                  <p v-if="describeEvent(e.event_type, e.payload)" class="feed__desc">
+                    {{ describeEvent(e.event_type, e.payload) }}
+                  </p>
+                  <p v-if="e.students.length > 1" class="feed__desc">
+                    <template v-for="(s, i) in e.students" :key="s.id">
+                      <router-link :to="`/students/${s.id}`" @click.stop>{{ s.name }}</router-link><template v-if="i < e.students.length - 1">、</template>
+                    </template>
+                  </p>
                 </div>
               </div>
             </div>

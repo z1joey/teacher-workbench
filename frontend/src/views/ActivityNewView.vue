@@ -11,6 +11,12 @@ import { friendlyError, t } from "../strings"
 
 const router = useRouter()
 
+// 传入 eventId 即编辑模式：预填表单，提交走 PATCH
+const props = defineProps({
+  eventId: { type: String, default: null },
+})
+const isEdit = computed(() => !!props.eventId)
+
 const today = new Date().toISOString().slice(0, 10)
 const form = ref({
   title: "",
@@ -30,6 +36,16 @@ onMounted(async () => {
   try {
     const rows = await api.get("/students")
     students.value = rows.filter((s) => s.status === "active")
+    if (props.eventId) {
+      const ev = await api.get(`/events/${props.eventId}`)
+      form.value = {
+        title: ev.title,
+        date: ev.occurred_at.slice(0, 10),
+        notes: ev.notes || "",
+      }
+      selected.value = new Set(ev.students.map((s) => s.id))
+      studentListOpen.value = true
+    }
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -88,13 +104,19 @@ async function submit() {
   if (!validate()) return
   busy.value = true
   try {
-    await api.post("/events", {
+    const body = {
       title: form.value.title.trim(),
       occurred_at: form.value.date ? `${form.value.date}T09:00:00` : null,
       notes: form.value.notes.trim() || null,
       student_ids: [...selected.value],
-    })
-    router.push("/events")
+    }
+    if (isEdit.value) {
+      await api.patch(`/events/${props.eventId}`, body)
+      router.push(`/events/${props.eventId}`)
+    } else {
+      await api.post("/events", body)
+      router.push("/events")
+    }
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -104,7 +126,10 @@ async function submit() {
 </script>
 
 <template>
-  <PageHeader :title="t('eventNew.title')" :subtitle="t('eventNew.subtitle')" />
+  <PageHeader
+    :title="isEdit ? '编辑事件' : t('eventNew.title')"
+    :subtitle="t('eventNew.subtitle')"
+  />
 
   <div class="card">
     <div class="card__body">
@@ -212,9 +237,11 @@ async function submit() {
         <div class="form-actions">
           <button type="submit" class="btn btn--primary" :disabled="busy">
             <span v-if="busy" class="spinner" />
-            {{ busy ? t("eventNew.saving") : t("eventNew.submit") }}
+            {{ busy ? t("eventNew.saving") : isEdit ? t("action.save") : t("eventNew.submit") }}
           </button>
-          <router-link to="/events" class="btn btn--ghost">{{ t("action.cancel") }}</router-link>
+          <router-link :to="isEdit ? `/events/${props.eventId}` : '/events'" class="btn btn--ghost">
+            {{ t("action.cancel") }}
+          </router-link>
         </div>
       </form>
     </div>

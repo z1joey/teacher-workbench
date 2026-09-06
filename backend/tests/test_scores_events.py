@@ -617,13 +617,15 @@ def test_dashboard_summary_counts_and_panels(graded, db):
     assert data["follow_ups"][1]["purpose"] is None
     assert data["follow_ups"][1]["student_name"] == "张一"
 
-    # recent events: timeline rows only (score/exam rows are not timeline items)
+    # recent events: one row per Event with its student roster (score/exam
+    # rows are not digest items; the attending teacher never surfaces)
     types = [e["event_type"] for e in data["recent_events"]]
     assert "score" not in types and "exam" not in types
     assert set(types) <= {"home_visited", "note_added"}
-    # digest rows are student-centric — the attending teacher never shows up
-    # as a row (the old bug rendered 王老师 as if she were a student)
-    assert all(e["student_name"] in {"张一", "李二", "王三"} for e in data["recent_events"])
+    roster_names = {s["name"] for e in data["recent_events"] for s in e["students"]}
+    assert roster_names <= {"张一", "李二", "王三"}
+    assert all(e["title"] for e in data["recent_events"])
     newest = data["recent_events"][0]
-    assert newest["student_name"] in {"张一", "李二"}
-    assert newest["payload"]
+    assert newest["title"] == "家访丙"
+    assert [s["name"] for s in newest["students"]] == ["李二"]
+    assert newest["payload"]["summary"] == "有老师同行的家访"

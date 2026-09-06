@@ -136,17 +136,27 @@ def dashboard(
         .all()
     )
     recent = (
-        db.query(Event, Person)
-        .join(person_events, person_events.c.event_id == Event.id)
-        .join(Person, Person.id == person_events.c.person_id)
-        .filter(
-            Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)),
-            _STUDENT_ATTENDEE,
-        )
+        db.query(Event)
+        .filter(Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)))
         .order_by(Event.start_time.desc(), Event.created_at.desc())
         .limit(8)
         .all()
     )
+    # one row per Event with its student roster — teacher/guardian attendees
+    # stay out of the digest (rows are student-centric, see _STUDENT_ATTENDEE)
+    roster_by_event: dict = {}
+    if recent:
+        for event_id, person in (
+            db.query(person_events.c.event_id, Person)
+            .join(Person, Person.id == person_events.c.person_id)
+            .filter(
+                person_events.c.event_id.in_([e.id for e in recent]),
+                _STUDENT_ATTENDEE,
+            )
+            .order_by(Person.payload["admission_no"].as_string())
+            .all()
+        ):
+            roster_by_event.setdefault(event_id, []).append(person)
     today = date.today()
     upcoming = (
         db.query(Event)
@@ -185,12 +195,15 @@ def dashboard(
         "recent_events": [
             {
                 "id": str(event.id),
-                "student_id": str(person.id),
-                "student_name": person.name,
+                "title": event.title,
                 "event_type": event.type,
                 "occurred_at": event.start_time.isoformat(),
                 "payload": event.payload or {},
+                "students": [
+                    {"id": str(s.id), "name": s.name}
+                    for s in roster_by_event.get(event.id, [])
+                ],
             }
-            for event, person in recent
+            for event in recent
         ],
     }

@@ -790,6 +790,115 @@ class ActivityIn(BaseModel):
     student_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
+class ActivityUpdateIn(BaseModel):
+    """PATCH shape: every field optional; student_ids present-but-null clears
+    the roster (presence in model_fields_set drives the semantics)."""
+
+    title: str | None = Field(default=None, min_length=1, max_length=100)
+    occurred_at: datetime | None = None
+    notes: str | None = Field(default=None, max_length=2000)
+    student_ids: list[uuid.UUID] | None = None
+
+
+def _resolve_roster(db: Session, student_ids: list[uuid.UUID]) -> list[Person]:
+    """Deduped, order-preserving student Persons for the given ids; 404 on
+    unknown ids, 400 when a non-student sneaks in."""
+    ids = list(dict.fromkeys(student_ids))
+    if not ids:
+        return []
+    found = db.query(Person).filter(Person.id.in_(ids)).all()
+    by_id = {p.id: p for p in found}
+    if any(i not in by_id for i in ids):
+        raise HTTPException(status_code=404, detail="student not found")
+    bad = [p for p in by_id.values() if p.role != "student"]
+    if bad:
+        raise HTTPException(status_code=400, detail="只有学生可以作为参与者")
+    return [by_id[i] for i in ids]
+
+
+def _activity_or_404(db: Session, event_id: uuid.UUID) -> Event:
+    """The events page owns 普通事件 only — visits/exams have their own editors."""
+    e = db.get(Event, event_id)
+    if e is None or e.type != "activity":
+        raise HTTPException(status_code=404, detail="event not found")
+    return e
+
+
+def _event_students(db: Session, event_id: uuid.UUID) -> list[Person]:
+    return (
+        db.query(Person)
+        .join(person_events, person_events.c.person_id == Person.id)
+        .filter(
+            person_events.c.event_id == event_id,
+            Person.payload["role"].as_string() == "student",
+        )
+        .order_by(Person.payload["admission_no"].as_string())
+        .all()
+    )
+
+
+def _activity_out(db: Session, e: Event) -> dict:
+    return {
+        "id": str(e.id),
+        "title": e.title,
+        "event_type": e.type,
+        "occurred_at": e.start_time.isoformat(),
+        "notes": (e.payload or {}).get("notes"),
+        "students": [{"id": str(s.id), "name": s.name} for s in _event_students(db, e.id)],
+    }
+
+
+@router.get("/events/{event_id}")
+def get_event(
+    event_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    e = _activity_or_404(db, event_id)
+    return _activity_out(db, e)
+
+
+@router.patch("/events/{event_id}")
+def update_event(
+    event_id: uuid.UUID,
+    body: ActivityUpdateIn,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    e = _activity_or_404(db, event_id)
+    if "title" in body.model_fields_set:
+        title = (body.title or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="事件名称不能为空")
+        e.title = title
+    if "occurred_at" in body.model_fields_set and body.occurred_at is not None:
+        e.start_time = body.occurred_at
+    if "notes" in body.model_fields_set:
+        e.payload = validate_event_payload("activity", {"notes": body.notes})
+    if "student_ids" in body.model_fields_set:
+        roster = _resolve_roster(db, body.student_ids or [])
+        # the recording teacher stays a participant; the student roster is
+        # replaced wholesale (copy-assign, relationship sees the change)
+        teachers = [p for p in e.attendees if p.role != "student"]
+        e.attendees = [*teachers, *roster]
+    db.commit()
+    db.refresh(e)
+    return _activity_out(db, e)
+
+
+@router.delete("/events/{event_id}")
+def delete_event(
+    event_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Deletes the activity Event; person_events rows cascade with it."""
+    e = _activity_or_404(db, event_id)
+    db.delete(e)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/events", status_code=201)
 def create_activity(
     body: ActivityIn,
@@ -799,18 +908,7 @@ def create_activity(
     title = body.title.strip()
     if not title:
         raise HTTPException(status_code=400, detail="事件名称不能为空")
-    student_ids = list(dict.fromkeys(body.student_ids))  # dedupe, keep order
-    roster = []
-    if student_ids:
-        found = db.query(Person).filter(Person.id.in_(student_ids)).all()
-        by_id = {p.id: p for p in found}
-        missing = [str(i) for i in student_ids if i not in by_id]
-        if missing:
-            raise HTTPException(status_code=404, detail="student not found")
-        bad = [p for p in by_id.values() if p.role != "student"]
-        if bad:
-            raise HTTPException(status_code=400, detail="只有学生可以作为参与者")
-        roster = [by_id[i] for i in student_ids]
+    roster = _resolve_roster(db, body.student_ids)
     event = create_event(
         db,
         event_type="activity",

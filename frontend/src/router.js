@@ -7,6 +7,7 @@ import ProfileView from "./views/ProfileView.vue"
 import EventsView from "./views/EventsView.vue"
 import HomeVisitsView from "./views/HomeVisitsView.vue"
 import ActivityNewView from "./views/ActivityNewView.vue"
+import ActivityDetailView from "./views/ActivityDetailView.vue"
 import GuardianDetailView from "./views/GuardianDetailView.vue"
 import ClassesView from "./views/ClassesView.vue"
 import ClassDetailView from "./views/ClassDetailView.vue"
@@ -49,6 +50,20 @@ export const router = createRouter({
       name: "activityNew",
       component: ActivityNewView,
       meta: { title: "新建事件", parent: { label: "事件", to: "/events" } },
+    },
+    {
+      path: "/events/:id/edit",
+      name: "activityEdit",
+      component: ActivityNewView,
+      props: (r) => ({ eventId: r.params.id }),
+      meta: { title: "编辑事件", parent: { label: "事件", to: "/events" } },
+    },
+    {
+      path: "/events/:id",
+      name: "activityDetail",
+      component: ActivityDetailView,
+      props: true,
+      meta: { title: "事件详情", parent: { label: "事件", to: "/events" } },
     },
     {
       path: "/guardians/:id",
