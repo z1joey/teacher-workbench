@@ -1,37 +1,57 @@
 <script setup>
-import { ref, computed, onMounted } from "vue"
-import api from "../api"
+// 首页 = 今天该做什么：日历、考试倒计时、待跟进、最新动态。
+// 加载给骨架屏、失败给重试，不留空白也不甩一句「出错了」。
+import { computed, onMounted, ref } from "vue"
+import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
+import PageHeader from "../components/PageHeader.vue"
+import AsyncState from "../components/AsyncState.vue"
+import MonthCalendar from "../components/MonthCalendar.vue"
+import api from "../api"
 import {
   dateLocale,
   describeEvent,
   eventTypeColor,
   eventTypeIcon,
   eventTypeLabel,
-  exatypeLabel,
+  formatDateRange,
+  friendlyError,
   t,
 } from "../strings"
 
+const router = useRouter()
+
 const data = ref(null)
 const error = ref("")
+const loading = ref(true)
 
-onMounted(async () => {
+async function load() {
+  loading.value = true
+  error.value = ""
   try {
     data.value = await api.get("/dashboard")
   } catch (e) {
-    error.value = e.message
+    error.value = friendlyError(e)
+  } finally {
+    loading.value = false
   }
-})
+}
+onMounted(load)
 
 const today = computed(() =>
   new Date().toLocaleDateString(dateLocale(), {
-    weekday: "long", year: "numeric", month: "long", day: "numeric",
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   })
 )
 
 function fmtDate(ts) {
   return new Date(ts).toLocaleDateString(dateLocale(), {
-    year: "numeric", month: "short", day: "numeric",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   })
 }
 
@@ -48,100 +68,134 @@ function countdownLabel(d) {
   if (n === 1) return t("home.examTomorrow")
   return t("home.inDays", { n })
 }
-
-const stats = computed(() => {
-  if (!data.value) return []
-  const c = data.value.counts
-  return [
-    { label: t("home.statStudents"), value: c.students },
-    { label: t("home.statClasses"), value: c.classes },
-    { label: t("home.statExams"), value: c.exams },
-    { label: t("home.statVisits"), value: c.home_visits },
-  ]
-})
 </script>
 
 <template>
-  <p v-if="error" class="error-text">{{ error }}</p>
-  <p v-else-if="!data" class="empty">{{ t("common.loading") }}</p>
+  <AsyncState
+    :loading="loading"
+    :error="error"
+    :rows="4"
+    @retry="load"
+  >
+    <template v-if="data">
+      <PageHeader
+        :title="t('home.greeting', { name: data.user.name })"
+        :subtitle="t('home.today', { date: today })"
+      />
 
-  <template v-else>
-    <h1>{{ t("home.greeting", { name: data.teacher.name }) }}</h1>
-    <p class="page-sub">{{ t("home.today", { date: today }) }}</p>
-
-    <div class="stat-grid">
-      <div v-for="s in stats" :key="s.label" class="stat">
-        <div class="stat-label">{{ s.label }}</div>
-        <div class="stat-value">{{ s.value }}</div>
-      </div>
-    </div>
-
-    <div class="two-col">
-      <div class="card">
-        <h2>{{ t("home.recentEvents") }}</h2>
-        <div v-for="e in data.recent_events" :key="e.id" class="mini-event">
-          <span class="mini-icon" :style="{ background: eventTypeColor(e.event_type) }">
-            <Icon :name="eventTypeIcon(e.event_type)" :size="13" />
-          </span>
-          <div class="mini-body">
-            <div class="mini-head">
-              <span>
-                <router-link :to="`/students/${e.student_id}`">{{ e.student_name }}</router-link>
-                · {{ eventTypeLabel(e.event_type) }}
-              </span>
-              <time class="timeline-time">{{ fmtDate(e.occurred_at) }}</time>
-            </div>
-            <p class="mini-desc">{{ describeEvent(e.event_type, e.payload) }}</p>
-          </div>
+      <div class="split">
+        <div>
+          <MonthCalendar />
         </div>
-      </div>
 
-      <div>
+        <!-- 待跟进：学生工作的收件箱 -->
         <div class="card">
-          <h2>{{ t("home.countdown") }}</h2>
-          <p v-if="!data.upcoming_exams.length" class="empty">{{ t("home.noCountdown") }}</p>
-          <div v-for="e in data.upcoming_exams" :key="e.id" class="countdown-item">
-            <div style="min-width: 0">
-              <div class="weakness-topic">{{ e.name }}</div>
-              <div class="weakness-sub">
-                {{ fmtDate(e.exam_date) }} · {{ exatypeLabel(e.exam_type) }}
+          <div class="card__head">
+            <div>
+              <h2 class="card__title"><Icon name="checklist" :size="16" /> {{ t("home.followUps") }}</h2>
+              <p class="card__desc">{{ t("home.followUpsSub") }}</p>
+            </div>
+            <span class="pill pill--count">{{ data.follow_ups.length }}</span>
+          </div>
+          <div class="card__body card__body--tight">
+            <p v-if="!data.follow_ups.length" class="state__desc" style="padding: 12px 8px; text-align: center">
+              {{ t("home.noFollowUps") }}
+            </p>
+            <div v-for="f in data.follow_ups" :key="`${f.student_id}-${f.occurred_at}`" class="feed__item">
+              <span class="feed__dot" :style="{ background: eventTypeColor(f.event_type) }">
+                <Icon :name="eventTypeIcon(f.event_type)" :size="13" />
+              </span>
+              <div class="feed__body">
+                <div class="feed__head">
+                  <span>
+                    <router-link :to="`/students/${f.student_id}`">{{ f.student_name }}</router-link>
+                    · {{ eventTypeLabel(f.event_type) }}
+                    <template v-if="f.purpose"> · {{ f.purpose }}</template>
+                  </span>
+                </div>
+                <p class="feed__desc">
+                  {{ t("home.followUpPrefix") }}: {{ f.follow_up_note || "…" }} · {{ fmtDate(f.occurred_at) }}
+                </p>
               </div>
             </div>
-            <span class="badge" :class="daysUntil(e.exam_date) <= 1 ? 'warn' : ''">
-              {{ countdownLabel(e.exam_date) }}
-            </span>
           </div>
         </div>
 
-        <div class="card">
-          <h2>{{ t("home.quickActions") }}</h2>
-          <div class="quick-actions">
-            <router-link to="/students/new">
-              <button class="primary"><Icon name="plus" :size="15" /> {{ t("home.addStudent") }}</button>
-            </router-link>
-            <router-link to="/exams">
-              <button><Icon name="clipboard" :size="15" /> {{ t("home.viewExams") }}</button>
-            </router-link>
-            <router-link to="/students">
-              <button><Icon name="users" :size="15" /> {{ t("home.viewStudents") }}</button>
-            </router-link>
-          </div>
-        </div>
-
-        <div class="card">
-          <h2>{{ t("home.followUps") }}</h2>
-          <p v-if="!data.follow_ups.length" class="empty">{{ t("home.noFollowUps") }}</p>
-          <div v-for="f in data.follow_ups" :key="`${f.student_id}-${f.visited_at}`" class="followup">
+        <!-- 最新动态 -->
+        <div class="card" style="grid-column: 1 / -1">
+          <div class="card__head">
             <div>
-              <router-link :to="`/students/${f.student_id}`">{{ f.student_name }}</router-link>
-              · {{ f.purpose }}
+              <h2 class="card__title"><Icon name="trending" :size="16" /> {{ t("home.recentEvents") }}</h2>
+              <p class="card__desc">{{ t("home.recentEventsSub") }}</p>
             </div>
-            <div class="weakness-sub">
-              {{ t("home.followUpPrefix") }}: {{ f.follow_up_note || "…" }} · {{ fmtDate(f.visited_at) }}
+          </div>
+          <div class="card__body card__body--tight">
+            <div class="feed">
+              <!-- 按事件一行：单一学生的记录以学生名为首，多参与者显示标题和名单；
+                   普通事件可点击进入详情 -->
+              <div
+                v-for="e in data.recent_events"
+                :key="e.id"
+                class="feed__item"
+                :style="e.event_type === 'activity' ? 'cursor: pointer' : ''"
+                @click="e.event_type === 'activity' && router.push(`/events/${e.id}`)"
+              >
+                <span class="feed__dot" :style="{ background: eventTypeColor(e.event_type) }">
+                  <Icon :name="eventTypeIcon(e.event_type)" :size="13" />
+                </span>
+                <div class="feed__body">
+                  <div class="feed__head">
+                    <span>
+                      <router-link
+                        v-if="e.students.length === 1"
+                        :to="`/students/${e.students[0].id}`"
+                      >{{ e.students[0].name }}</router-link>
+                      <template v-else>{{ e.title }}</template>
+                      · {{ eventTypeLabel(e.event_type) }}
+                    </span>
+                    <time class="timeline__time">{{ fmtDate(e.occurred_at) }}</time>
+                  </div>
+                  <p v-if="describeEvent(e.event_type, e.payload)" class="feed__desc">
+                    {{ describeEvent(e.event_type, e.payload) }}
+                  </p>
+                  <p v-if="e.students.length > 1" class="feed__desc">
+                    <template v-for="(s, i) in e.students" :key="s.id">
+                      <router-link :to="`/students/${s.id}`" @click.stop>{{ s.name }}</router-link><template v-if="i < e.students.length - 1">、</template>
+                    </template>
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  </template>
+
+      <!-- 考试倒计时 -->
+      <div class="card">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title"><Icon name="clock" :size="16" /> {{ t("home.countdown") }}</h2>
+          </div>
+        </div>
+        <div class="card__body card__body--tight">
+          <p v-if="!data.upcoming_exams.length" class="state__desc" style="padding: 12px 8px; text-align: center">
+            {{ t("home.noCountdown") }}
+          </p>
+          <div class="grid grid--3">
+            <router-link
+              v-for="e in data.upcoming_exams"
+              :key="e.id"
+              :to="`/exams/${e.id}`"
+              class="stat stat--link"
+              style="margin: 0"
+            >
+              <div class="stat__label">{{ countdownLabel(e.exam_date) }}</div>
+              <div class="stat__value" style="font-size: 18px">{{ e.name }}</div>
+              <div class="stat__sub">{{ formatDateRange(e.exam_date, e.end_date) }}</div>
+            </router-link>
+          </div>
+        </div>
+      </div>
+    </template>
+  </AsyncState>
 </template>

@@ -1,44 +1,39 @@
 <script setup>
+// 登录：错误就地说明怎么改，而不是弹出一个看不懂的提示。
+// 单教师应用：账号来自初始化数据，不提供自助注册。
 import { ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
+import FormField from "../components/FormField.vue"
 import api, { setToken } from "../api"
 import { loadMe } from "../auth"
-import { t } from "../strings"
+import { friendlyError, t } from "../strings"
 
 const router = useRouter()
-const mode = ref("login") // login | register
-const form = ref({ name: "", phone: "", password: "", email: "" })
+const form = ref({ phone: "", password: "" })
 const error = ref("")
 const busy = ref(false)
+const showPassword = ref(false)
 
 async function submit() {
   error.value = ""
   busy.value = true
   try {
-    const path = mode.value === "login" ? "/auth/login" : "/auth/register"
-    const body =
-      mode.value === "login"
-        ? { phone: form.value.phone, password: form.value.password }
-        : {
-            name: form.value.name,
-            phone: form.value.phone,
-            password: form.value.password,
-            email: form.value.email || null,
-          }
-    const res = await api.post(path, body)
+    const res = await api.post("/auth/login", {
+      phone: form.value.phone,
+      password: form.value.password,
+    })
     setToken(res.token)
     await loadMe()
-    router.push("/")
+    router.push(res.user?.role === "admin" ? "/admin" : "/")
   } catch (e) {
-    error.value = e.message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }
 }
 
 function fillDemo() {
-  mode.value = "login"
   form.value.phone = "13800000001"
   form.value.password = "123456"
 }
@@ -51,41 +46,61 @@ function fillDemo() {
       <h1 class="auth-title">{{ t("app.title") }}</h1>
       <p class="auth-sub">{{ t("login.subtitle") }}</p>
 
-      <div class="auth-tabs">
-        <button :class="{ active: mode === 'login' }" @click="mode = 'login'">
-          {{ t("login.tabLogin") }}
-        </button>
-        <button :class="{ active: mode === 'register' }" @click="mode = 'register'">
-          {{ t("login.tabRegister") }}
-        </button>
-      </div>
+      <form @submit.prevent="submit" novalidate>
+        <FormField :label="t('login.phone')" required :error="''">
+          <input
+            v-model="form.phone"
+            class="input"
+            type="tel"
+            inputmode="numeric"
+            autocomplete="username"
+            required
+          />
+        </FormField>
 
-      <form @submit.prevent="submit">
-        <div v-if="mode === 'register'" class="field">
-          <label>{{ t("login.name") }} *</label>
-          <input v-model="form.name" type="text" required />
-        </div>
-        <div class="field">
-          <label>{{ t("login.phone") }} *</label>
-          <input v-model="form.phone" type="tel" required />
-        </div>
-        <div v-if="mode === 'register'" class="field">
-          <label>{{ t("login.email") }}</label>
-          <input v-model="form.email" type="email" />
-        </div>
-        <div class="field">
-          <label>{{ t("login.password") }} *</label>
-          <input v-model="form.password" type="password" required minlength="6" />
-        </div>
-        <p v-if="error" class="error-text">{{ error }}</p>
-        <button type="submit" class="primary" style="width: 100%; margin-top: 6px" :disabled="busy">
-          {{ (mode === "login" ? t("login.submit") : t("login.submitRegister")) + (busy ? "…" : "") }}
+        <FormField
+          :label="t('login.password')"
+          required
+          :error="''"
+        >
+          <div class="row" style="gap: 8px">
+            <input
+              v-model="form.password"
+              class="input"
+              :type="showPassword ? 'text' : 'password'"
+              autocomplete="current-password"
+              required
+            />
+            <button
+              type="button"
+              class="btn btn--icon"
+              :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+              :title="showPassword ? '隐藏密码' : '显示密码'"
+              @click="showPassword = !showPassword"
+            >
+              <Icon :name="showPassword ? 'eye-off' : 'eye'" :size="15" />
+            </button>
+          </div>
+        </FormField>
+
+        <p v-if="error" class="field__error" style="margin-bottom: 12px">
+          <Icon name="alert-circle" :size="13" /> {{ error }}
+        </p>
+
+        <button type="submit" class="btn btn--primary btn--lg btn--block" :disabled="busy">
+          <span v-if="busy" class="spinner" />
+          {{ busy ? t("login.submitting") : t("login.submit") }}
         </button>
       </form>
 
-      <div class="demo-hint">
-        <span>{{ t("login.demoHint") }}</span>
-        <button class="small" @click="fillDemo">13800000001 / 123456</button>
+      <div class="auth-note">
+        <span class="row nowrap" style="gap: 6px">
+          <Icon name="info" :size="14" />
+          {{ t("login.needHelp") }}
+        </span>
+        <button class="btn btn--sm nowrap" @click="fillDemo">
+          {{ t("login.demoHint") }}：13800000001 / 123456
+        </button>
       </div>
     </div>
   </div>

@@ -21,8 +21,9 @@ async function request(path, options = {}) {
   // Login/register 401s (wrong credentials) are shown inline instead.
   if (res.status === 401 && !path.startsWith("/auth/")) {
     setToken(null)
-    if (!window.location.pathname.startsWith("/login")) {
-      window.location.href = "/login"
+    const loginPath = `${import.meta.env.BASE_URL}login`
+    if (!window.location.pathname.startsWith(loginPath)) {
+      window.location.href = loginPath
     }
     throw new Error("登录已过期，请重新登录")
   }
@@ -36,6 +37,7 @@ async function request(path, options = {}) {
     if (typeof detail !== "string" || !detail) detail = res.statusText
     throw new Error(detail)
   }
+  if (res.status === 204 || res.status === 205) return null
   return res.json()
 }
 

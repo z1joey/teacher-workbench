@@ -1,0 +1,8 @@
+# 本地开发/测试产物不进入构建上下文（根目录的 .dockerignore 对子目录 context 无效）
+.venv/
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+*.db
+tests/
+.DS_Store

@@ -1,54 +1,64 @@
 <script setup>
-import { ref, computed } from "vue"
+// 新建考试：科目用可见的勾选块而不是一列复选框，日期当场校验，
+// 提交按钮在条件不满足时说明差什么（防错）。
+import { computed, ref } from "vue"
 import { useRouter } from "vue-router"
+import Icon from "../components/Icon.vue"
+import PageHeader from "../components/PageHeader.vue"
+import FormField from "../components/FormField.vue"
 import api from "../api"
-import { exatypeLabel, subject, t } from "../strings"
+import { friendlyError, subject, t } from "../strings"
 
 const router = useRouter()
-
 const SUBJECT_OPTIONS = ["math", "english", "chinese", "physics", "chemistry"]
-
-function defaultAcademicYear() {
-  const now = new Date()
-  const start = now.getMonth() + 1 >= 8 ? now.getFullYear() : now.getFullYear() - 1
-  return `${start}/${start + 1}`
-}
 
 const form = ref({
   name: "",
   exam_date: "",
-  term: "T2",
-  exam_type: "midterm",
-  academic_year: defaultAcademicYear(),
+  end_date: "",
   full_score: 100,
   selected: { math: true, english: true, chinese: false, physics: false, chemistry: false },
 })
 const busy = ref(false)
 const error = ref("")
+const errors = ref({})
 
-const selectedSubjects = computed(() =>
-  SUBJECT_OPTIONS.filter((s) => form.value.selected[s])
-)
+const selectedSubjects = computed(() => SUBJECT_OPTIONS.filter((s) => form.value.selected[s]))
+
+function dateError() {
+  const year = Number((form.value.exam_date || "").slice(0, 4))
+  if (!form.value.exam_date || year < 2000 || year > 2100) return t("examnew.dateInvalid")
+  return ""
+}
+
+function endDateError() {
+  if (form.value.end_date && form.value.exam_date && form.value.end_date < form.value.exam_date) {
+    return t("examnew.endDateInvalid")
+  }
+  return ""
+}
+
+function validate() {
+  const e = {}
+  if (!form.value.name.trim()) e.name = t("examnew.nameRequired")
+  if (!selectedSubjects.value.length) e.subjects = t("examnew.subjectsRequired")
+  const de = dateError()
+  if (de) e.exam_date = de
+  const ee = endDateError()
+  if (ee) e.end_date = ee
+  errors.value = e
+  return !Object.keys(e).length
+}
 
 async function submit() {
   error.value = ""
-  if (!selectedSubjects.value.length) {
-    error.value = t("examnew.subjectsRequired")
-    return
-  }
-  const year = Number((form.value.exam_date || "").slice(0, 4))
-  if (!form.value.exam_date || year < 2000 || year > 2100) {
-    error.value = t("examnew.dateInvalid")
-    return
-  }
+  if (!validate()) return
   busy.value = true
   try {
     const res = await api.post("/exams", {
-      name: form.value.name,
+      name: form.value.name.trim(),
       exam_date: form.value.exam_date,
-      term: form.value.term,
-      exam_type: form.value.exam_type,
-      academic_year: form.value.academic_year || null,
+      end_date: form.value.end_date || null,
       subjects: selectedSubjects.value.map((s) => ({
         subject: s,
         full_score: Number(form.value.full_score),
@@ -56,69 +66,103 @@ async function submit() {
     })
     router.push(`/exams/${res.id}`)
   } catch (e) {
-    error.value = e.message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }
 }
+
+function toggleSubject(s) {
+  form.value.selected[s] = !form.value.selected[s]
+  if (selectedSubjects.value.length) errors.value.subjects = ""
+}
 </script>
 
 <template>
-  <router-link to="/exams" style="font-size: 13px">← {{ t("nav.exams") }}</router-link>
+  <PageHeader :title="t('examnew.title')" :subtitle="t('examnew.subtitle')" />
 
-  <h1 style="margin-top: 12px">{{ t("examnew.title") }}</h1>
-  <p class="page-sub">{{ t("examnew.subtitle") }}</p>
+  <div class="card" style="max-width: 620px">
+    <form class="card__body" @submit.prevent="submit" novalidate>
+      <FormField :label="t('examnew.name')" required :error="errors.name || ''">
+        <input
+          v-model="form.name"
+          class="input"
+          type="text"
+          maxlength="80"
+          :aria-invalid="!!errors.name"
+        />
+      </FormField>
 
-  <div class="card" style="max-width: 560px">
-    <form @submit.prevent="submit">
+      <div class="form-grid">
+        <FormField :label="t('examnew.date')" required :error="errors.exam_date || ''">
+          <input
+            v-model="form.exam_date"
+            class="input"
+            type="date"
+            :aria-invalid="!!errors.exam_date"
+          />
+        </FormField>
+        <FormField
+          :label="t('examnew.endDate')"
+          :hint="t('examnew.endDateHint')"
+          :error="errors.end_date || ''"
+        >
+          <input
+            v-model="form.end_date"
+            class="input"
+            type="date"
+            :min="form.exam_date || undefined"
+            :aria-invalid="!!errors.end_date"
+          />
+        </FormField>
+        <FormField :label="t('examnew.fullScore')" hint="所有科目共用同一个满分">
+          <input
+            v-model="form.full_score"
+            class="input"
+            type="number"
+            min="1"
+            max="1000"
+            step="1"
+          />
+        </FormField>
+      </div>
+
       <div class="field">
-        <label>{{ t("examnew.name") }} *</label>
-        <input v-model="form.name" type="text" required />
-      </div>
-      <div style="display: flex; gap: 12px">
-        <div class="field" style="flex: 1">
-          <label>{{ t("examnew.date") }} *</label>
-          <input v-model="form.exam_date" type="date" required />
+        <span class="field__label">
+          {{ t("examnew.subjects") }} <span class="field__req">*</span>
+          <span class="field__opt">已选 {{ selectedSubjects.length }} 科</span>
+        </span>
+        <div class="row-wrap" style="margin-top: 4px">
+          <button
+            v-for="s in SUBJECT_OPTIONS"
+            :key="s"
+            type="button"
+            class="chip"
+            :class="{ 'chip--selected': form.selected[s] }"
+            :aria-pressed="form.selected[s]"
+            @click="toggleSubject(s)"
+          >
+            <Icon v-if="form.selected[s]" name="check" :size="13" />
+            {{ subject(s) }}
+          </button>
         </div>
-        <div class="field" style="flex: 1">
-          <label>{{ t("examnew.type") }}</label>
-          <select v-model="form.exam_type">
-            <option v-for="ty in ['monthly', 'midterm', 'final', 'quiz']" :key="ty" :value="ty">
-              {{ exatypeLabel(ty) }}
-            </option>
-          </select>
-        </div>
-      </div>
-      <div style="display: flex; gap: 12px">
-        <div class="field" style="flex: 1">
-          <label>{{ t("examnew.term") }}</label>
-          <select v-model="form.term">
-            <option value="T1">{{ t("term.T1") }}</option>
-            <option value="T2">{{ t("term.T2") }}</option>
-          </select>
-        </div>
-        <div class="field" style="flex: 1">
-          <label>{{ t("examnew.year") }}</label>
-          <input v-model="form.academic_year" type="text" :placeholder="defaultAcademicYear()" />
-        </div>
+        <span v-if="errors.subjects" class="field__error">
+          <Icon name="alert-circle" :size="12" /> {{ errors.subjects }}
+        </span>
+        <span v-else class="field__hint">{{ t("exam.subjectLockNote") }}</span>
       </div>
 
-      <h2>{{ t("examnew.subjects") }}</h2>
-      <div class="subject-grid">
-        <label v-for="s in SUBJECT_OPTIONS" :key="s" class="checkbox-row subject-option">
-          <input v-model="form.selected[s]" type="checkbox" />
-          <span>{{ subject(s) }}</span>
-        </label>
-      </div>
-      <div class="field" style="max-width: 200px">
-        <label>{{ t("examnew.fullScore") }}</label>
-        <input v-model="form.full_score" type="number" min="1" max="1000" step="1" />
-      </div>
+      <p v-if="error" class="field__error" style="margin-bottom: 12px">
+        <Icon name="alert-circle" :size="13" /> {{ error }}
+      </p>
 
-      <p v-if="error" class="error-text">{{ error }}</p>
-      <button type="submit" class="primary" style="margin-top: 6px" :disabled="busy">
-        {{ busy ? t("examnew.saving") : t("examnew.submit") }}
-      </button>
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary" :disabled="busy">
+          <span v-if="busy" class="spinner" />
+          {{ busy ? t("examnew.saving") : t("examnew.submit") }}
+        </button>
+        <router-link to="/exams" class="btn btn--ghost">{{ t("action.cancel") }}</router-link>
+      </div>
     </form>
   </div>
 </template>

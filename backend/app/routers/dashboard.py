@@ -1,79 +1,209 @@
-from datetime import date
+"""Dashboard: month calendar and the home summary, read off Event rows.
 
-from fastapi import APIRouter, Depends
+The calendar mirrors the old behavior: exam sittings (type="exam") plus the
+teacher-written records (RECORD_EVENT_TYPES) in one month — the old calendar
+carried no birthdays, so none are projected here. Recurrence is gone with the
+StudentEvent column (keys it appeared in keep the rest of their shape).
+
+The summary recomputes counts over the new tables: students = active student
+Persons, exams = sitting Events, interactions = manual record Events. Score
+Events are per-student-per-subject rows with no old-world counterpart in the
+recent-events digest, so they (and multi-attendee sitting Events) are skipped
+there; follow-ups are home visits whose payload follow_up note is set (the
+old follow_up_needed flag collapsed into it — see students.py).
+"""
+from calendar import monthrange
+from datetime import date, datetime, time, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..deps import get_current_teacher
-from ..models import Class, Exam, HomeVisit, Student, StudentEvent, Teacher
+from ..deps import get_current_person
+from ..eventing import MANUAL_EVENT_TYPES, RECORD_EVENT_TYPES
+from ..models import Class, Event, Person, person_events
 
-router = APIRouter(tags=["dashboard"])
+router = APIRouter(
+    tags=["dashboard"],
+    dependencies=[Depends(get_current_person)],  # router-level auth (include pattern)
+)
+
+# timeline digest rows: old recent_events listed StudentEvents (records,
+# birthdays, system notes) — sittings and per-subject score rows are not that
+_DIGEST_EXCLUDED_TYPES = ("exam", "score")
+
+# digest rows are student-centric: teachers and guardians attend events too,
+# but they must never surface as the row's "student" (a teacher row would
+# render as a student named 陈老师 linking to a non-student page)
+_STUDENT_ATTENDEE = Person.payload["role"].as_string() == "student"
+
+
+@router.get("/calendar")
+def month_calendar(
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Home-page month calendar: exams + teacher-written records in one month."""
+    if not 1 <= month <= 12:
+        raise HTTPException(status_code=400, detail="month out of range")
+    first = date(year, month, 1)
+    last = date(year, month, monthrange(year, month)[1])
+    items = []
+    lo = datetime.combine(first, time.min)
+    hi = datetime.combine(last, time.max)
+    # multi-day sittings appear on every day of their span (中考/高考 style)
+    for e in (
+        db.query(Event)
+        .filter(
+            Event.type == "exam",
+            Event.start_time <= hi,
+            func.coalesce(Event.end_time, Event.start_time) >= lo,
+        )
+        .all()
+    ):
+        day = e.start_time.date()
+        last_day = (e.end_time or e.start_time).date()
+        while day <= last_day:
+            items.append({"date": day.isoformat(), "kind": "exam",
+                          "id": str(e.id), "name": e.title})
+            day += timedelta(days=1)
+    rows = (
+        db.query(Event, Person)
+        .join(person_events, person_events.c.event_id == Event.id)
+        .join(Person, Person.id == person_events.c.person_id)
+        .filter(
+            Event.type.in_(list(RECORD_EVENT_TYPES)),
+            _STUDENT_ATTENDEE,
+            Event.start_time >= lo,
+            Event.start_time <= hi,
+        )
+        .all()
+    )
+    for ev, student in rows:
+        items.append({
+            "date": ev.start_time.date().isoformat(),
+            "kind": "record",
+            "id": str(ev.id),
+            "event_type": ev.type,
+            "student_id": str(student.id),
+            "student_name": student.name,
+            "actor": None,  # the actor column is gone (see students.py)
+            "payload": ev.payload or {},
+        })
+    items.sort(key=lambda i: i["date"])
+    return {"year": year, "month": month, "items": items}
 
 
 @router.get("/dashboard")
 def dashboard(
     db: Session = Depends(get_db),
-    teacher: Teacher = Depends(get_current_teacher),
+    user: Person = Depends(get_current_person),
 ):
+    active = or_(
+        Person.payload["is_active"].as_boolean().is_(None),
+        Person.payload["is_active"].as_boolean().is_not(False),
+    )
     counts = {
-        "students": db.query(Student).filter(Student.status == "active").count(),
+        "students": (
+            db.query(Person)
+            .filter(Person.payload["role"].as_string() == "student", active)
+            .count()
+        ),
         "classes": db.query(Class).count(),
-        "exams": db.query(Exam).count(),
-        "home_visits": db.query(HomeVisit).count(),
+        "exams": db.query(Event).filter(Event.type == "exam").count(),
+        # 跟进记录: every teacher-written record Event (visits, talks, notes, …)
+        "interactions": (
+            db.query(Event).filter(Event.type.in_(list(MANUAL_EVENT_TYPES))).count()
+        ),
     }
     follow_ups = (
-        db.query(HomeVisit, Student.name)
-        .join(Student, Student.id == HomeVisit.student_id)
-        .filter(HomeVisit.follow_up_needed.is_(True))
-        .order_by(HomeVisit.visited_at.desc())
+        db.query(Event, Person)
+        .join(person_events, person_events.c.event_id == Event.id)
+        .join(Person, Person.id == person_events.c.person_id)
+        .filter(
+            Event.type == "home_visited",
+            _STUDENT_ATTENDEE,
+            # follow_up_needed collapsed into the follow_up note (students.py);
+            # as_string() keeps the NULL compare a plain SQL NULL (a bare
+            # JSON-path IS (NOT) NULL binds JSON 'null', matching every row)
+            Event.payload["follow_up"].as_string().is_not(None),
+        )
+        .order_by(Event.start_time.desc())
         .limit(5)
         .all()
     )
     recent = (
-        db.query(StudentEvent, Student.name)
-        .join(Student, Student.id == StudentEvent.student_id)
-        .order_by(StudentEvent.occurred_at.desc(), StudentEvent.id.desc())
+        db.query(Event)
+        .filter(Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)))
+        .order_by(Event.start_time.desc(), Event.created_at.desc())
         .limit(8)
         .all()
     )
+    # one row per Event with its student roster — teacher/guardian attendees
+    # stay out of the digest (rows are student-centric, see _STUDENT_ATTENDEE)
+    roster_by_event: dict = {}
+    if recent:
+        for event_id, person in (
+            db.query(person_events.c.event_id, Person)
+            .join(Person, Person.id == person_events.c.person_id)
+            .filter(
+                person_events.c.event_id.in_([e.id for e in recent]),
+                _STUDENT_ATTENDEE,
+            )
+            .order_by(Person.payload["admission_no"].as_string())
+            .all()
+        ):
+            roster_by_event.setdefault(event_id, []).append(person)
+    today = date.today()
     upcoming = (
-        db.query(Exam)
-        .filter(Exam.exam_date >= date.today())
-        .order_by(Exam.exam_date)
+        db.query(Event)
+        .filter(
+            Event.type == "exam",
+            Event.start_time >= datetime.combine(today, time.min),
+        )
+        .order_by(Event.start_time)
         .limit(3)
         .all()
     )
     return {
-        "teacher": {"id": teacher.id, "name": teacher.name},
+        "user": {"id": str(user.id), "name": user.name},
         "counts": counts,
         "upcoming_exams": [
             {
-                "id": exam.id,
-                "name": exam.name,
-                "exam_date": exam.exam_date.isoformat(),
-                "exam_type": exam.exam_type,
+                "id": str(exam.id),
+                "name": exam.title,
+                "exam_date": exam.start_time.date().isoformat(),
+                "end_date": (exam.end_time.date().isoformat() if exam.end_time else None),
             }
             for exam in upcoming
         ],
         "follow_ups": [
             {
-                "student_id": visit.student_id,
-                "student_name": student_name,
-                "visited_at": visit.visited_at.isoformat(),
-                "purpose": visit.purpose,
-                "follow_up_note": visit.follow_up_note,
+                "student_id": str(person.id),
+                "student_name": person.name,
+                "event_type": ev.type,
+                "occurred_at": ev.start_time.isoformat(),
+                "purpose": None,  # no payload slot anymore (see students.py)
+                "summary": (ev.payload or {}).get("summary"),
+                "follow_up_note": (ev.payload or {}).get("follow_up"),
             }
-            for visit, student_name in follow_ups
+            for ev, person in follow_ups
         ],
         "recent_events": [
             {
-                "id": event.id,
-                "student_id": event.student_id,
-                "student_name": student_name,
-                "event_type": event.event_type,
-                "occurred_at": event.occurred_at.isoformat(),
+                "id": str(event.id),
+                "title": event.title,
+                "event_type": event.type,
+                "occurred_at": event.start_time.isoformat(),
                 "payload": event.payload or {},
+                "students": [
+                    {"id": str(s.id), "name": s.name}
+                    for s in roster_by_event.get(event.id, [])
+                ],
             }
-            for event, student_name in recent
+            for event in recent
         ],
     }
