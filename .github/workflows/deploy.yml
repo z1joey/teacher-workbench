@@ -237,8 +237,9 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT || 22 }}
           envs: IMAGE_TAG,DOCKERHUB_USERNAME,PROJECT_DIR,POSTGRES_USER,POSTGRES_PASSWORD,POSTGRES_DB
-          script_stop: true
           script: |
+            # ssh-action 新版已移除 script_stop 参数，出错即停由脚本自己保证
+            set -euo pipefail
             cd "$PROJECT_DIR"
 
             echo "=========================================="
