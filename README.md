@@ -112,8 +112,8 @@ docker compose up -d --build     # 修改代码后重新构建并启动
   docker compose exec backend python -m app.seed   # 全新库灌演示数据（已有库会重复灌入，先 down -v 删卷）
   ```
 
-- PostgreSQL 发布在宿主机 **5432** 端口，可用本地 psql /
-  GUI 工具直连（用户名/库名见 `.env`）。
+- PostgreSQL 发布在宿主机 **5432** 端口（仅绑定 `127.0.0.1` 回环接口，
+  不对外网暴露），可用本机 psql / GUI 工具直连（用户名/库名见 `.env`）。
 - ⚠️ **与本地开发模式互斥**：Docker 的后端也映射了 8001 端口。本地 uvicorn
   正在运行时 `docker compose up` 会端口绑定失败——先停掉本地服务，反之亦然。
 
