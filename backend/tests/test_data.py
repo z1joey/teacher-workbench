@@ -8,7 +8,7 @@ from datetime import date
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from app.models import Class, Enrollment, Event, Person
+from app.models import AuthSession, Class, Enrollment, Event, Person
 from app.payloads import validate_person_payload
 from app.routers import data
 from app.security import hash_password
@@ -250,3 +250,47 @@ def test_roster_template_download(client):
     assert res.status_code == 200
     ws = load_workbook(io.BytesIO(res.content)).active
     assert [ws.cell(2, c).value for c in (1, 2, 3)] == ["学号", "姓名", "性别"]
+
+
+def test_demo_seed_loads_dataset(client, db):
+    res = client.post("/api/data/demo/seed", headers=AUTH)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["teacher"]["phone"] == "13800000001"
+    students = _students(db)
+    assert len(students) >= 20
+    assert db.query(Class).filter(Class.name == "七年级1班").count() == 1
+    assert db.query(Event).filter(Event.type == "exam").count() >= 1
+    assert db.query(AuthSession).filter(AuthSession.token == TEACHER_TOKEN).count() == 1
+    assert db.query(Person).filter(Person.phone == "13800000000").count() == 0
+
+
+def test_demo_seed_requires_teacher(client, db):
+    from app.security import hash_password
+
+    student = Person(
+        name="林小明",
+        password_hash=hash_password("123456"),
+        payload=validate_person_payload("student", {"admission_no": "S999"}),
+    )
+    db.add(student)
+    db.flush()
+    token = "s" * 64
+    db.add(AuthSession(token=token, person_id=student.id))
+    db.commit()
+
+    res = client.post("/api/data/demo/seed", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 403
+
+
+def test_demo_reset_clears_database(client, db):
+    seed_res = client.post("/api/data/demo/seed", headers=AUTH)
+    assert seed_res.status_code == 200
+    assert _students(db)
+
+    reset_res = client.post("/api/data/demo/reset", headers=AUTH)
+    assert reset_res.status_code == 200
+    assert reset_res.json()["ok"] is True
+    assert db.query(Person).count() == 0
+    assert db.query(Class).count() == 0

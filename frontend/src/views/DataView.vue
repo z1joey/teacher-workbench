@@ -5,7 +5,8 @@ import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
-import api, { downloadFile, triggerDownload, uploadFile } from "../api"
+import api, { downloadFile, setToken, triggerDownload, uploadFile } from "../api"
+import { ask } from "../confirm"
 import { notify } from "../feedback"
 import { friendlyError, t } from "../strings"
 
@@ -95,6 +96,62 @@ function targetClassLabel(result) {
   if (!result?.target_class) return t("students.ungrouped")
   const c = result.target_class
   return `${c.name}（${c.academic_year}）`
+}
+
+const seeding = ref(false)
+const resetting = ref(false)
+
+function goLogin() {
+  setToken(null)
+  window.location.href = `${import.meta.env.BASE_URL}login`
+}
+
+async function loadDemoData() {
+  const ok = await ask({
+    title: t("data.demoSeed"),
+    message: t("data.demoSeedWarn"),
+    consequences: [
+      "现有学生、班级、考试、成绩、跟进记录都会被清空并替换为演示内容。",
+      "演示数据会绑定到你当前登录的教师账号，无需重新登录。",
+    ],
+    confirmLabel: t("data.demoSeed"),
+    tone: "warn",
+  })
+  if (!ok) return
+  seeding.value = true
+  try {
+    await api.post("/data/demo/seed")
+    notify({ tone: "ok", title: t("data.demoSeedDone"), timeout: 4000 })
+    window.location.reload()
+  } catch (e) {
+    notify({ tone: "error", title: t("data.demoSeedFail"), detail: friendlyError(e) })
+  } finally {
+    seeding.value = false
+  }
+}
+
+async function resetApp() {
+  const ok = await ask({
+    title: t("data.demoReset"),
+    message: t("data.demoResetWarn"),
+    consequences: [
+      "所有学生、班级、考试、成绩、跟进记录都会消失。",
+      "账号也会一并清空，你需要重新登录或加载演示数据。",
+    ],
+    confirmLabel: t("data.demoReset"),
+    confirmWord: t("data.demoResetConfirm"),
+  })
+  if (!ok) return
+  resetting.value = true
+  try {
+    await api.post("/data/demo/reset")
+    notify({ tone: "ok", title: t("data.demoResetDone"), timeout: 4000 })
+    goLogin()
+  } catch (e) {
+    notify({ tone: "error", title: t("data.demoResetFail"), detail: friendlyError(e) })
+  } finally {
+    resetting.value = false
+  }
 }
 </script>
 
@@ -215,6 +272,30 @@ function targetClassLabel(result) {
             <button class="btn btn--primary" :disabled="exportingRoster" @click="exportRoster">
               <span v-if="exportingRoster" class="spinner" />
               <Icon name="download" :size="15" /> 导出花名册
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card card--danger">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title"><Icon name="database" :size="16" /> {{ t("data.demoTitle") }}</h2>
+            <p class="card__desc">{{ t("data.demoSub") }}</p>
+          </div>
+        </div>
+        <div class="card__body stack" style="gap: 16px">
+          <p class="muted" style="margin: 0">
+            {{ t("data.demoBody") }}
+          </p>
+          <div class="row-wrap">
+            <button class="btn btn--primary" :disabled="seeding || resetting" @click="loadDemoData">
+              <span v-if="seeding" class="spinner" />
+              <Icon name="refresh" :size="15" /> {{ t("data.demoSeed") }}
+            </button>
+            <button class="btn btn--danger-solid" :disabled="seeding || resetting" @click="resetApp">
+              <span v-if="resetting" class="spinner" />
+              <Icon name="trash" :size="15" /> {{ t("data.demoReset") }}
             </button>
           </div>
         </div>

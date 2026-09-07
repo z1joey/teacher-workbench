@@ -17,24 +17,28 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import Base, engine, get_db
 from ..deps import get_current_person
 from ..eventing import create_event
 from ..gender import gender_label, parse_gender
-from ..models import Class, Enrollment, Person
+from ..models import AuthSession, Class, Enrollment, Person
 from ..models._common import utcnow
 from ..payloads import validate_person_payload
 from ..security import hash_password
+from ..seed import DEFAULT_SEMESTERS, seed
 from ..unassigned import class_for_api, ensure_unassigned_class, is_unassigned_class
 
 router = APIRouter(
     tags=["data"],
     dependencies=[Depends(get_current_person)],
 )
+
+_bearer = HTTPBearer(auto_error=False)
 
 _HEADER_ALIASES = {
     "admission_no": {"学号", "学籍号", "学籍编号", "学籍辅号", "学籍"},
@@ -122,6 +126,78 @@ def _move_student(
             reason=reason,
         )
     )
+
+
+def _wipe_db(bind=engine) -> None:
+    Base.metadata.drop_all(bind=bind)
+    Base.metadata.create_all(bind=bind)
+
+
+def _require_teacher(user: Person) -> None:
+    if not user.is_teacher:
+        raise HTTPException(status_code=403, detail="仅教师账号可使用演示数据功能")
+
+
+def _teacher_snapshot(user: Person) -> dict:
+    payload = dict(user.payload or {})
+    if not payload.get("semesters"):
+        payload["semesters"] = DEFAULT_SEMESTERS
+    return {
+        "name": user.name,
+        "phone": user.phone,
+        "email": user.email,
+        "password_hash": user.password_hash,
+        "payload": validate_person_payload("teacher", payload),
+    }
+
+
+@router.post("/data/demo/seed")
+def load_demo_data(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+):
+    """Wipe app data and load demo content bound to the current teacher."""
+    _require_teacher(user)
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    token = credentials.credentials
+    teacher_snap = _teacher_snapshot(user)
+    try:
+        _wipe_db(db.get_bind())
+        db.rollback()
+        db.expire_all()
+        db.expunge(user)
+        ensure_unassigned_class(db)
+        teacher = Person(**teacher_snap)
+        db.add(teacher)
+        db.flush()
+        seed(db, teacher=teacher, include_admin=False)
+        db.add(AuthSession(token=token, person_id=teacher.id))
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"加载演示数据失败: {exc}") from exc
+    return {
+        "ok": True,
+        "teacher": {"name": teacher.name, "phone": teacher.phone},
+    }
+
+
+@router.post("/data/demo/reset")
+def reset_app_data(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Drop all tables and recreate an empty schema."""
+    _require_teacher(user)
+    try:
+        _wipe_db(db.get_bind())
+        db.rollback()
+        db.expire_all()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"重置失败: {exc}") from exc
+    return {"ok": True}
 
 
 @router.post("/data/import/roster")

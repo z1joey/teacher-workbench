@@ -75,24 +75,32 @@ def clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
 
-def seed(db: Session) -> None:
-    # staff accounts — same phones/passwords as ever, so existing logins keep
-    # working (students get no phone and a throwaway password hash)
-    admin = Person(name="开发者", phone="13800000000", email="admin@school.dev",
-                   password_hash=hash_password("admin123"),
-                   payload=validate_person_payload("admin", {}))
-    chen = Person(name="陈老师", phone="13800000001", email="chen@school.edu",
-                  password_hash=hash_password("123456"),
-                  payload=validate_person_payload("teacher", {"semesters": DEFAULT_SEMESTERS}))
-    # single-teacher product: 陈老师 is THE teacher (the signed-in 班主任);
-    # no second teacher account exists
-    db.add_all([admin, chen])
-    db.flush()
+def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = True) -> Person:
+    """Load demo school data.
 
+    When `teacher` is supplied (in-app demo load), demo classes and records bind
+    to that account. CLI seed creates the fixed demo teacher/admin accounts.
+    """
+    if teacher is None:
+        if include_admin:
+            admin = Person(name="开发者", phone="13800000000", email="admin@school.dev",
+                           password_hash=hash_password("admin123"),
+                           payload=validate_person_payload("admin", {}))
+            db.add(admin)
+        teacher = Person(name="陈老师", phone="13800000001", email="chen@school.edu",
+                         password_hash=hash_password("123456"),
+                         payload=validate_person_payload("teacher", {"semesters": DEFAULT_SEMESTERS}))
+        db.add(teacher)
+        db.flush()
+    else:
+        payload = dict(teacher.payload or {})
+        if not payload.get("semesters"):
+            payload["semesters"] = DEFAULT_SEMESTERS
+            teacher.payload = validate_person_payload("teacher", payload)
     c71 = Class(name="七年级1班", grade_level=7,
-                academic_year=ACADEMIC_YEAR, homeroom_person_id=chen.id)
+                academic_year=ACADEMIC_YEAR, homeroom_person_id=teacher.id)
     c72 = Class(name="七年级2班", grade_level=7,
-                academic_year=ACADEMIC_YEAR, homeroom_person_id=chen.id)
+                academic_year=ACADEMIC_YEAR, homeroom_person_id=teacher.id)
     db.add_all([c71, c72])
     db.flush()
 
@@ -176,7 +184,7 @@ def seed(db: Session) -> None:
             start_time=dt(exam_date, EXAM_HOUR),
             payload={"full_scores": dict(SUBJECT_FULL_SCORES),
                      "subject_colors": dict(SUBJECT_COLORS)},
-            attendee_ids=[chen.id, *[s.id for s in students]],
+            attendee_ids=[teacher.id, *[s.id for s in students]],
         )
     db.flush()
 
@@ -311,16 +319,18 @@ def seed(db: Session) -> None:
         create_event(db, event_type="home_visited", title="家访", start_time=when,
                      payload={"summary": summary, "follow_up": follow_up,
                               "guardian": guardians[0][0].name if guardians else None},
-                     attendee_ids=[student.id, chen.id])
+                     attendee_ids=[student.id, teacher.id])
 
     create_event(db, event_type="note_added", title="随笔",
                  start_time=datetime(2026, 4, 20, 15, 0),
                  payload={"notes": "对多步骤分数应用题掌握不牢，建议用画图法辅助理解。"},
-                 attendee_ids=[lin.id, chen.id])
+                 attendee_ids=[lin.id, teacher.id])
     create_event(db, event_type="note_added", title="随笔",
                  start_time=datetime(2026, 3, 22, 15, 0),
                  payload={"notes": "家庭约定后，出勤情况明显改善。"},
-                 attendee_ids=[hao.id, chen.id])
+                 attendee_ids=[hao.id, teacher.id])
+
+    return teacher
 
 
 def run() -> None:
