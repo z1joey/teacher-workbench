@@ -89,7 +89,6 @@
   --topbar-h: 56px;
   --sidebar-w: 236px;
   --sidebar-rail: 68px;
-  --tabbar-h: 58px;
   --content-max: 1240px;
 
   --ring: 0 0 0 3px rgba(47, 91, 68, 0.18);
@@ -589,16 +588,16 @@ code {
 }
 @media (max-width: 860px) {
   .content {
-    padding: var(--sp-4) var(--sp-4) calc(var(--tabbar-h) + var(--sp-8));
+    padding: var(--sp-4);
   }
 }
 @media (max-width: 560px) {
   .content {
-    padding: var(--sp-3) var(--sp-3) calc(var(--tabbar-h) + var(--sp-8));
+    padding: var(--sp-3);
   }
 }
 
-/* --- 移动端：抽屉遮罩 / 底部标签栏 --- */
+/* --- 移动端：抽屉遮罩 --- */
 .scrim {
   position: fixed;
   inset: 0;
@@ -606,44 +605,6 @@ code {
   border: 0;
   z-index: 55;
   animation: fade-in 0.15s ease;
-}
-
-.tabbar {
-  display: none;
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 50;
-  height: var(--tabbar-h);
-  padding-bottom: env(safe-area-inset-bottom);
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(8px);
-  border-top: 1px solid var(--line);
-}
-.tabbar__inner {
-  display: flex;
-  align-items: stretch;
-  height: var(--tabbar-h);
-}
-.tabbar__item {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-  padding: 0;
-}
-.tabbar__item.is-active {
-  color: var(--primary);
-  font-weight: 600;
 }
 
 /* ==========================================================================
@@ -1581,7 +1542,7 @@ a.chip:hover {
 }
 @media (max-width: 860px) {
   .toast-stack {
-    bottom: calc(var(--tabbar-h) + var(--sp-3));
+    bottom: var(--sp-3);
   }
 }
 .toast {
@@ -2594,9 +2555,6 @@ a.chip:hover {
   }
   .topbar__search {
     display: none;
-  }
-  .tabbar {
-    display: block;
   }
   .topbar__title {
     font-size: var(--fs-base);

@@ -1,7 +1,7 @@
 <script setup>
 // 应用外壳：
 //   侧栏导航（识别优于回忆）+ 顶栏面包屑（随时知道自己在哪）
-//   + 移动端抽屉与底部标签栏 + 全局搜索 / 命令面板 / 帮助 / 提示条
+//   + 移动端抽屉 + 全局搜索 / 命令面板 / 帮助 / 提示条
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import Icon from "./components/Icon.vue"
@@ -13,7 +13,7 @@ import CommandPalette from "./components/CommandPalette.vue"
 import api, { getToken, setToken } from "./api"
 import { clearMe, loadMe, me } from "./auth"
 import { clearSearch } from "./search"
-import { ADMIN_NAV, TABBAR_KEYS, TEACHER_NAV, isNavActive } from "./nav"
+import { ADMIN_NAV, TEACHER_NAV, isNavActive } from "./nav"
 import { t } from "./strings"
 import { pageTitle, setPageTitle } from "./title"
 import { ask, closeConfirm, confirmDialog } from "./confirm"
@@ -31,8 +31,6 @@ const loggingOut = ref(false)
 const isLogin = computed(() => route.path === "/login")
 const isAdmin = computed(() => me.value?.role === "admin")
 const navItems = computed(() => (isAdmin.value ? ADMIN_NAV : TEACHER_NAV))
-const tabItems = computed(() => TEACHER_NAV.filter((n) => TABBAR_KEYS.includes(n.key)))
-
 // 面包屑：父级 + 当前页（详情页会把真实名字写进 pageTitle）
 const crumbs = computed(() => {
   const meta = route.meta || {}
@@ -272,22 +270,6 @@ watch(paletteOpen, (v) => {
         <router-view />
       </main>
     </div>
-
-    <!-- 移动端底部标签栏 -->
-    <nav v-if="!isAdmin" class="tabbar" aria-label="快捷导航">
-      <div class="tabbar__inner">
-        <router-link
-          v-for="item in tabItems"
-          :key="item.key"
-          :to="item.to"
-          class="tabbar__item"
-          :class="{ 'is-active': isNavActive(item, route.path) }"
-        >
-          <Icon :name="item.icon" :size="20" />
-          <span>{{ item.label }}</span>
-        </router-link>
-      </div>
-    </nav>
   </div>
 
   <!-- 全局浮层 -->
