@@ -8,6 +8,8 @@ role-specific attributes stay here.
 import re
 from typing import Literal
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..gender import GENDER_CODES, parse_gender
@@ -39,6 +41,7 @@ class TeacherPayload(_Strict):
     role: str = "teacher"
     is_active: bool = True
     auto_tags: bool = True
+    name_display: Literal["full", "teacher"] = "full"
 
 
 class AdminPayload(_Strict):

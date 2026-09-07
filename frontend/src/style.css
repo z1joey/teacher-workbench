@@ -940,6 +940,40 @@ code {
   color: var(--muted);
   cursor: not-allowed;
 }
+.password-input {
+  position: relative;
+  width: 100%;
+}
+.password-input__field {
+  padding-right: 38px;
+}
+.password-input__field.input--sm {
+  padding-right: 34px;
+}
+.password-input__toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.password-input__toggle:hover {
+  color: var(--ink);
+  background: var(--surface-sunken);
+}
+.password-input__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
 .input--sm {
   height: 28px;
   padding: 0 var(--sp-2);
@@ -966,6 +1000,25 @@ code {
   min-width: 0;
 }
 .check input {
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.choice-list {
+  display: grid;
+  gap: 8px;
+}
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.choice input {
   width: 16px;
   height: 16px;
   margin: 3px 0 0;

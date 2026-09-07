@@ -34,7 +34,7 @@ def test_register_login_me_logout_flow(make_client, db):
 
     me = client.get("/api/auth/me", headers=headers)
     assert me.status_code == 200, me.text
-    assert set(me.json()) == {"id", "name", "phone", "email", "role"}
+    assert set(me.json()) == {"id", "name", "phone", "email", "role", "display_name"}
     assert me.json()["id"] == body["user"]["id"]
     assert me.json()["name"] == "李老师"
     assert me.json()["role"] == "teacher"
@@ -101,7 +101,7 @@ def test_login_me_logout_flow(make_client, db):
 
     me = client.get("/api/auth/me", headers=headers)
     assert me.status_code == 200, me.text
-    assert set(me.json()) == {"id", "name", "phone", "email", "role"}
+    assert set(me.json()) == {"id", "name", "phone", "email", "role", "display_name"}
     assert me.json()["id"] == body["user"]["id"]
     assert me.json()["role"] == "teacher"
 
@@ -137,15 +137,33 @@ def test_profile_patch_get_round_trips_name(make_client, db):
 
     r = client.patch("/api/profile", json={"name": "陈老师"}, headers=headers)
     assert r.status_code == 200, r.text
-    assert set(r.json()) == {"id", "name", "phone", "email", "role", "settings"}
-    assert r.json()["settings"] == {"auto_tags": True}
+    assert set(r.json()) == {"id", "name", "phone", "email", "role", "settings", "display_name"}
+    assert r.json()["settings"] == {"auto_tags": True, "name_display": "full"}
     assert r.json()["name"] == "陈老师"
 
     r = client.get("/api/profile", headers=headers)
     assert r.status_code == 200, r.text
     assert set(r.json()) == {"user", "classes", "stats", "settings"}
-    assert r.json()["settings"] == {"auto_tags": True}
+    assert r.json()["settings"] == {"auto_tags": True, "name_display": "full"}
     assert r.json()["user"]["name"] == "陈老师"
+
+
+def test_profile_name_display_setting(make_client, db):
+    client = make_client(profile.router)
+    person = seed_person(db, "13800000022", name="张毅")
+    token = seed_token(db, person, "g" * 64)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = client.patch(
+        "/api/profile",
+        json={"name": person.name, "name_display": "teacher"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["display_name"] == "张老师"
+    assert r.json()["settings"] == {"auto_tags": True, "name_display": "teacher"}
+    db.refresh(person)
+    assert person.payload["name_display"] == "teacher"
 
 
 def test_profile_auto_tags_setting(make_client, db):
@@ -160,7 +178,7 @@ def test_profile_auto_tags_setting(make_client, db):
         headers=headers,
     )
     assert r.status_code == 200, r.text
-    assert r.json()["settings"] == {"auto_tags": False}
+    assert r.json()["settings"] == {"auto_tags": False, "name_display": "full"}
     db.refresh(person)
     assert person.payload["auto_tags"] is False
 

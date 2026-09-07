@@ -140,11 +140,12 @@ const messages = {
 
   // --- 注册 ---
   "signup.subtitle": "创建教师账号",
-  "signup.email": "邮箱（选填）",
+  "signup.nameRequired": "请填写姓名",
   "signup.password2": "确认密码",
   "signup.passwordMismatch": "两次输入的密码不一致",
   "signup.submit": "注册",
   "signup.submitting": "正在注册…",
+  "signup.success": "注册成功，欢迎加入",
   "signup.hasAccount": "已有账号？",
   "signup.goLogin": "去登录",
 
@@ -272,6 +273,10 @@ const messages = {
   "profile.settings": "偏好设置",
   "profile.autoTags": "家访完成后自动添加「已家访」标签",
   "profile.autoTagsHint": "关闭后，标记家访完成时不会自动给学生打标签",
+  "profile.nameDisplay": "首页称呼",
+  "profile.nameDisplayHint": "控制在首页问候语和侧边栏中如何显示你的名字",
+  "profile.nameDisplayFull": "全名（如「张毅」）",
+  "profile.nameDisplayTeacher": "姓氏 + 老师（如「张老师」）",
   "profile.settingsSaved": "偏好已保存",
 
   // --- 考试 ---

@@ -6,6 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from ..display_name import teacher_display_name
 from ..database import get_db
 from ..deps import bearer_scheme, get_current_person
 from ..models import AuthSession, Person
@@ -35,13 +36,20 @@ def normalize_phone(phone: str) -> str:
 
 def user_out(u: Person) -> dict:
     payload = u.payload or {}
-    return {
+    role = payload.get("role")
+    name = u.name
+    out = {
         "id": str(u.id),
-        "name": u.name,
+        "name": name,
         "phone": u.phone,
         "email": u.email,
-        "role": payload.get("role"),
+        "role": role,
     }
+    if role == "teacher":
+        out["display_name"] = teacher_display_name(name, payload.get("name_display", "full"))
+    else:
+        out["display_name"] = name or ""
+    return out
 
 
 def create_session(db: Session, person_id) -> str:

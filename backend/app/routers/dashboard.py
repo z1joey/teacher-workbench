@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from ..display_name import teacher_display_name
 from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import MANUAL_EVENT_TYPES, RECORD_EVENT_TYPES
@@ -156,8 +157,16 @@ def dashboard(
         .limit(3)
         .all()
     )
+    user_payload = user.payload or {}
     return {
-        "user": {"id": str(user.id), "name": user.name},
+        "user": {
+            "id": str(user.id),
+            "name": user.name,
+            "display_name": teacher_display_name(
+                user.name,
+                user_payload.get("name_display", "full"),
+            ),
+        },
         "counts": counts,
         "upcoming_exams": [
             {

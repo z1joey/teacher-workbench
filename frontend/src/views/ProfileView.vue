@@ -25,7 +25,7 @@ const editForm = ref({ name: "", email: "" })
 const errors = ref({})
 const settingsSaving = ref(false)
 
-async function saveAutoTags() {
+async function saveSettings() {
   if (!profile.value) return
   settingsSaving.value = true
   error.value = ""
@@ -34,8 +34,17 @@ async function saveAutoTags() {
       name: profile.value.user.name,
       email: profile.value.user.email || null,
       auto_tags: profile.value.settings.auto_tags,
+      name_display: profile.value.settings.name_display,
     })
     profile.value.settings = updated.settings
+    profile.value.user = { ...profile.value.user, ...updated }
+    if (me.value) {
+      me.value = {
+        ...me.value,
+        name: updated.name,
+        display_name: updated.display_name,
+      }
+    }
     notify({ tone: "ok", title: t("profile.settingsSaved"), timeout: 2400 })
   } catch (e) {
     error.value = friendlyError(e)
@@ -85,8 +94,14 @@ async function saveProfile() {
       name: editForm.value.name.trim(),
       email: editForm.value.email.trim() || null,
     })
-    profile.value.user = updated
-    if (me.value) me.value = { ...me.value, ...updated } // keep the sidebar name in sync
+    profile.value.user = { ...profile.value.user, ...updated }
+    if (me.value) {
+      me.value = {
+        ...me.value,
+        name: updated.name,
+        display_name: updated.display_name,
+      }
+    }
     editing.value = false
     notify({ tone: "ok", title: t("profile.saved"), timeout: 2400 })
   } catch (e) {
@@ -191,17 +206,43 @@ const activity = computed(() => {
           <div class="card__head">
             <h2 class="card__title"><Icon name="sliders" :size="16" /> {{ t("profile.settings") }}</h2>
           </div>
-          <div class="card__body">
+          <div class="card__body stack" style="gap: 16px">
+            <div>
+              <p class="field__label" style="margin-bottom: 8px">{{ t("profile.nameDisplay") }}</p>
+              <div class="choice-list">
+                <label class="choice">
+                  <input
+                    v-model="profile.settings.name_display"
+                    type="radio"
+                    value="full"
+                    :disabled="settingsSaving"
+                    @change="saveSettings"
+                  />
+                  <span>{{ t("profile.nameDisplayFull") }}</span>
+                </label>
+                <label class="choice">
+                  <input
+                    v-model="profile.settings.name_display"
+                    type="radio"
+                    value="teacher"
+                    :disabled="settingsSaving"
+                    @change="saveSettings"
+                  />
+                  <span>{{ t("profile.nameDisplayTeacher") }}</span>
+                </label>
+              </div>
+              <p class="field__hint" style="margin-top: 8px">{{ t("profile.nameDisplayHint") }}</p>
+            </div>
             <label class="check">
               <input
                 v-model="profile.settings.auto_tags"
                 type="checkbox"
                 :disabled="settingsSaving"
-                @change="saveAutoTags"
+                @change="saveSettings"
               />
               <span>{{ t("profile.autoTags") }}</span>
             </label>
-            <p class="field__hint" style="margin-top: 8px">{{ t("profile.autoTagsHint") }}</p>
+            <p class="field__hint">{{ t("profile.autoTagsHint") }}</p>
           </div>
         </div>
 

@@ -19,7 +19,7 @@ def test_student_requires_admission_no():
 
 def test_teacher_payload_carries_no_subject():
     out = validate_person_payload("teacher", {})
-    assert out == {"role": "teacher", "is_active": True, "auto_tags": True}
+    assert out == {"role": "teacher", "is_active": True, "auto_tags": True, "name_display": "full"}
 
 
 def test_teacher_payload_strips_legacy_semesters():

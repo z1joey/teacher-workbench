@@ -68,7 +68,7 @@ function fmtDate(ts) {
     @retry="load"
   >
     <PageHeader
-      :title="t('home.greeting', { name: dashboard.user.name })"
+      :title="t('home.greeting', { name: dashboard.user.display_name || dashboard.user.name })"
       :subtitle="t('home.today', { date: today })"
     />
 

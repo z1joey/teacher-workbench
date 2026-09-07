@@ -5,6 +5,7 @@ import { onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import FormField from "../components/FormField.vue"
+import PasswordInput from "../components/PasswordInput.vue"
 import api, { setToken } from "../api"
 import { loadMe } from "../auth"
 import { friendlyError, t } from "../strings"
@@ -13,7 +14,6 @@ const router = useRouter()
 const form = ref({ phone: "", password: "" })
 const error = ref("")
 const busy = ref(false)
-const showPassword = ref(false)
 const setup = ref(null)
 
 onMounted(async () => {
@@ -82,24 +82,11 @@ async function bootstrap() {
           required
           :error="''"
         >
-          <div class="row" style="gap: 8px">
-            <input
-              v-model="form.password"
-              class="input"
-              :type="showPassword ? 'text' : 'password'"
-              autocomplete="current-password"
-              required
-            />
-            <button
-              type="button"
-              class="btn btn--icon"
-              :aria-label="showPassword ? '隐藏密码' : '显示密码'"
-              :title="showPassword ? '隐藏密码' : '显示密码'"
-              @click="showPassword = !showPassword"
-            >
-              <Icon :name="showPassword ? 'eye-off' : 'eye'" :size="15" />
-            </button>
-          </div>
+          <PasswordInput
+            v-model="form.password"
+            autocomplete="current-password"
+            required
+          />
         </FormField>
 
         <p v-if="error" class="field__error" style="margin-bottom: 12px">
