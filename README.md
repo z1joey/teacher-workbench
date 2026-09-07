@@ -130,6 +130,14 @@ docker compose up -d --build     # 修改代码后重新构建并启动
 
 界面语言为中文，文案集中维护在零依赖词典 `frontend/src/strings.js`。
 
+### 版本号
+
+用户界面显示的版本来自 `frontend/package.json` 的 `version` 字段（当前为测试版 **Beta**）。
+发版时：
+
+1. 修改 `frontend/package.json` 中的 `version`（遵循 [语义化版本](https://semver.org/lang/zh-CN/)）。
+2. 同步更新 `backend/app/version.py` 中的 `APP_VERSION`（供 `/api/health` 与 OpenAPI 文档使用）。
+
 ## API
 
 除 `/api/auth/*` 与 `/api/health` 外，所有接口需 `Authorization: Bearer <token>`。

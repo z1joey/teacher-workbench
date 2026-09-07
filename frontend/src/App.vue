@@ -10,6 +10,7 @@ import AppToasts from "./components/AppToasts.vue"
 import ConfirmHost from "./components/ConfirmHost.vue"
 import HelpDrawer from "./components/HelpDrawer.vue"
 import CommandPalette from "./components/CommandPalette.vue"
+import AppMeta from "./components/AppMeta.vue"
 import api, { getToken, setToken } from "./api"
 import { clearMe, loadMe, me } from "./auth"
 import { clearSearch } from "./search"
@@ -232,6 +233,8 @@ watch(paletteOpen, (v) => {
           <Icon name="logout" :size="18" />
           <span class="nav-item__text">{{ t("auth.logout") }}</span>
         </button>
+
+        <AppMeta layout="sidebar" />
       </div>
     </aside>
 

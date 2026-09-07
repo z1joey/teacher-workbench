@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .bootstrap_db import ensure_schema
 from .deps import get_current_user
 from .routers import admin, auth, classes, dashboard, data, exams, misc, profile, students
+from .version import APP_VERSION, IS_BETA
 
 
 @asynccontextmanager
@@ -14,7 +15,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Teacher Workbench API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="Teacher Workbench API", version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,4 +37,4 @@ app.include_router(admin.router, prefix="/api")
 
 @app.get("/api/health")
 def health():
-    return {"ok": True}
+    return {"ok": True, "version": APP_VERSION, "beta": IS_BETA}
