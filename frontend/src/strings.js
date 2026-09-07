@@ -332,6 +332,7 @@ const messages = {
   "exam.students": "{count} 人",
   "exam.exams": "{count} 次考试",
   "exam.attributionNote": "各班人数按学生考试当日所在班级统计",
+  "exam.perClassEmpty": "还没有成绩录入，录入后这里会按班级显示平均分。",
   "exam.deleteConfirm": "删除后，这次考试的所有科目成绩都会被清掉。",
   "exam.subjectLockNote": "已经有成绩录入时，科目结构不能修改。要改科目请先删除这次考试。",
 
@@ -477,6 +478,12 @@ export function t(key, params) {
 
 export function dateLocale() {
   return "zh-CN"
+}
+
+// 本地时区的今天，YYYY-MM-DD（与 <input type="date"> 的值格式一致，可直接字符串比较）
+export function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
 // 日期区间文案：单日返回完整日期；跨天（多日考试）返回 "6月7日 – 6月9日"

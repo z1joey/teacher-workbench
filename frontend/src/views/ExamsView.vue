@@ -1,11 +1,11 @@
 <script setup>
-// 考试列表：每张卡直接给出科目和满分。
+// 考试列表：每张卡直接给出科目和满分。已结束的考试整卡置灰，但仍可点进详情。
 import { onMounted, ref } from "vue"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
-import { formatDateRange, friendlyError, subject, subjectColor, t } from "../strings"
+import { formatDateRange, friendlyError, subject, subjectColor, t, todayStr } from "../strings"
 
 const exams = ref([])
 const loading = ref(true)
@@ -23,6 +23,11 @@ async function load() {
   }
 }
 onMounted(load)
+
+// 已结束 = 最后一天（无结束日期即考试当天）早于今天；进行中/未来的不算
+function isPast(e) {
+  return (e.end_date || e.exam_date) < todayStr()
+}
 </script>
 
 <template>
@@ -59,6 +64,7 @@ onMounted(load)
         :key="e.id"
         :to="`/exams/${e.id}`"
         class="card card--link"
+        :class="{ 'card--past': isPast(e) }"
       >
         <div class="card__head">
           <div class="grow">

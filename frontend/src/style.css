@@ -2877,6 +2877,14 @@ a.chip:hover {
   color: var(--primary);
 }
 
+/* 已结束的考试（考试列表）：整卡置灰提示"已成过往"，仍可点击进详情 */
+.card--past {
+  opacity: 0.55;
+}
+.card--past:hover {
+  opacity: 1;
+}
+
 /* 可勾选的筹码（新建考试的科目选择）；选中色也可由内联 style 覆盖为科目色 */
 .chip--selected {
   border-color: var(--primary);

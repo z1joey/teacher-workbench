@@ -6,11 +6,12 @@ import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import FormField from "../components/FormField.vue"
 import api from "../api"
-import { COMMON_SUBJECTS, friendlyError, subject, t } from "../strings"
+import { COMMON_SUBJECTS, friendlyError, subject, t, todayStr } from "../strings"
 
 const router = useRouter()
 
 let nextRowId = 1
+
 function presetRow(p) {
   return {
     id: nextRowId++,
@@ -24,7 +25,8 @@ function presetRow(p) {
 
 const form = ref({
   name: "",
-  exam_date: "",
+  // 默认今天：不选日期直接创建时，考试落在当天（结束日期留空即单日考试）
+  exam_date: todayStr(),
   end_date: "",
   subjects: [
     presetRow(COMMON_SUBJECTS.find((s) => s.key === "math")),
