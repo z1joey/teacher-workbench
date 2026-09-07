@@ -3,6 +3,7 @@ import { getToken } from "./api"
 import { loadMe, me } from "./auth"
 import HomeView from "./views/HomeView.vue"
 import LoginView from "./views/LoginView.vue"
+import SignupView from "./views/SignupView.vue"
 import ProfileView from "./views/ProfileView.vue"
 import EventsView from "./views/EventsView.vue"
 import HomeVisitsView from "./views/HomeVisitsView.vue"
@@ -40,6 +41,7 @@ export const router = createRouter({
   routes: [
     { path: "/", name: "home", component: HomeView, meta: { title: "首页" } },
     { path: "/login", name: "login", component: LoginView, meta: { title: "登录" } },
+    { path: "/signup", name: "signup", component: SignupView, meta: { title: "注册" } },
     { path: "/profile", name: "profile", component: ProfileView, meta: { title: "个人中心" } },
     {
       path: "/events",
@@ -154,12 +156,14 @@ export const router = createRouter({
   ],
 })
 
+const AUTH_PATHS = new Set(["/login", "/signup"])
+
 router.beforeEach(async (to) => {
   const loggedIn = !!getToken()
   if (!loggedIn) {
-    return to.path === "/login" ? true : "/login"
+    return AUTH_PATHS.has(to.path) ? true : "/login"
   }
-  if (to.path === "/login") {
+  if (AUTH_PATHS.has(to.path)) {
     if (!me.value) await loadMe()
     return me.value?.role === "admin" ? "/admin" : "/"
   }

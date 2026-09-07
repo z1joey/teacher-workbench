@@ -131,12 +131,22 @@ const messages = {
   "login.password": "密码",
   "login.submit": "登录",
   "login.submitting": "正在登录…",
-  "login.demoHint": "演示账号",
   "login.subtitle": "学校教学管理，从这里开始",
   "login.needHelp": "忘记密码请联系管理员重置。",
-  "login.noSignup": "本应用不支持自助注册，账号由管理员分配或在「数据」页加载演示数据后使用你自己的手机号登录。",
-  "login.emptyDb": "当前还没有任何教师账号。你可以一键初始化演示环境，或使用管理员后台创建账号。",
+  "login.noAccount": "还没有账号？",
+  "login.goSignup": "注册",
+  "login.emptyDb": "当前还没有任何教师账号。你可以注册新账号，或一键初始化演示环境。",
   "login.bootstrap": "初始化演示环境",
+
+  // --- 注册 ---
+  "signup.subtitle": "创建教师账号",
+  "signup.email": "邮箱（选填）",
+  "signup.password2": "确认密码",
+  "signup.passwordMismatch": "两次输入的密码不一致",
+  "signup.submit": "注册",
+  "signup.submitting": "正在注册…",
+  "signup.hasAccount": "已有账号？",
+  "signup.goLogin": "去登录",
 
   // --- 首页 ---
   "home.greeting": "你好，{name}",
