@@ -10,6 +10,7 @@ from ..deps import get_current_person
 from ..eventing import MANUAL_EVENT_TYPES
 from ..models import Class, Enrollment, Event, Person
 from ..payloads import validate_person_payload
+from ..unassigned import is_unassigned_class
 from ..workspace import classes_query
 
 router = APIRouter(tags=["profile"])
@@ -56,7 +57,7 @@ def get_profile(
 ):
     payload = dict(person.payload or {})
     classes = []
-    for c in db.query(Class).order_by(Class.name).all():
+    for c in classes_query(db, person).order_by(Class.name).all():
         if is_unassigned_class(c):
             continue
         students = (
