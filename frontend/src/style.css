@@ -1459,6 +1459,37 @@ button.pill {
 button.pill.pill--outline:hover {
   background: var(--surface-sunken);
 }
+
+.pill--beta {
+  background: rgba(180, 83, 9, 0.14);
+  color: #b45309;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.app-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.app-meta__version {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--chalk-ink-dim);
+  white-space: nowrap;
+}
+.app-meta--sidebar {
+  padding: var(--sp-2) var(--sp-3) var(--sp-1);
+}
+.app-meta--login {
+  justify-content: center;
+  margin: -4px 0 var(--sp-2);
+}
+.app-meta--login .app-meta__version {
+  color: var(--muted);
+}
 .pill--count {
   min-width: 20px;
   justify-content: center;
@@ -2715,8 +2746,13 @@ a.chip:hover {
   .nav-item__text,
   .nav-item__count,
   .nav-label,
-  .sidebar-user__meta {
+  .sidebar-user__meta,
+  .app-meta__version {
     display: none;
+  }
+  .app-meta--sidebar {
+    justify-content: center;
+    padding: var(--sp-1) 0 0;
   }
   .brand {
     justify-content: center;

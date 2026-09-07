@@ -3,6 +3,7 @@
 // 空库时可一键初始化演示环境；新用户请前往注册页。
 import { onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
+import AppMeta from "../components/AppMeta.vue"
 import Icon from "../components/Icon.vue"
 import FormField from "../components/FormField.vue"
 import PasswordInput from "../components/PasswordInput.vue"
@@ -63,6 +64,7 @@ async function bootstrap() {
     <div class="card auth-card">
       <div class="auth-mark"><Icon name="board" :size="24" /></div>
       <h1 class="auth-title">{{ t("app.title") }}</h1>
+      <AppMeta layout="login" />
       <p class="auth-sub">{{ t("login.subtitle") }}</p>
 
       <form @submit.prevent="submit" novalidate>
