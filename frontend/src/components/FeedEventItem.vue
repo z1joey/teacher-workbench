@@ -14,17 +14,61 @@ import {
 
 const props = defineProps({
   event: { type: Object, required: true },
-  /** Show student name first (class cards, visits). */
+  /** Show student name first (class cards, visits, calendar). */
   studentFirst: { type: Boolean, default: false },
   /** Show event type label beside the student name. */
   showType: { type: Boolean, default: true },
+  /** full = Sep 24, 2026; compact = 9/24 Mon; none = hide date. */
+  dateFormat: {
+    type: String,
+    default: "full",
+    validator: (v) => ["full", "compact", "none"].includes(v),
+  },
 })
 
 const router = useRouter()
-const clickable = computed(() => isEventClickable(props.event))
+
+function normalizeEvent(raw) {
+  if (!raw?.kind) return raw
+  if (raw.kind === "exam") {
+    return {
+      id: raw.id,
+      event_type: "exam",
+      title: raw.name,
+      occurred_at: `${raw.date}T09:00:00`,
+    }
+  }
+  if (raw.kind === "record") {
+    return {
+      id: raw.id,
+      event_type: raw.event_type,
+      student_id: raw.student_id,
+      student_name: raw.student_name,
+      students: raw.student_id
+        ? [{ id: raw.student_id, name: raw.student_name }]
+        : [],
+      payload: raw.payload,
+      occurred_at: `${raw.date}T09:00:00`,
+      actor: raw.actor,
+    }
+  }
+  return raw
+}
+
+const event = computed(() => normalizeEvent(props.event))
+const clickable = computed(() => isEventClickable(event.value))
 
 function fmtDate(ts) {
-  return new Date(ts).toLocaleDateString(dateLocale(), {
+  if (!ts || props.dateFormat === "none") return ""
+  const d = new Date(ts)
+  if (props.dateFormat === "compact") {
+    return d.toLocaleDateString(dateLocale(), {
+      month: "numeric",
+      day: "numeric",
+      weekday: "short",
+    })
+  }
+  return d.toLocaleDateString(dateLocale(), {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -32,7 +76,7 @@ function fmtDate(ts) {
 }
 
 function onClick() {
-  if (clickable.value) openEvent(router, props.event)
+  if (clickable.value) openEvent(router, event.value)
 }
 </script>
 
@@ -59,15 +103,25 @@ function onClick() {
               · {{ eventTypeLabel(event.event_type, event.payload) }}
             </template>
           </template>
+          <template v-else-if="event.event_type === 'exam'">
+            <router-link :to="`/exams/${event.id}`" @click.stop>{{ event.title }}</router-link>
+            <template v-if="showType">
+              · {{ eventTypeLabel(event.event_type, event.payload) }}
+            </template>
+          </template>
           <template v-else-if="event.students?.length === 1">
             <router-link :to="`/students/${event.students[0].id}`" @click.stop>
               {{ event.students[0].name }}
             </router-link>
-            · {{ eventTypeLabel(event.event_type, event.payload) }}
+            <template v-if="showType">
+              · {{ eventTypeLabel(event.event_type, event.payload) }}
+            </template>
           </template>
           <template v-else>
             {{ event.title }}
-            · {{ eventTypeLabel(event.event_type, event.payload) }}
+            <template v-if="showType">
+              · {{ eventTypeLabel(event.event_type, event.payload) }}
+            </template>
             <template v-if="event.actor"> · {{ event.actor }}</template>
           </template>
           <span
@@ -78,7 +132,9 @@ function onClick() {
         </span>
         <span class="row-wrap" style="gap: 8px">
           <slot name="actions" />
-          <time class="timeline__time">{{ fmtDate(event.occurred_at) }}</time>
+          <time v-if="dateFormat !== 'none' && event.occurred_at" class="timeline__time">
+            {{ fmtDate(event.occurred_at) }}
+          </time>
         </span>
       </div>
       <p v-if="describeEvent(event.event_type, event.payload)" class="feed__desc">

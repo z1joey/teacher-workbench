@@ -14,6 +14,7 @@ from ..payloads import validate_person_payload
 from ..security import hash_password, new_token, verify_password
 from ..seed import seed
 from ..unassigned import ensure_unassigned_class
+from ..workspace import ensure_workspace_id
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -90,6 +91,7 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
     )
     db.add(person)
     db.flush()
+    ensure_workspace_id(person)
     token = create_session(db, person.id)
     db.commit()
     return {"token": token, "user": user_out(person)}

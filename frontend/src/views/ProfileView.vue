@@ -207,8 +207,8 @@ const activity = computed(() => {
           <div class="card__head">
             <h2 class="card__title"><Icon name="sliders" :size="16" /> {{ t("profile.settings") }}</h2>
           </div>
-          <div class="card__body stack" style="gap: 16px">
-            <div>
+          <div class="card__body profile-panel">
+            <div class="profile-section">
               <p class="field__label" style="margin-bottom: 8px">{{ t("profile.nameDisplay") }}</p>
               <div class="choice-list">
                 <label class="choice">
@@ -234,26 +234,30 @@ const activity = computed(() => {
               </div>
               <p class="field__hint" style="margin-top: 8px">{{ t("profile.nameDisplayHint") }}</p>
             </div>
-            <label class="check">
-              <input
-                v-model="profile.settings.auto_tags"
-                type="checkbox"
-                :disabled="settingsSaving"
-                @change="saveSettings"
-              />
-              <span>{{ t("profile.autoTags") }}</span>
-            </label>
-            <p class="field__hint">{{ t("profile.autoTagsHint") }}</p>
-            <label class="check">
-              <input
-                v-model="profile.settings.calendar_birthdays"
-                type="checkbox"
-                :disabled="settingsSaving"
-                @change="saveSettings"
-              />
-              <span>{{ t("profile.calendarBirthdays") }}</span>
-            </label>
-            <p class="field__hint">{{ t("profile.calendarBirthdaysHint") }}</p>
+            <div class="profile-section">
+              <label class="check">
+                <input
+                  v-model="profile.settings.auto_tags"
+                  type="checkbox"
+                  :disabled="settingsSaving"
+                  @change="saveSettings"
+                />
+                <span>{{ t("profile.autoTags") }}</span>
+              </label>
+              <p class="field__hint" style="margin-top: 8px">{{ t("profile.autoTagsHint") }}</p>
+            </div>
+            <div class="profile-section">
+              <label class="check">
+                <input
+                  v-model="profile.settings.calendar_birthdays"
+                  type="checkbox"
+                  :disabled="settingsSaving"
+                  @change="saveSettings"
+                />
+                <span>{{ t("profile.calendarBirthdays") }}</span>
+              </label>
+              <p class="field__hint" style="margin-top: 8px">{{ t("profile.calendarBirthdaysHint") }}</p>
+            </div>
           </div>
         </div>
 

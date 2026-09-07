@@ -24,6 +24,7 @@ from ..deps import get_current_person
 from ..eventing import MANUAL_EVENT_TYPES, birthday_in_month
 from ..models import Class, Event, Person, person_events
 from ..unassigned import is_unassigned_class
+from ..workspace import classes_query, students_query, workspace_id
 
 router = APIRouter(
     tags=["dashboard"],
@@ -55,11 +56,13 @@ def month_calendar(
     items = []
     lo = datetime.combine(first, time.min)
     hi = datetime.combine(last, time.max)
+    wid = workspace_id(user)
     # multi-day sittings appear on every day of their span (中考/高考 style)
     for e in (
         db.query(Event)
         .filter(
             Event.type == "exam",
+            Event.attendees.any(Person.id == user.id),
             Event.start_time <= hi,
             func.coalesce(Event.end_time, Event.start_time) >= lo,
         )
@@ -78,6 +81,7 @@ def month_calendar(
         .filter(
             Event.type.in_(list(MANUAL_EVENT_TYPES)),
             _STUDENT_ATTENDEE,
+            Person.payload["workspace_id"].as_string() == wid,
             Event.start_time >= lo,
             Event.start_time <= hi,
         )
@@ -108,6 +112,7 @@ def month_calendar(
             .filter(
                 Event.type == "birthday",
                 _STUDENT_ATTENDEE,
+                Person.payload["workspace_id"].as_string() == wid,
             )
             .order_by(Event.created_at.asc(), Event.id.asc())
             .all()
@@ -144,24 +149,40 @@ def dashboard(
         Person.payload["is_active"].as_boolean().is_(None),
         Person.payload["is_active"].as_boolean().is_not(False),
     )
+    wid = workspace_id(user)
+    student_q = students_query(db, user).filter(active)
     counts = {
-        "students": (
-            db.query(Person)
-            .filter(Person.payload["role"].as_string() == "student", active)
+        "students": student_q.count(),
+        "classes": classes_query(db, user).count(),
+        "exams": (
+            db.query(Event)
+            .filter(Event.type == "exam", Event.attendees.any(Person.id == user.id))
             .count()
         ),
-        "classes": sum(1 for _ in db.query(Class).all() if not is_unassigned_class(_)),
-        "exams": db.query(Event).filter(Event.type == "exam").count(),
-        # 跟进记录: every teacher-written record Event (visits, talks, notes, …)
         "interactions": (
-            db.query(Event).filter(Event.type.in_(list(MANUAL_EVENT_TYPES))).count()
+            db.query(Event)
+            .filter(
+                Event.type.in_(list(MANUAL_EVENT_TYPES)),
+                Event.attendees.any(
+                    Person.id.in_(
+                        db.query(Person.id).filter(
+                            Person.payload["role"].as_string() == "student",
+                            Person.payload["workspace_id"].as_string() == wid,
+                        )
+                    )
+                ),
+            )
+            .count()
         ),
     }
     recent = (
         db.query(Event)
-        .filter(Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)))
+        .filter(
+            Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)),
+            Event.attendees.any(Person.id == user.id),
+        )
         .order_by(Event.start_time.desc(), Event.created_at.desc())
-        .limit(8)
+        .limit(24)
         .all()
     )
     # one row per Event with its student roster — teacher/guardian attendees
@@ -179,11 +200,26 @@ def dashboard(
             .all()
         ):
             roster_by_event.setdefault(event_id, []).append(person)
+    workspace_student_ids = {
+        row.id for row in students_query(db, user).with_entities(Person.id).all()
+    }
+    digest = []
+    for event in recent:
+        roster = [
+            s for s in roster_by_event.get(event.id, [])
+            if s.id in workspace_student_ids
+        ]
+        if not roster:
+            continue
+        digest.append(event)
+        if len(digest) >= 8:
+            break
     today = date.today()
     upcoming = (
         db.query(Event)
         .filter(
             Event.type == "exam",
+            Event.attendees.any(Person.id == user.id),
             Event.start_time >= datetime.combine(today, time.min),
         )
         .order_by(Event.start_time)
@@ -222,6 +258,6 @@ def dashboard(
                     for s in roster_by_event.get(event.id, [])
                 ],
             }
-            for event in recent
+            for event in digest
         ],
     }

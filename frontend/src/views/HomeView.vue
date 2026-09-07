@@ -2,24 +2,13 @@
 // 首页 = 今天该做什么：日历、最新动态。
 // 加载给骨架屏、失败给重试，不留空白也不甩一句「出错了」。
 import { computed, onMounted, ref } from "vue"
-import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import MonthCalendar from "../components/MonthCalendar.vue"
+import FeedEventItem from "../components/FeedEventItem.vue"
 import api from "../api"
-import {
-  dateLocale,
-  describeEvent,
-  eventTypeColor,
-  eventTypeIcon,
-  eventTypeLabel,
-  friendlyError,
-  t,
-} from "../strings"
-import { isEventClickable, openEvent } from "../eventNav"
-
-const router = useRouter()
+import { dateLocale, friendlyError, t } from "../strings"
 
 const dashboard = ref(null)
 const error = ref("")
@@ -47,14 +36,6 @@ const today = computed(() =>
     day: "numeric",
   })
 )
-
-function fmtDate(ts) {
-  return new Date(ts).toLocaleDateString(dateLocale(), {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  })
-}
 </script>
 
 <template>
@@ -90,38 +71,7 @@ function fmtDate(ts) {
             <p class="state__desc">{{ t("home.noRecentEvents") }}</p>
           </div>
           <div v-else class="feed">
-            <div
-              v-for="e in dashboard.recent_events"
-              :key="e.id"
-              class="feed__item"
-              :class="{ 'feed__item--clickable': isEventClickable(e) }"
-              @click="openEvent(router, e)"
-            >
-              <span class="feed__dot" :style="{ background: eventTypeColor(e.event_type) }">
-                <Icon :name="eventTypeIcon(e.event_type)" :size="13" />
-              </span>
-              <div class="feed__body">
-                <div class="feed__head">
-                  <span>
-                    <router-link
-                      v-if="e.students.length === 1"
-                      :to="`/students/${e.students[0].id}`"
-                    >{{ e.students[0].name }}</router-link>
-                    <template v-else>{{ e.title }}</template>
-                    · {{ eventTypeLabel(e.event_type) }}
-                  </span>
-                  <time class="timeline__time">{{ fmtDate(e.occurred_at) }}</time>
-                </div>
-                <p v-if="describeEvent(e.event_type, e.payload)" class="feed__desc">
-                  {{ describeEvent(e.event_type, e.payload) }}
-                </p>
-                <p v-if="e.students.length > 1" class="feed__desc">
-                  <template v-for="(s, i) in e.students" :key="s.id">
-                    <router-link :to="`/students/${s.id}`" @click.stop>{{ s.name }}</router-link><template v-if="i < e.students.length - 1">、</template>
-                  </template>
-                </p>
-              </div>
-            </div>
+            <FeedEventItem v-for="e in dashboard.recent_events" :key="e.id" :event="e" />
           </div>
         </div>
       </div>

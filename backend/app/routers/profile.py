@@ -10,7 +10,7 @@ from ..deps import get_current_person
 from ..eventing import MANUAL_EVENT_TYPES
 from ..models import Class, Enrollment, Event, Person
 from ..payloads import validate_person_payload
-from ..unassigned import is_unassigned_class
+from ..workspace import classes_query
 
 router = APIRouter(tags=["profile"])
 

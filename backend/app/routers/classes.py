@@ -23,6 +23,7 @@ from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import RECORD_EVENT_TYPES
 from ..unassigned import is_unassigned_class
+from ..workspace import classes_query, require_class_in_workspace
 from ..models import Class, Enrollment, Event, Person, person_events
 from .exams import exam_events, find_exam_event, subject_averages
 
@@ -184,11 +185,12 @@ def _check_duplicate(db: Session, name: str, academic_year: str,
 
 
 @router.get("/classes")
-def list_classes(db: Session = Depends(get_db)):
+def list_classes(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
     out = []
-    for c in db.query(Class).order_by(Class.name).all():
-        if is_unassigned_class(c):
-            continue
+    for c in classes_query(db, user).order_by(Class.name).all():
         students = current_students(db, c.id)
         ids = [s.id for s in students]
         visited = _visited_ids(db, ids)
@@ -209,6 +211,7 @@ def create_class(
     c = Class(
         name=body.name.strip(),
         academic_year=body.academic_year.strip(),
+        teacher_id=current.id,
     )
     db.add(c)
     db.commit()
@@ -216,10 +219,12 @@ def create_class(
 
 
 @router.get("/classes/{class_id}")
-def get_class(class_id: uuid.UUID, db: Session = Depends(get_db)):
-    c = db.get(Class, class_id)
-    if c is None or is_unassigned_class(c):
-        raise HTTPException(status_code=404, detail="class not found")
+def get_class(
+    class_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    c = require_class_in_workspace(db, user, class_id)
 
     # per-sitting, per-subject class averages; roster attribution uses the
     # enrollment valid at each exam date (same rule as the exam averages page)

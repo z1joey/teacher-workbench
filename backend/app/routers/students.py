@@ -46,6 +46,12 @@ from ..models._common import utcnow
 from ..payloads import validate_event_payload, validate_person_payload
 from ..security import hash_password
 from ..unassigned import class_for_api, ensure_unassigned_class, is_unassigned_class
+from ..workspace import (
+    require_class_in_workspace,
+    require_student_in_workspace,
+    students_query,
+    tag_student_workspace,
+)
 
 router = APIRouter(
     tags=["students"],
@@ -502,10 +508,12 @@ def last_exam_summary(db: Session, person_id: uuid.UUID) -> dict | None:
 
 
 @router.get("/students")
-def list_students(db: Session = Depends(get_db)):
+def list_students(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
     students = (
-        db.query(Person)
-        .filter(Person.payload["role"].as_string() == "student")
+        students_query(db, user)
         .order_by(Person.payload["admission_no"].as_string())
         .all()
     )
@@ -608,12 +616,11 @@ class StudentIn(BaseModel):
 def create_student(
     body: StudentIn,
     db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
 ):
     cls = None
     if body.class_id is not None:
-        cls = db.get(Class, body.class_id)
-        if cls is None or is_unassigned_class(cls):
-            raise HTTPException(status_code=400, detail="class not found")
+        cls = require_class_in_workspace(db, user, body.class_id)
     else:
         cls = ensure_unassigned_class(db)
     max_no = 0
@@ -643,6 +650,7 @@ def create_student(
     )
     db.add(person)
     db.flush()
+    tag_student_workspace(person, user)
     _set_primary_guardian(db, person.id, body.guardian_name, body.guardian_phone)
     db.add(Enrollment(person_id=person.id, class_id=cls.id,
                       valid_from=date.today(), reason="admitted"))
@@ -650,17 +658,19 @@ def create_student(
         {} if is_unassigned_class(cls) else {"class_name": cls.name}
     )
     create_event(db, event_type="enrolled", title="入学", start_time=utcnow(),
-                 payload=enrolled_payload, attendee_ids=[person.id])
+                 payload=enrolled_payload, attendee_ids=[person.id, user.id])
     sync_birthday_event(db, person)
     db.commit()
     return {"id": str(person.id), "admission_no": admission_no, "name": person.name}
 
 
 @router.get("/students/{student_id}")
-def get_student(student_id: uuid.UUID, db: Session = Depends(get_db)):
-    s = db.get(Person, student_id)
-    if s is None or s.role != "student":
-        raise HTTPException(status_code=404, detail="student not found")
+def get_student(
+    student_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    s = require_student_in_workspace(db, user, student_id)
     cls = current_class(db, s.id)
     exam_id_cache: dict = {}
     subject_colors_cache: dict[str, dict] = {}

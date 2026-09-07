@@ -25,6 +25,7 @@ class StudentPayload(_Strict):
     gender: Literal["F", "M", "O"] | None = None
     birth_date: str | None = None  # ISO "YYYY-MM-DD"
     address: str | None = None
+    workspace_id: str | None = None
     is_active: bool = True
 
     @field_validator("gender", mode="before")
@@ -39,6 +40,7 @@ class StudentPayload(_Strict):
 
 class TeacherPayload(_Strict):
     role: str = "teacher"
+    workspace_id: str | None = None
     is_active: bool = True
     auto_tags: bool = True
     name_display: Literal["full", "teacher"] = "full"

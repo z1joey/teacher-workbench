@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from .database import Base, SessionLocal, engine
 from .eventing import sync_all_birthday_events
 from .unassigned import ensure_unassigned_class
+from .workspace import ensure_workspace_id, tag_student_workspace
 from .eventing import create_event
 from .models import Class, Enrollment, Event, Person, Tag, student_guardians
 from .payloads import validate_person_payload
@@ -89,8 +90,9 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                          payload=validate_person_payload("teacher", {}))
         db.add(teacher)
         db.flush()
-    c71 = Class(name="七年级1班", academic_year=ACADEMIC_YEAR)
-    c72 = Class(name="七年级2班", academic_year=ACADEMIC_YEAR)
+    ensure_workspace_id(teacher)
+    c71 = Class(name="七年级1班", academic_year=ACADEMIC_YEAR, teacher_id=teacher.id)
+    c72 = Class(name="七年级2班", academic_year=ACADEMIC_YEAR, teacher_id=teacher.id)
     db.add_all([c71, c72])
     db.flush()
 
@@ -121,6 +123,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                        payload=payload)
             db.add(s)
             db.flush()
+            tag_student_workspace(s, teacher)
             # guardian of record: an independent Person linked via student_guardians
             guardian = _find_or_create_guardian(
                 db, f"{name[0]}女士", f"139{random.randint(10_000_000, 99_999_999)}"
