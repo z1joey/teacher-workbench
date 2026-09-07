@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from ..display_name import teacher_display_name
 from ..database import get_db
 from ..deps import get_current_person
-from ..eventing import MANUAL_EVENT_TYPES, RECORD_EVENT_TYPES, birthday_in_month
+from ..eventing import MANUAL_EVENT_TYPES, birthday_in_month
 from ..models import Class, Event, Person, person_events
 from ..unassigned import is_unassigned_class
 
@@ -76,7 +76,7 @@ def month_calendar(
         .join(person_events, person_events.c.event_id == Event.id)
         .join(Person, Person.id == person_events.c.person_id)
         .filter(
-            Event.type.in_(list(RECORD_EVENT_TYPES)),
+            Event.type.in_(list(MANUAL_EVENT_TYPES)),
             _STUDENT_ATTENDEE,
             Event.start_time >= lo,
             Event.start_time <= hi,
@@ -100,16 +100,22 @@ def month_calendar(
         })
     user_payload = user.payload or {}
     if user_payload.get("role") == "teacher" and user_payload.get("calendar_birthdays", True):
-        active = or_(
-            Person.payload["is_active"].as_boolean().is_(None),
-            Person.payload["is_active"].as_boolean().is_not(False),
-        )
-        for student in (
-            db.query(Person)
-            .filter(Person.payload["role"].as_string() == "student", active)
+        seen_birthday_students: set = set()
+        for ev, student in (
+            db.query(Event, Person)
+            .join(person_events, person_events.c.event_id == Event.id)
+            .join(Person, Person.id == person_events.c.person_id)
+            .filter(
+                Event.type == "birthday",
+                _STUDENT_ATTENDEE,
+            )
+            .order_by(Event.created_at.asc(), Event.id.asc())
             .all()
         ):
-            birth_raw = (student.payload or {}).get("birth_date")
+            if student.id in seen_birthday_students:
+                continue
+            seen_birthday_students.add(student.id)
+            birth_raw = (ev.payload or {}).get("birth_date")
             if not birth_raw:
                 continue
             bday = birthday_in_month(date.fromisoformat(birth_raw), year, month)
@@ -118,13 +124,12 @@ def month_calendar(
             items.append({
                 "date": bday.isoformat(),
                 "kind": "record",
-                "id": f"birthday-{student.id}",
+                "id": str(ev.id),
                 "event_type": "birthday",
                 "student_id": str(student.id),
                 "student_name": student.name,
                 "actor": None,
-                "payload": {"birth_date": birth_raw},
-                "recurrence": "yearly",
+                "payload": ev.payload or {},
             })
     items.sort(key=lambda i: i["date"])
     return {"year": year, "month": month, "items": items}

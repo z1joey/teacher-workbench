@@ -23,6 +23,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .database import Base, SessionLocal, engine
+from .eventing import sync_all_birthday_events
 from .unassigned import ensure_unassigned_class
 from .eventing import create_event
 from .models import Class, Enrollment, Event, Person, Tag, student_guardians
@@ -315,6 +316,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                  payload={"notes": "家庭约定后，出勤情况明显改善。"},
                  attendee_ids=[hao.id, teacher.id])
 
+    sync_all_birthday_events(db)
     return teacher
 
 

@@ -5,9 +5,9 @@ column and the per-student attributes (admission_no, gender, birth_date,
 address) live in the JSONB payload — see app.models.payloads. A student's
 guardians are Person rows of role "guardian" linked through student_guardians
 (no flattened guardian_name/phone on the student anymore). Every
-history/timeline item is an Event row linked through person_events; birthdays
-are NOT persisted anymore — the timeline projects the next occurrence from
-payload["birth_date"] (see student_timeline).
+history/timeline item is an Event row linked through person_events. Each active
+student with a birth_date gets one system-managed birthday Event (yearly, removed
+when the student becomes inactive).
 
 Score "results" are per-student per-subject Events of type "score" whose title
 is "<exam name>·<subject>" (the prefix groups a sitting; subject/score/
@@ -27,10 +27,10 @@ from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import (
     MANUAL_EVENT_TYPES,
-    RECORD_EVENT_TYPES,
     SYSTEM_EVENT_TYPES,
     create_event,
     next_birthday_date,
+    sync_birthday_event,
 )
 from ..models import (
     Class,
@@ -72,9 +72,7 @@ _RECORD_TITLES = {
 }
 
 # event types a teacher may create/edit through the generic record endpoints
-# (the old "custom event type" feature is gone: event.type has a CHECK
-# constraint over the fixed vocabulary, so only the manual set + birthday pass)
-_RECORDABLE_TYPES = MANUAL_EVENT_TYPES | {"birthday"}
+_RECORDABLE_TYPES = MANUAL_EVENT_TYPES
 
 
 def _record_title(event_type: str) -> str:
@@ -653,7 +651,7 @@ def create_student(
     )
     create_event(db, event_type="enrolled", title="入学", start_time=utcnow(),
                  payload=enrolled_payload, attendee_ids=[person.id])
-    # no persisted birthday event: the timeline projects it from birth_date
+    sync_birthday_event(db, person)
     db.commit()
     return {"id": str(person.id), "admission_no": admission_no, "name": person.name}
 
@@ -729,23 +727,6 @@ def student_timeline(student_id: uuid.UUID, db: Session = Depends(get_db)):
         .all()
     )
     out = [_event_to_dict(e) for e in rows]
-    # projected birthday: identical shape to a serialized birthday event,
-    # dated the next occurrence, never persisted (old rows were recurring
-    # StudentEvents; the payload's birth_date is the single source now)
-    birth_date = (person.payload or {}).get("birth_date")
-    if birth_date:
-        bday = next_birthday_date(date.fromisoformat(birth_date))
-        out.append(
-            {
-                "id": f"birthday-{person.id}",
-                "event_type": "birthday",
-                "occurred_at": datetime.combine(bday, time(9, 0)).isoformat(),
-                "actor": None,
-                "payload": {"birth_date": birth_date},
-                "actor_teacher_id": None,
-                "is_system": False,
-            }
-        )
     return out
 
 
@@ -1193,12 +1174,21 @@ def my_event_types(db: Session = Depends(get_db)):
 def _event_to_dict(e: Event) -> dict:
     # Event has no actor column in the new schema, so actor/actor_teacher_id
     # are always None (keys kept for API-shape stability)
+    payload = e.payload or {}
+    occurred_at = e.start_time
+    if e.type == "birthday":
+        birth_raw = payload.get("birth_date")
+        if birth_raw:
+            occurred_at = datetime.combine(
+                next_birthday_date(date.fromisoformat(birth_raw)),
+                time(9, 0),
+            )
     return {
         "id": str(e.id),
         "event_type": e.type,
-        "occurred_at": e.start_time.isoformat(),
+        "occurred_at": occurred_at.isoformat(),
         "actor": None,
-        "payload": e.payload or {},
+        "payload": payload,
         "actor_teacher_id": None,
         "is_system": e.type in SYSTEM_EVENT_TYPES,
     }
@@ -1256,6 +1246,8 @@ def update_event(
         is None
     ):
         raise HTTPException(status_code=404, detail="event not found")
+    if ev.type == "birthday":
+        raise HTTPException(status_code=400, detail="生日由系统自动管理")
     if ev.type in SYSTEM_EVENT_TYPES:
         _update_system_event_meta(ev, body)
         db.commit()
@@ -1453,6 +1445,7 @@ def update_student(
                     attendee_ids=[s.id],
                 )
 
+    sync_birthday_event(db, s)
     db.commit()
     cls = current_class(db, s.id)
     return {
@@ -1503,6 +1496,7 @@ def delete_student(
             e.valid_to = date.today()
         create_event(db, event_type="note_added", title="随笔", start_time=utcnow(),
                      payload={"notes": "账号停用"}, attendee_ids=[s.id])
+        sync_birthday_event(db, s)
         db.commit()
         return {"ok": True, "action": "deactivated"}
 

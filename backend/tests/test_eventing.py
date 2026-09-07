@@ -55,3 +55,62 @@ def test_birthday_in_month():
     assert eventing.birthday_in_month(date(2012, 5, 14), 2026, 5) == date(2026, 5, 14)
     assert eventing.birthday_in_month(date(2012, 5, 14), 2026, 6) is None
     assert eventing.birthday_in_month(date(2012, 2, 29), 2026, 2) == date(2026, 2, 28)
+
+
+def test_sync_birthday_event_creates_and_removes(db, person):
+    from app.models import Event
+
+    eventing.sync_birthday_event(db, person)
+    db.commit()
+    assert db.query(Event).filter(Event.type == "birthday").count() == 1
+
+    payload = dict(person.payload or {})
+    payload["is_active"] = False
+    person.payload = payload
+    eventing.sync_birthday_event(db, person)
+    db.commit()
+    assert db.query(Event).filter(Event.type == "birthday").count() == 0
+
+
+def test_sync_birthday_event_updates_instead_of_duplicating(db, person):
+    from app.models import Event
+
+    eventing.sync_birthday_event(db, person)
+    eventing.sync_birthday_event(db, person)
+    db.commit()
+    assert db.query(Event).filter(Event.type == "birthday").count() == 1
+
+    person.payload = {**(person.payload or {}), "birth_date": "2013-06-01"}
+    eventing.sync_birthday_event(db, person)
+    db.commit()
+    rows = db.query(Event).filter(Event.type == "birthday").all()
+    assert len(rows) == 1
+    assert rows[0].payload == {"birth_date": "2013-06-01"}
+
+
+def test_dedupe_birthday_events_removes_extras(db, person):
+    from app.models import Event
+
+    eventing.create_event(
+        db,
+        event_type="birthday",
+        title="生日",
+        start_time=datetime(2026, 5, 14, 9, 0),
+        payload={"birth_date": "2012-05-14"},
+        attendee_ids=[person.id],
+    )
+    eventing.create_event(
+        db,
+        event_type="birthday",
+        title="生日",
+        start_time=datetime(2026, 5, 14, 9, 0),
+        payload={"birth_date": "2012-05-14"},
+        attendee_ids=[person.id],
+    )
+    db.commit()
+    assert db.query(Event).filter(Event.type == "birthday").count() == 2
+
+    eventing.dedupe_birthday_events(db)
+    eventing.sync_birthday_event(db, person)
+    db.commit()
+    assert db.query(Event).filter(Event.type == "birthday").count() == 1

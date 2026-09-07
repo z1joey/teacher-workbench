@@ -57,8 +57,7 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
 
         # events by type: 6 graded sittings + 1 upcoming exam, every
         # student-subject of the graded sittings scored, the correction
-        # story, 王浩's class move, 3 visits, 2 notes. No birthday rows —
-        # birthdays project from the payload, they are never persisted.
+        # story, 王浩's class move, 3 visits, 2 notes, plus yearly birthdays.
         types = dict(db.query(Event.type, func.count(Event.id)).group_by(Event.type).all())
         assert types == {
             "exam": 7,
@@ -68,8 +67,8 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
             "home_visited": 3,
             "note_added": 2,
             "result_changed": 1,
+            "birthday": 24,
         }
-        assert "birthday" not in types
 
         # absent convention: absent=true with no score key
         payloads = [p for (p,) in db.query(Event.payload).filter(Event.type == "score").all()]
@@ -116,8 +115,7 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         assert verify_password("123456", chen.password_hash)
         assert not verify_password("admin123", chen.password_hash)
 
-        # projected-birthday precondition: every student payload carries an
-        # ISO birth_date (the timeline projects occurrences from it)
+        # every active student with birth_date gets one system birthday Event
         birth_dates = (
             db.query(Person.payload["birth_date"].as_string())
             .filter(role_of == "student")

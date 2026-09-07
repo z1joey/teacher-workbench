@@ -590,8 +590,8 @@ def test_calendar_range_and_kinds(graded, db):
     assert visit["student_id"] == str(a.id)
     assert visit["student_name"] == "张一"
     assert visit["payload"] == {"summary": "6月家访"}
-    # the old calendar carried no birthdays — none projected here either
-    assert all(i["kind"] != "birthday" for i in items)
+    # graded fixture students have no birth_date, so June calendar has no birthdays
+    assert all(i.get("event_type") != "birthday" for i in items)
 
     bad = ctx["client"].get("/api/calendar", params={"year": 2026, "month": 13},
                             headers=ctx["headers"])

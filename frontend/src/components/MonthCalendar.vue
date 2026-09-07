@@ -42,7 +42,6 @@ function emptyForm() {
   return {
     student_id: "",
     event_type: "home_visited",
-    recurrence: "once",
     summary: "",
     purpose: "",
   }
@@ -250,7 +249,6 @@ async function openEdit(it) {
   form.value = {
     student_id: it.student_id,
     event_type: it.event_type,
-    recurrence: it.recurrence || "once",
     summary: p.summary || "",
     purpose: p.purpose || "",
   }
@@ -309,12 +307,11 @@ async function saveForm() {
 
 // 每年重复的事件（生日）自动生成的记录只读 —— 直接说明原因，而不是静默禁用
 const readOnlyEvent = computed(
-  () =>
-    modal.value?.mode === "edit" &&
-    (modal.value.item.recurrence === "yearly" || modal.value.item.event_type === "birthday")
+  () => modal.value?.mode === "edit" && modal.value.item.event_type === "birthday"
 )
 
 async function deleteRecord(it) {
+  if (it.event_type === "birthday") return
   const ok = await ask({
     title: `删除这条${eventTypeLabel(it.event_type)}记录？`,
     message: `${it.student_name} · ${selectedLabel.value}`,
@@ -413,7 +410,7 @@ async function deleteRecord(it) {
           </span>
         </div>
 
-        <div v-if="nearTermBlocks.length" class="cal-notify">
+        <div v-if="!selectedDate && nearTermBlocks.length" class="cal-notify">
           <section v-for="block in nearTermBlocks" :key="block.key" class="cal-notify__block">
             <header class="cal-notify__head">
               <span class="cal-notify__label">{{ block.label }}</span>
@@ -496,7 +493,7 @@ async function deleteRecord(it) {
               </p>
             </div>
             <button
-              v-if="it.kind === 'record'"
+              v-if="it.kind === 'record' && it.event_type !== 'birthday'"
               class="icon-btn"
               :aria-label="`编辑这条记录`"
               @click="openEdit(it)"
@@ -557,7 +554,7 @@ async function deleteRecord(it) {
             </select>
           </div>
 
-          <div v-if="modal.mode !== 'edit'" class="field">
+          <div v-if="modal.mode !== 'edit' || modal.item.event_type !== 'birthday'" class="field">
             <label class="field__label" for="cal-type">{{ t("home.calType") }}</label>
             <select
               id="cal-type"
@@ -566,19 +563,6 @@ async function deleteRecord(it) {
               :disabled="readOnlyEvent"
             >
               <option v-for="ty in typeOptions" :key="ty.value" :value="ty.value">{{ ty.label }}</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label class="field__label" for="cal-recurrence">{{ t("home.calRecurrence") }}</label>
-            <select
-              id="cal-recurrence"
-              v-model="form.recurrence"
-              class="select"
-              :disabled="readOnlyEvent || modal.mode === 'edit'"
-            >
-              <option value="once">{{ t("home.calOnce") }}</option>
-              <option value="yearly">{{ t("home.calYearly") }}</option>
             </select>
           </div>
 
@@ -608,7 +592,7 @@ async function deleteRecord(it) {
 
           <div class="modal__foot" style="padding: 16px 0 0">
             <button
-              v-if="modal.mode === 'edit'"
+              v-if="modal.mode === 'edit' && modal.item.event_type !== 'birthday'"
               type="button"
               class="btn btn--danger"
               :disabled="formSaving"

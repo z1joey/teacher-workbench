@@ -21,6 +21,7 @@ from . import models  # noqa: F401  (registers the tables on Base.metadata)
 from .database import Base, engine
 from .models import Event
 from .payloads import validate_event_payload
+from .eventing import sync_all_birthday_events
 from .unassigned import ensure_unassigned_class
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -142,6 +143,7 @@ def ensure_schema() -> None:
     _strip_follow_up_from_events()
     with Session(engine, autoflush=False, expire_on_commit=False) as db:
         ensure_unassigned_class(db)
+        sync_all_birthday_events(db)
         db.commit()
     if not inspect(engine).has_table("alembic_version"):
         alembic.command.stamp(_alembic_config(), "head")

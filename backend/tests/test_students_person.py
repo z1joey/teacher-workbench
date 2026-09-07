@@ -16,7 +16,7 @@ from datetime import date, datetime
 import pytest
 
 from app import eventing
-from app.eventing import MANUAL_EVENT_TYPES, next_birthday_date
+from app.eventing import MANUAL_EVENT_TYPES, next_birthday_date, sync_birthday_event
 from app.models import AuthSession, Class, Enrollment, Event, Person, Tag, person_tags, student_guardians
 from app.routers.students import AUTO_HOME_VISIT_TAG_NAME
 from app.payloads import validate_person_payload
@@ -199,10 +199,8 @@ def test_create_student_201_old_keys_seeds_payload_enrollment_enrolled_event(mak
     assert len(enrollments) == 1 and enrollments[0].class_id == cls.id
     assert enrollments[0].valid_to is None
 
-    # enrolled event recorded; birthday is projected from the payload at read
-    # time — no persisted birthday Event row
     events = db.query(Event).filter(Event.attendees.any(Person.id == person.id)).all()
-    assert [e.type for e in events] == ["enrolled"]
+    assert sorted(e.type for e in events) == ["birthday", "enrolled"]
     assert events[0].payload == {"class_name": cls.name}
 
 
@@ -502,8 +500,9 @@ TIMELINE_KEYS = {"id", "event_type", "occurred_at", "actor", "payload",
                  "actor_teacher_id", "is_system"}
 
 
-def test_timeline_lists_manual_events_and_projected_birthday(make_client, db, headers):
+def test_timeline_lists_manual_events_and_birthday_event(make_client, db, headers):
     s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
+    sync_birthday_event(db, s)
     _manual_event(db, s, "home_visited", "开学前家访", datetime(2026, 3, 15, 19, 0))
     _manual_event(db, s, "talk", "聊了作业习惯", datetime(2026, 4, 1, 12, 0))
     _score_event(db, s, "期中考试", "math", score=90.0)  # scores live in the 成绩 card
@@ -513,22 +512,20 @@ def test_timeline_lists_manual_events_and_projected_birthday(make_client, db, he
     r = client.get(f"/api/students/{s.id}/timeline", headers=headers)
     assert r.status_code == 200, r.text
     items = r.json()
-    assert [it["event_type"] for it in items] == ["talk", "home_visited", "birthday"]
+    assert {it["event_type"] for it in items} == {"talk", "home_visited", "birthday"}
     for it in items:
         assert set(it) == TIMELINE_KEYS
 
-    talk = items[0]
+    talk = next(it for it in items if it["event_type"] == "talk")
     assert talk["payload"] == {"notes": "聊了作业习惯"}
     assert talk["is_system"] is False
 
-    # the projected birthday: shaped like a serialized event, next occurrence,
-    # 09:00 like the old persisted row — and NOT backed by an Event row
-    bday = items[-1]
+    bday = next(it for it in items if it["event_type"] == "birthday")
     expected = next_birthday_date(date(2012, 5, 14))
     assert bday["occurred_at"] == datetime.combine(expected, datetime.min.time().replace(hour=9)).isoformat()
     assert bday["payload"] == {"birth_date": "2012-05-14"}
-    assert bday["is_system"] is False
-    assert db.query(Event).filter(Event.type == "birthday").count() == 0
+    assert bday["is_system"] is True
+    assert db.query(Event).filter(Event.type == "birthday").count() == 1
 
     r = client.get(f"/api/students/{uuid.uuid4()}/timeline", headers=headers)
     assert r.status_code == 404
@@ -1058,10 +1055,54 @@ def test_calendar_lists_comment_once_for_mentioned_students(client, db, headers)
     assert comments[0]["student_id"] == str(s1.id)
 
 
-def test_calendar_projects_birthdays_when_enabled(make_client, db, headers):
-    s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
+def test_calendar_birthday_appears_once_per_student(make_client, db, headers):
+    s = _seed_person(db, "王五", "S005", birth_date="2000-12-20")
+    sync_birthday_event(db, s)
+    db.commit()
+    # Simulate a duplicate row from an older bug.
+    birthday = db.query(Event).filter(Event.type == "birthday").one()
+    duplicate = Event(
+        type="birthday",
+        title="生日",
+        start_time=datetime(2026, 12, 20, 9, 0),
+        payload={"birth_date": "2000-12-20"},
+    )
+    duplicate.attendees = [s]
+    db.add(duplicate)
     db.commit()
     client = make_client(dashboard.router)
+
+    r = client.get("/api/calendar?year=2026&month=12", headers=headers)
+    assert r.status_code == 200, r.text
+    birthdays = [i for i in r.json()["items"] if i.get("event_type") == "birthday"]
+    assert len(birthdays) == 1
+    assert birthdays[0]["student_id"] == str(s.id)
+    assert birthdays[0]["id"] == str(birthday.id)
+
+
+def test_update_student_birth_date_keeps_one_birthday_event(make_client, db, headers):
+    s = _seed_person(db, "王五", "S005", birth_date="2000-12-20")
+    sync_birthday_event(db, s)
+    db.commit()
+    client = make_client(students.router)
+
+    r = client.patch(
+        f"/api/students/{s.id}",
+        json={"birth_date": "2001-01-15"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert db.query(Event).filter(Event.type == "birthday").count() == 1
+    row = db.query(Event).filter(Event.type == "birthday").one()
+    assert row.payload == {"birth_date": "2001-01-15"}
+
+
+def test_calendar_projects_birthdays_when_enabled(make_client, db, headers):
+    s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
+    sync_birthday_event(db, s)
+    db.commit()
+    client = make_client(dashboard.router)
+    birthday_event = db.query(Event).filter(Event.type == "birthday").one()
 
     r = client.get("/api/calendar?year=2026&month=5", headers=headers)
     assert r.status_code == 200, r.text
@@ -1069,7 +1110,7 @@ def test_calendar_projects_birthdays_when_enabled(make_client, db, headers):
     assert len(birthdays) == 1
     assert birthdays[0]["student_id"] == str(s.id)
     assert birthdays[0]["date"] == "2026-05-14"
-    assert birthdays[0]["id"] == f"birthday-{s.id}"
+    assert birthdays[0]["id"] == str(birthday_event.id)
 
 
 def test_calendar_hides_birthdays_when_disabled(make_client, db, headers):
@@ -1077,13 +1118,30 @@ def test_calendar_hides_birthdays_when_disabled(make_client, db, headers):
     payload = dict(teacher.payload or {})
     payload["calendar_birthdays"] = False
     teacher.payload = validate_person_payload("teacher", payload)
-    _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
+    s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
+    sync_birthday_event(db, s)
     db.commit()
     client = make_client(dashboard.router)
 
     r = client.get("/api/calendar?year=2026&month=5", headers=headers)
     assert r.status_code == 200, r.text
     assert all(i.get("event_type") != "birthday" for i in r.json()["items"])
+
+
+def test_deactivate_student_removes_birthday_event(make_client, db, headers):
+    s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
+    sync_birthday_event(db, s)
+    db.commit()
+    client = make_client(students.router)
+    assert db.query(Event).filter(Event.type == "birthday").count() == 1
+
+    r = client.patch(
+        f"/api/students/{s.id}",
+        json={"status": "inactive"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert db.query(Event).filter(Event.type == "birthday").count() == 0
 
 
 def test_teachers_me_event_types_returns_manual_list(make_client, db, headers):
