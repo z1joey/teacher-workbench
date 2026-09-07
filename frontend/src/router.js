@@ -156,7 +156,8 @@ export const router = createRouter({
   ],
 })
 
-const AUTH_PATHS = new Set(["/login", "/signup"])
+// 免登录页 —— 路由守卫与 App 外壳（是否渲染导航）共用同一份口径
+export const AUTH_PATHS = new Set(["/login", "/signup"])
 
 router.beforeEach(async (to) => {
   const loggedIn = !!getToken()
