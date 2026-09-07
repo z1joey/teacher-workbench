@@ -53,6 +53,9 @@ router = APIRouter(
 )
 
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+AUTO_HOME_VISIT_TAG_NAME = "已家访"
+AUTO_HOME_VISIT_TAG_COLOR = "#2f7d4f"
+DEFAULT_HOME_VISIT_PURPOSE = "例行家访"
 
 # display titles for the events this router writes (Event.title is NOT NULL;
 # the old StudentEvent rows had no title, so these are new-schema labels)
@@ -65,7 +68,7 @@ _RECORD_TITLES = {
     "comment": "评语",
     "birthday": "生日",
     "enrolled": "入学",
-    "class_moved": "调班",
+    "class_moved": "转班",
 }
 
 # event types a teacher may create/edit through the generic record endpoints
@@ -80,18 +83,35 @@ def _record_title(event_type: str) -> str:
 
 def _record_payload(event_type: str, summary: str, purpose: str | None,
                     follow_up_needed: bool, follow_up_note: str | None,
-                    old_payload: dict | None = None) -> dict:
+                    old_payload: dict | None = None,
+                    *, done: bool | None = None) -> dict:
     """Map the old record body onto the per-type payload schemas.
 
     talk/tutoring/parent_call/note_added carry {"notes"}; home_visited carries
-    {"summary","follow_up"} (follow_up needed+note collapse into follow_up);
+    {"summary","follow_up","done"} (follow_up needed+note collapse into follow_up);
     a patched-to-birthday event keeps its birth_date.
     """
     if event_type == "home_visited":
-        return {
-            "summary": summary,
+        old = old_payload or {}
+        purpose_text = (
+            (purpose or "").strip()
+            or old.get("purpose")
+            or DEFAULT_HOME_VISIT_PURPOSE
+        )
+        out: dict = {
+            "purpose": purpose_text,
+            "summary": summary.strip() or None,
             "follow_up": follow_up_note if follow_up_needed else None,
         }
+        if old.get("guardian"):
+            out["guardian"] = old["guardian"]
+        if done is True:
+            out["done"] = True
+        elif done is False:
+            pass
+        elif old.get("done"):
+            out["done"] = True
+        return out
     if event_type == "birthday":
         return {"birth_date": (old_payload or {}).get("birth_date")}
     if event_type == "comment":
@@ -140,6 +160,29 @@ def _find_or_create_tag(db: Session, name: str, color: str) -> Tag:
     return tag
 
 
+def _teacher_auto_tags_enabled(teacher: Person) -> bool:
+    return (teacher.payload or {}).get("auto_tags", True)
+
+
+def _attach_tag_if_missing(db: Session, student_id: uuid.UUID, name: str, color: str) -> None:
+    tag = _find_or_create_tag(db, name, color)
+    exists = (
+        db.query(person_tags)
+        .filter(person_tags.c.person_id == student_id, person_tags.c.tag_id == tag.id)
+        .first()
+    )
+    if exists is None:
+        db.execute(person_tags.insert().values(person_id=student_id, tag_id=tag.id))
+
+
+def _maybe_apply_home_visit_tag(db: Session, student_id: uuid.UUID, teacher: Person) -> None:
+    if not _teacher_auto_tags_enabled(teacher):
+        return
+    _attach_tag_if_missing(
+        db, student_id, AUTO_HOME_VISIT_TAG_NAME, AUTO_HOME_VISIT_TAG_COLOR
+    )
+
+
 def current_class(db: Session, person_id: uuid.UUID) -> Class | None:
     return (
         db.query(Class)
@@ -154,6 +197,18 @@ def current_class(db: Session, person_id: uuid.UUID) -> Class | None:
 
 def _status_of(person: Person) -> str:
     return "active" if (person.payload or {}).get("is_active", True) else "inactive"
+
+
+def _admission_no_in_use(
+    db: Session, admission_no: str, *, exclude_id: uuid.UUID | None = None,
+) -> bool:
+    q = db.query(Person.id).filter(
+        Person.payload["role"].as_string() == "student",
+        Person.payload["admission_no"].as_string() == admission_no,
+    )
+    if exclude_id is not None:
+        q = q.filter(Person.id != exclude_id)
+    return q.first() is not None
 
 
 def _guardians_of(db: Session, student_id: uuid.UUID):
@@ -395,6 +450,27 @@ def _subject_color_of_exam(
     return color if isinstance(color, str) and color else None
 
 
+def last_event_summary(db: Session, person_id: uuid.UUID) -> dict | None:
+    """Most recent timeline event for list views (scores excluded — same as timeline)."""
+    ev = (
+        db.query(Event)
+        .filter(
+            Event.attendees.any(Person.id == person_id),
+            Event.type != "score",
+        )
+        .order_by(Event.start_time.desc(), Event.created_at.desc())
+        .first()
+    )
+    if ev is None:
+        return None
+    return {
+        "id": str(ev.id),
+        "event_type": ev.type,
+        "occurred_at": ev.start_time.isoformat(),
+        "payload": ev.payload or {},
+    }
+
+
 def last_exam_summary(db: Session, person_id: uuid.UUID) -> dict | None:
     """The student's most recent graded exam: name + per-subject scores.
 
@@ -450,6 +526,7 @@ def list_students(db: Session = Depends(get_db)):
                 "status": _status_of(s),
                 "class": class_for_api(cls),
                 "last_exam": last_exam_summary(db, s.id),
+                "last_event": last_event_summary(db, s.id),
                 "tags": _tags_for_student(db, s.id),
             }
         )
@@ -677,11 +754,12 @@ def student_timeline(student_id: uuid.UUID, db: Session = Depends(get_db)):
 
 class EventRecordIn(BaseModel):
     event_type: str = Field(min_length=1, max_length=40)
-    summary: str = Field(min_length=1, max_length=2000)
+    summary: str = Field(default="", max_length=2000)
     purpose: str | None = None
     follow_up_needed: bool = False
     follow_up_note: str | None = None
     occurred_at: datetime | None = None
+    done: bool | None = None  # home_visited: mark the visit completed
     # home visits: the guardian persons who attended. Absent (old clients)
     # falls back to the student's guardian of record; present-but-empty means
     # no guardian attended.
@@ -700,8 +778,16 @@ def create_event_record(
         raise HTTPException(status_code=404, detail="student not found")
     if body.event_type not in _RECORDABLE_TYPES:
         raise HTTPException(status_code=400, detail="不支持的事件类型")
-    payload = _record_payload(body.event_type, body.summary, body.purpose,
-                              body.follow_up_needed, body.follow_up_note)
+    if body.event_type != "home_visited" and not body.summary.strip():
+        raise HTTPException(status_code=400, detail="请填写说明")
+    done = body.done if body.event_type == "home_visited" else None
+    payload = validate_event_payload(
+        body.event_type,
+        _record_payload(
+            body.event_type, body.summary, body.purpose,
+            body.follow_up_needed, body.follow_up_note, done=done,
+        ),
+    )
     guardian_people: list[Person] = []
     if body.event_type == "home_visited":
         # a visit involves the guardians who were there: selected guardian
@@ -729,6 +815,8 @@ def create_event_record(
         # and the teacher who made it
         attendee_ids=[person.id, *[g.id for g in guardian_people], user.id],
     )
+    if body.event_type == "home_visited" and (payload or {}).get("done"):
+        _maybe_apply_home_visit_tag(db, person.id, user)
     db.commit()
     return {"id": str(event.id), "status": "created"}
 
@@ -1143,12 +1231,28 @@ def get_event(
     return _event_to_dict(e)
 
 
+def _update_system_event_meta(ev: Event, body: EventRecordIn) -> None:
+    """Allow date + free-text notes on auto-generated events; type is fixed."""
+    if body.event_type != ev.type:
+        raise HTTPException(status_code=400, detail="cannot change system event type")
+    payload = dict(ev.payload or {})
+    if body.occurred_at is not None:
+        ev.start_time = body.occurred_at
+    notes = body.summary.strip()
+    if notes:
+        payload["notes"] = notes
+    else:
+        payload.pop("notes", None)
+    ev.payload = validate_event_payload(ev.type, payload)
+
+
 @router.patch("/students/{student_id}/events/{event_id}")
 def update_event(
     student_id: uuid.UUID,
     event_id: uuid.UUID,
     body: EventRecordIn,
     db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
 ):
     ev = db.get(Event, event_id)
     if (
@@ -1161,17 +1265,31 @@ def update_event(
     ):
         raise HTTPException(status_code=404, detail="event not found")
     if ev.type in SYSTEM_EVENT_TYPES:
-        raise HTTPException(status_code=400, detail="system events cannot be modified")
+        _update_system_event_meta(ev, body)
+        db.commit()
+        db.refresh(ev)
+        return {"id": str(ev.id), "status": "updated"}
+    old_payload = dict(ev.payload or {})
     if body.event_type not in _RECORDABLE_TYPES:
         raise HTTPException(status_code=400, detail="不支持的事件类型")
-    old_payload = ev.payload or {}
+    if ev.type != "home_visited" and not body.summary.strip():
+        raise HTTPException(status_code=400, detail="请填写说明")
+    was_done = old_payload.get("done") is True
+    done = body.done if ev.type == "home_visited" and "done" in body.model_fields_set else None
     ev.type = body.event_type
     ev.title = _record_title(body.event_type)
     ev.start_time = body.occurred_at or ev.start_time
     # copy-modify-reassign: JSON columns don't see in-place mutation
-    ev.payload = _record_payload(body.event_type, body.summary, body.purpose,
-                                 body.follow_up_needed, body.follow_up_note,
-                                 old_payload)
+    ev.payload = validate_event_payload(
+        body.event_type,
+        _record_payload(
+            body.event_type, body.summary, body.purpose,
+            body.follow_up_needed, body.follow_up_note,
+            old_payload, done=done,
+        ),
+    )
+    if ev.type == "home_visited" and not was_done and (ev.payload or {}).get("done"):
+        _maybe_apply_home_visit_tag(db, student_id, user)
     db.commit()
     db.refresh(ev)
     return {"id": str(ev.id), "status": "updated"}
@@ -1254,6 +1372,7 @@ def update_result(
 
 class StudentUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
+    admission_no: str | None = Field(default=None, min_length=1, max_length=40)
     gender: str | None = None
     birth_date: date | None = None
     guardian_name: str | None = None
@@ -1277,6 +1396,16 @@ def update_student(
     payload = dict(s.payload or {})
     if body.name is not None:
         s.name = body.name.strip()
+    if body.admission_no is not None:
+        admission_no = body.admission_no.strip()
+        if not admission_no:
+            raise HTTPException(status_code=400, detail="请填写学号")
+        current_no = (payload.get("admission_no") or "").strip()
+        if admission_no != current_no and _admission_no_in_use(
+            db, admission_no, exclude_id=student_id,
+        ):
+            raise HTTPException(status_code=400, detail="学号已被使用")
+        payload["admission_no"] = admission_no
     if body.gender is not None:
         payload["gender"] = body.gender or None
     if body.birth_date is not None:
@@ -1327,7 +1456,7 @@ def update_student(
                 create_event(
                     db,
                     event_type="class_moved",
-                    title="调班",
+                    title="加入班级" if old_name is None else "转班",
                     start_time=utcnow(),
                     payload={"from_class": old_name, "to_class": new_name},
                     attendee_ids=[s.id],

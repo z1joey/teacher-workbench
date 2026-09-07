@@ -19,10 +19,10 @@ def test_student_requires_admission_no():
 
 def test_teacher_payload_carries_no_subject():
     out = validate_person_payload("teacher", {})
-    assert out == {"role": "teacher", "is_active": True, "semesters": []}
+    assert out == {"role": "teacher", "is_active": True, "auto_tags": True}
 
 
-def test_teacher_semesters_roundtrip():
+def test_teacher_payload_strips_legacy_semesters():
     rows = [
         {
             "id": "2025-t1",
@@ -32,19 +32,7 @@ def test_teacher_semesters_roundtrip():
         }
     ]
     out = validate_person_payload("teacher", {"semesters": rows})
-    assert out["semesters"] == rows
-
-
-def test_teacher_semester_end_before_start_rejected():
-    with pytest.raises(ValidationError):
-        validate_person_payload("teacher", {
-            "semesters": [{
-                "id": "bad",
-                "name": "无效学期",
-                "start_date": "2026-03-01",
-                "end_date": "2026-02-01",
-            }]
-        })
+    assert "semesters" not in out
 
 
 def test_guardian_payload_recognized():

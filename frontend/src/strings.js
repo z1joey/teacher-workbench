@@ -118,6 +118,11 @@ const messages = {
   "classdetail.trendSub": "各科平均得分率（%）随考试变化，满分不同也可比较 · 悬停查看原始分 · 点击科目名显示/隐藏",
   "classdetail.averages": "各科平均成绩",
   "classdetail.roster": "学生名单",
+  "classdetail.addStudent": "添加学生",
+  "classdetail.addStudentTitle": "从待分配学生中选择",
+  "classdetail.addStudentHint": "只能添加尚未分班的学生",
+  "classdetail.addStudentEmpty": "没有待分配的学生",
+  "classdetail.studentAdded": "已将 {name} 加入班级",
   "classdetail.noScores": "这个班级还没有成绩数据",
 
   // --- 登录 ---
@@ -222,6 +227,8 @@ const messages = {
   "visits.filterAll": "全部",
   "visits.filterFollowUps": "待跟进",
   "visits.followUp": "需跟进",
+  "visits.done": "已完成",
+  "visits.markDone": "标记完成",
   "visits.record": "记录家访",
 
   // --- 新建学生 ---
@@ -252,7 +259,7 @@ const messages = {
   "profile.loginPhone": "登录手机号",
   "profile.email": "邮箱",
   "profile.myClasses": "我的班级",
-  "profile.noClasses": "你还没有担任班主任",
+  "profile.noClasses": "暂时没有班级",
   "profile.activity": "教学足迹",
   "profile.recordsLogged": "跟进记录",
   "profile.resultsEntered": "录入成绩",
@@ -260,17 +267,10 @@ const messages = {
   "profile.editInfo": "编辑资料",
   "profile.saved": "已保存",
   "profile.studentsCount": "{n} 人",
-  "profile.semesters": "学期设置",
-  "profile.semestersHint": "默认按 9–1 月、2–7 月划分两个学期；可按需要修改名称和日期",
-  "profile.semesterName": "学期名称",
-  "profile.semesterStart": "开始日期",
-  "profile.semesterEnd": "结束日期",
-  "profile.addSemester": "添加学期",
-  "profile.semestersSaved": "学期已保存",
-  "profile.semestersEmpty": "保存后会按 9–1 月、2–7 月自动生成默认学期",
-  "profile.semesterNameRequired": "请填写学期名称",
-  "profile.semesterDatesRequired": "请填写起止日期",
-  "profile.semesterEndInvalid": "结束日期不能早于开始日期",
+  "profile.settings": "偏好设置",
+  "profile.autoTags": "家访完成后自动添加「已家访」标签",
+  "profile.autoTagsHint": "关闭后，标记家访完成时不会自动给学生打标签",
+  "profile.settingsSaved": "偏好已保存",
 
   // --- 考试 ---
   "examnew.title": "新建考试",
@@ -310,9 +310,6 @@ const messages = {
   "exams.create": "新建考试",
   "exams.title": "考试",
   "exams.subtitle": "共 {count} 次考试 · 点开可查看平均分",
-  "exams.unassigned": "未归入学期",
-  "exams.noSemesters": "请先在个人中心设置学期",
-  "exams.setupSemesters": "去设置学期",
   "exams.viewAverages": "查看平均分",
   "exams.fullScore": "满分",
   "exams.emptyTitle": "还没有考试",
@@ -368,6 +365,7 @@ const messages = {
   "th.status": "状态",
   "th.exam": "考试",
   "th.tags": "标签",
+  "th.lastEvent": "最近事件",
   "th.subject": "科目",
   "th.score": "分数",
 
@@ -391,6 +389,7 @@ const messages = {
   "detail.editReason": "工作台内更正",
   "detail.recordEvent": "记录家访",
   "detail.nameRequired": "请填写学生姓名",
+  "detail.admissionNoRequired": "请填写学号",
   "detail.deleteConfirm": "如果他已有成绩或跟进记录，只会停用账号并保留数据；没有记录才会彻底删除。",
   "detail.profileEditTitle": "编辑资料",
   "detail.status": "状态",
@@ -402,12 +401,18 @@ const messages = {
   "event.close": "收起",
   "event.type": "事件类型",
   "event.purpose": "事件目的",
+  "event.homeVisitPurpose": "家访目的",
   "event.purposeHint": "写清楚为什么做这件事，半年后回看才想得起来",
+  "event.purposeRequired": "请填写事件目的",
+  "event.defaultPurpose": "例行家访",
   "event.summary": "事件摘要",
+  "event.description": "说明",
   "event.summaryRequired": "请填写事件摘要",
   "event.followUp": "需要跟进",
   "event.followUpHint": "勾选后会汇总到首页「待跟进」",
   "event.followUpNote": "跟进备注",
+  "event.homeVisitDone": "家访已完成",
+  "event.homeVisitDoneHint": "完成后可自动给学生添加「已家访」标签（可在个人中心关闭）",
   "event.occurredAt": "事件时间",
   "event.occurredAtHint": "留空则记为当前时间",
   "event.save": "保存事件",
@@ -431,6 +436,7 @@ const messages = {
   // --- 时间线事件 ---
   "tl.enrolled": "入学",
   "tl.class_moved": "转班",
+  "tl.class_joined": "加入班级",
   "tl.exam": "考试",
   "tl.score": "成绩",
   "tl.exam_taken": "参加考试",
@@ -483,24 +489,6 @@ export function formatDateRange(d1, d2) {
       : { year: "numeric", month: "short", day: "numeric" }
   )
   return `${fmtFull(d1)} – ${endText}`
-}
-
-/** Group exams (newest first) into profile-defined semesters. */
-export function groupExamsBySemester(exams, semesters) {
-  const sorted = [...(semesters || [])].sort((a, b) => b.start_date.localeCompare(a.start_date))
-  const byId = Object.fromEntries(sorted.map((sem) => [sem.id, { ...sem, exams: [] }]))
-  const other = { id: "_other", name: t("exams.unassigned"), start_date: "", end_date: "", exams: [] }
-
-  for (const exam of exams) {
-    const day = exam.exam_date
-    const match = sorted.find((sem) => day >= sem.start_date && day <= sem.end_date)
-    if (match) byId[match.id].exams.push(exam)
-    else other.exams.push(exam)
-  }
-
-  const groups = sorted.map((sem) => byId[sem.id]).filter((g) => g.exams.length)
-  if (other.exams.length) groups.push(other)
-  return groups
 }
 
 // ------------------------------------------------------------------ 学科
@@ -603,7 +591,12 @@ export function eventTypeColor(type) {
   return (EVENT_TYPES[type] || { color: "#94a3b8" }).color
 }
 
-export function eventTypeLabel(type) {
+export function isClassJoinEvent(type, payload = {}) {
+  return type === "class_moved" && !payload?.from_class && !payload?.from
+}
+
+export function eventTypeLabel(type, payload = null) {
+  if (isClassJoinEvent(type, payload || {})) return t("tl.class_joined")
   const key = `tl.${type}`
   return messages[key] ?? type
 }
@@ -611,16 +604,24 @@ export function eventTypeLabel(type) {
 export function describeEvent(type, p = {}) {
   switch (type) {
     case "enrolled":
+      if (p.notes) return p.notes
       return t("tl.joined", { class: p.class_name ?? p.class ?? "" })
     case "class_moved":
+      if (p.notes) return p.notes
+      if (!p.from_class && !p.from) {
+        const to = p.to_class ?? p.to ?? ""
+        return to ? t("tl.joined", { class: to }) : ""
+      }
       return `${p.from_class ?? p.from ?? ""} → ${p.to_class ?? p.to ?? ""}${p.reason ? " · " + p.reason : ""}`
     case "exam_taken": {
+      if (p.notes) return p.notes
       const scores = p.scores
         ? Object.entries(p.scores).map(([s, v]) => `${subject(s)} ${v}`).join(", ")
         : ""
       return `${p.exam ?? ""}${scores ? " — " + scores : ""}`
     }
     case "result_changed":
+      if (p.notes) return p.notes
       return `${p.exam ?? ""} · ${subject(p.subject)}: ${p.old} → ${p.new}${p.reason ? " · " + p.reason : ""}`
     case "birthday": {
       const [y, m, d] = (p.birth_date ?? "").split("-")

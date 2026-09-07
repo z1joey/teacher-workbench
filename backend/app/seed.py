@@ -29,7 +29,6 @@ from .models import Class, Enrollment, Event, Person, Tag, student_guardians
 from .payloads import validate_person_payload
 from .routers.students import _guardians_of, _find_or_create_guardian
 from .security import hash_password
-from .semesters import default_semesters
 
 random.seed(2026)
 
@@ -63,9 +62,6 @@ NAMES_7_2 = [
 
 EXAM_HOUR = time(9, 0)  # sittings and their score rows are dated the exam day 09:00
 
-# Demo "today" is Sep 2026 — three academic years of 9–1 / 2–7 semesters.
-DEFAULT_SEMESTERS = default_semesters(date(2026, 9, 7))
-
 
 def dt(d: date, t: time) -> datetime:
     return datetime.combine(d, t)
@@ -89,14 +85,9 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
             db.add(admin)
         teacher = Person(name="陈老师", phone="13800000001", email="chen@school.edu",
                          password_hash=hash_password("123456"),
-                         payload=validate_person_payload("teacher", {"semesters": DEFAULT_SEMESTERS}))
+                         payload=validate_person_payload("teacher", {}))
         db.add(teacher)
         db.flush()
-    else:
-        payload = dict(teacher.payload or {})
-        if not payload.get("semesters"):
-            payload["semesters"] = DEFAULT_SEMESTERS
-            teacher.payload = validate_person_payload("teacher", payload)
     c71 = Class(name="七年级1班", academic_year=ACADEMIC_YEAR)
     c72 = Class(name="七年级2班", academic_year=ACADEMIC_YEAR)
     db.add_all([c71, c72])
@@ -288,7 +279,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     db.add(Enrollment(person_id=hao.id, class_id=c71.id,
                       valid_from=date(2026, 3, 1), reason="moved"))
     db.flush()
-    create_event(db, event_type="class_moved", title="调班",
+    create_event(db, event_type="class_moved", title="转班",
                  start_time=dt(date(2026, 3, 1), time(8, 30)),
                  payload={"from_class": c72.name,
                           "to_class": c71.name,

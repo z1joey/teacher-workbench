@@ -1,6 +1,5 @@
 <script setup>
-// 学生列表：按班级分组，可折叠；顶栏搜索框与这里共享查询词。
-// 窄屏时表格自动转为「标签 + 值」的堆叠行，不需要横向滚动。
+// 学生列表：按班级分组，可折叠；每组内用卡片网格展示学生。
 import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
@@ -8,7 +7,7 @@ import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
 import { searchQuery, searchStudents } from "../search"
-import { friendlyError, tagStyle, t } from "../strings"
+import { friendlyError, tagStyle, t, eventTypeLabel, describeEvent, dateLocale } from "../strings"
 
 const router = useRouter()
 const students = ref([])
@@ -66,6 +65,19 @@ function isCollapsed(group) {
 }
 function toggleGroup(group) {
   collapsed.value[group.name] = !collapsed.value[group.name]
+}
+
+function fmtDate(ts) {
+  return new Date(ts).toLocaleDateString(dateLocale(), {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
+function lastEventText(ev) {
+  if (!ev) return ""
+  return describeEvent(ev.event_type, ev.payload)
 }
 </script>
 
@@ -139,46 +151,47 @@ function toggleGroup(group) {
           role="region"
           :aria-labelledby="`group-head-${g.name}`"
         >
-          <div class="table-wrap">
-            <table class="table table--stack">
-              <thead>
-                <tr>
-                  <th style="width: 130px">{{ t("th.admissionNo") }}</th>
-                  <th>{{ t("th.name") }}</th>
-                  <th>{{ t("th.tags") }}</th>
-                  <th style="width: 40px" />
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="s in g.list"
-                  :key="s.id"
-                  class="is-clickable"
-                  tabindex="0"
-                  @click="router.push(`/students/${s.id}`)"
-                  @keydown.enter.prevent="router.push(`/students/${s.id}`)"
-                >
-                  <td data-label="学号">
-                    <span class="muted tnum">{{ s.admission_no }}</span>
-                  </td>
-                  <td data-label="姓名" class="cell-main">{{ s.name }}</td>
-                  <td data-label="标签">
-                    <span v-if="s.tags && s.tags.length" class="chips">
-                      <span
-                        v-for="tag in s.tags"
-                        :key="tag.id"
-                        class="tag"
-                        :style="tagStyle(tag.color)"
-                      >{{ tag.name }}</span>
-                    </span>
-                    <span v-else class="muted">{{ t("common.none") }}</span>
-                  </td>
-                  <td data-hidden-mobile>
-                    <Icon name="chevron-right" :size="15" style="color: var(--muted)" />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="student-cards">
+            <article
+              v-for="s in g.list"
+              :key="s.id"
+              class="student-card is-clickable"
+              tabindex="0"
+              @click="router.push(`/students/${s.id}`)"
+              @keydown.enter.prevent="router.push(`/students/${s.id}`)"
+            >
+              <header class="student-card__head">
+                <div class="student-card__identity">
+                  <h3 class="student-card__name">{{ s.name }}</h3>
+                  <span class="student-card__no muted tnum">{{ s.admission_no }}</span>
+                </div>
+                <Icon name="chevron-right" :size="15" class="student-card__chevron" />
+              </header>
+
+              <div v-if="s.tags?.length" class="chips student-card__tags">
+                <span
+                  v-for="tag in s.tags"
+                  :key="tag.id"
+                  class="tag"
+                  :style="tagStyle(tag.color)"
+                >{{ tag.name }}</span>
+              </div>
+
+              <footer v-if="s.last_event" class="student-card__event">
+                <div class="student-card__event-head">
+                  <span class="student-card__event-type">
+                    {{ eventTypeLabel(s.last_event.event_type, s.last_event.payload) }}
+                  </span>
+                  <time class="student-card__event-time muted tnum">
+                    {{ fmtDate(s.last_event.occurred_at) }}
+                  </time>
+                </div>
+                <p v-if="lastEventText(s.last_event)" class="student-card__event-desc muted">
+                  {{ lastEventText(s.last_event) }}
+                </p>
+              </footer>
+              <p v-else class="student-card__empty muted">{{ t("common.none") }}</p>
+            </article>
           </div>
         </div>
       </section>

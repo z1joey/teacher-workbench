@@ -125,6 +125,51 @@ const trendChart = computed(() => {
 
 const hasScores = computed(() => detail.value && detail.value.averages.length > 0)
 
+const showAddStudent = ref(false)
+const unassigned = ref([])
+const addStudentLoading = ref(false)
+const assigningId = ref("")
+const addStudentError = ref("")
+
+async function loadUnassigned() {
+  const students = await api.get("/students")
+  unassigned.value = students.filter((s) => s.status === "active" && !s.class)
+}
+
+async function openAddStudent() {
+  showAddStudent.value = true
+  addStudentError.value = ""
+  addStudentLoading.value = true
+  try {
+    await loadUnassigned()
+  } catch (e) {
+    addStudentError.value = friendlyError(e)
+  } finally {
+    addStudentLoading.value = false
+  }
+}
+
+function closeAddStudent() {
+  showAddStudent.value = false
+  addStudentError.value = ""
+  assigningId.value = ""
+}
+
+async function assignStudent(student) {
+  addStudentError.value = ""
+  assigningId.value = student.id
+  try {
+    await api.patch(`/students/${student.id}`, { class_id: props.id })
+    notify({ tone: "ok", title: t("classdetail.studentAdded", { name: student.name }), timeout: 2400 })
+    await load()
+    await loadUnassigned()
+  } catch (e) {
+    addStudentError.value = friendlyError(e)
+  } finally {
+    assigningId.value = ""
+  }
+}
+
 function fmtPct(score, full) {
   return full ? Math.round((score / full) * 100) : 0
 }
@@ -136,10 +181,12 @@ function fmtPct(score, full) {
       <PageHeader
         :title="detail.class.name"
         :subtitle="detail.class.academic_year"
-        :meta="[
-          { label: '学生', value: detail.students.length },
-        ]"
       >
+        <template #meta>
+          <button type="button" class="pill pill--outline" @click="openAddStudent">
+            {{ t("students.title") }} <b class="tnum">{{ detail.students.length }}</b>
+          </button>
+        </template>
         <template #actions>
           <button class="btn" @click="startEdit">
             <Icon name="pencil" :size="15" /> {{ t("action.edit") }}
@@ -191,9 +238,9 @@ function fmtPct(score, full) {
               </div>
             </div>
             <div class="card__body">
-              <p v-if="!trendChart || !trendChart.series.length" class="state__desc" style="text-align: center; padding: 16px 0">
-                {{ t("classdetail.noScores") }}
-              </p>
+              <div v-if="!trendChart || !trendChart.series.length" class="state state--in-card">
+                <p class="state__desc">{{ t("classdetail.noScores") }}</p>
+              </div>
               <LineChart
                 v-else
                 :labels="trendChart.labels"
@@ -223,9 +270,9 @@ function fmtPct(score, full) {
                   <span class="muted" style="font-size: 12px">{{ genderLabel(s.gender) }}</span>
                 </router-link>
               </div>
-              <p v-else class="state__desc" style="text-align: center; padding: 16px 0">
-                {{ t("classes.noStudents") }}
-              </p>
+              <div v-else class="state state--in-card">
+                <p class="state__desc">{{ t("classes.noStudents") }}</p>
+              </div>
             </div>
           </div>
         </div>
@@ -235,9 +282,9 @@ function fmtPct(score, full) {
             <h2 class="card__title"><Icon name="chart" :size="16" /> {{ t("classdetail.averages") }}</h2>
           </div>
           <div class="card__body">
-            <p v-if="!hasScores" class="state__desc" style="text-align: center; padding: 16px 0">
-              {{ t("classdetail.noScores") }}
-            </p>
+            <div v-if="!hasScores" class="state state--in-card">
+              <p class="state__desc">{{ t("classdetail.noScores") }}</p>
+            </div>
             <div v-for="a in detail.averages" :key="a.subject" class="stat stat--plain">
               <div class="stat__label">{{ subject(a.subject) }}</div>
               <div class="stat__value tnum">{{ a.avg ?? t("common.none") }}</div>
@@ -246,6 +293,60 @@ function fmtPct(score, full) {
                 {{ t("exam.exams", { count: a.count }) }}
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="showAddStudent"
+        class="overlay"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="t('classdetail.addStudentTitle')"
+        @click.self="closeAddStudent"
+      >
+        <div class="modal">
+          <div class="modal__head">
+            <div class="grow">
+              <h2 class="modal__title">{{ t("classdetail.addStudentTitle") }}</h2>
+              <p class="card__desc" style="margin: 6px 0 0">{{ t("classdetail.addStudentHint") }}</p>
+            </div>
+            <button type="button" class="icon-btn" :aria-label="t('action.close')" @click="closeAddStudent">
+              <Icon name="close" :size="16" />
+            </button>
+          </div>
+          <div class="modal__body">
+            <p v-if="addStudentLoading" class="state__desc" style="text-align: center; padding: 12px 0">
+              {{ t("common.loading") }}
+            </p>
+            <p v-else-if="addStudentError" class="field__error">
+              <Icon name="alert-circle" :size="13" /> {{ addStudentError }}
+            </p>
+            <div v-else-if="!unassigned.length" class="state state--in-card">
+              <p class="state__desc">{{ t("classdetail.addStudentEmpty") }}</p>
+            </div>
+            <div v-else class="mention-picker__list card card--nested">
+              <button
+                v-for="s in unassigned"
+                :key="s.id"
+                type="button"
+                class="mention-picker__row"
+                :disabled="assigningId === s.id"
+                @click="assignStudent(s)"
+              >
+                <span class="mention-picker__name">
+                  {{ s.name }}
+                  <span v-if="s.admission_no" class="muted" style="font-size: 12px">{{ s.admission_no }}</span>
+                </span>
+                <span v-if="assigningId === s.id" class="spinner" />
+                <Icon v-else name="plus" :size="14" style="color: var(--muted)" />
+              </button>
+            </div>
+          </div>
+          <div class="modal__foot">
+            <button type="button" class="btn btn--ghost" @click="closeAddStudent">
+              {{ t("action.close") }}
+            </button>
           </div>
         </div>
       </div>

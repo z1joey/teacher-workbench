@@ -17,7 +17,8 @@ import pytest
 
 from app import eventing
 from app.eventing import MANUAL_EVENT_TYPES, next_birthday_date
-from app.models import AuthSession, Class, Enrollment, Event, Person, Tag, student_guardians
+from app.models import AuthSession, Class, Enrollment, Event, Person, Tag, person_tags, student_guardians
+from app.routers.students import AUTO_HOME_VISIT_TAG_NAME
 from app.payloads import validate_person_payload
 from app.routers import students
 from app.security import hash_password
@@ -131,13 +132,31 @@ def test_list_students_admission_no_order_and_shape(make_client, db, headers):
     # plain string ordering, same as the old order_by(Student.admission_no)
     assert [row["admission_no"] for row in rows] == ["S1", "S10", "S2"]
     assert set(rows[0]) == {"id", "admission_no", "name", "gender", "status",
-                            "class", "last_exam", "tags"}
+                            "class", "last_exam", "last_event", "tags"}
     assert rows[0]["name"] == "张一"
     assert rows[0]["status"] == "active"
     assert rows[0]["class"] == {"id": str(cls.id), "name": cls.name}
     assert rows[0]["last_exam"] is None
+    assert rows[0]["last_event"] is None
     assert rows[0]["tags"] == []
     uuid.UUID(rows[0]["id"])
+
+
+def test_list_students_last_event(make_client, db, headers):
+    cls = _seed_class(db)
+    s = _seed_person(db, "林晓雨", "S001")
+    _enroll(db, s, cls)
+    _manual_event(db, s, "talk", "聊了作业", datetime(2026, 3, 10, 10, 0))
+    _manual_event(db, s, "home_visited", "开学家访", datetime(2026, 3, 15, 19, 0))
+    db.commit()
+
+    r = make_client(students.router).get("/api/students", headers=headers)
+    assert r.status_code == 200, r.text
+    row = next(x for x in r.json() if x["id"] == str(s.id))
+    last = row["last_event"]
+    assert set(last) == {"id", "event_type", "occurred_at", "payload"}
+    assert last["event_type"] == "home_visited"
+    assert last["payload"]["summary"] == "开学家访"
 
 
 def test_create_student_201_old_keys_seeds_payload_enrollment_enrolled_event(make_client, db, headers):
@@ -212,6 +231,26 @@ def test_create_student_without_class_enrolls_unassigned(make_client, db, header
     assert row["class"] is None
 
 
+def test_assign_from_unassigned_records_join_class_event(make_client, db, headers):
+    client = make_client(students.router)
+    r = client.post("/api/students", json={"name": "待分班"}, headers=headers)
+    assert r.status_code == 201, r.text
+    s_id = uuid.UUID(r.json()["id"])
+    cls = _seed_class(db, "七年级1班")
+    db.commit()
+
+    r = client.patch(f"/api/students/{s_id}", json={"class_id": str(cls.id)}, headers=headers)
+    assert r.status_code == 200, r.text
+    moved = (
+        db.query(Event)
+        .filter(Event.type == "class_moved", Event.attendees.any(Person.id == s_id))
+        .one()
+    )
+    assert moved.title == "加入班级"
+    assert moved.payload.get("from_class") is None
+    assert moved.payload["to_class"] == cls.name
+
+
 def test_get_student_shape_scores_and_404(make_client, db, headers):
     cls = _seed_class(db)
     s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
@@ -277,6 +316,38 @@ def test_patch_student_partial_merge_keeps_other_payload_keys(make_client, db, h
     assert r.status_code == 404
 
 
+def test_patch_student_admission_no_unique(make_client, db, headers):
+    s1 = _seed_person(db, "甲", "S001")
+    s2 = _seed_person(db, "乙", "S002")
+    db.commit()
+    client = make_client(students.router)
+
+    r = client.patch(
+        f"/api/students/{s1.id}",
+        json={"admission_no": "2025070701"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["admission_no"] == "2025070701"
+    db.refresh(s1)
+    assert s1.payload["admission_no"] == "2025070701"
+
+    r = client.patch(
+        f"/api/students/{s2.id}",
+        json={"admission_no": "2025070701"},
+        headers=headers,
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "学号已被使用"
+
+    r = client.patch(
+        f"/api/students/{s1.id}",
+        json={"admission_no": "2025070701"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+
+
 def test_patch_student_status_and_class_move(make_client, db, headers):
     c1 = _seed_class(db, "七年级1班")
     c2 = _seed_class(db, "七年级2班")
@@ -309,6 +380,7 @@ def test_patch_student_status_and_class_move(make_client, db, headers):
                                     Event.attendees.any(Person.id == s.id)).one())
     assert moved.payload["from_class"] == c1.name
     assert moved.payload["to_class"] == c2.name
+    assert moved.title == "转班"
 
     r = client.patch(f"/api/students/{s.id}", json={"class_id": str(uuid.uuid4())},
                      headers=headers)
@@ -482,15 +554,16 @@ def test_manual_event_create_list_patch_delete(make_client, db, headers):
     ev = db.get(Event, uuid.UUID(created["id"]))
     assert ev.type == "talk" and ev.payload == {"notes": "聊了作业习惯"}
 
-    # home visit maps summary/follow_up_note onto the home_visited payload
+    # home visit maps purpose/summary/follow_up onto the home_visited payload
     r = client.post(f"/api/students/{s.id}/events",
-                    json={"event_type": "home_visited", "summary": "开学前家访",
+                    json={"event_type": "home_visited", "purpose": "开学沟通",
+                          "summary": "开学前家访",
                           "follow_up_needed": True,
                           "follow_up_note": "两周后回访阅读落实情况"},
                     headers=headers)
     assert r.status_code == 201, r.text
     visit = db.get(Event, uuid.UUID(r.json()["id"]))
-    assert visit.payload == {"summary": "开学前家访",
+    assert visit.payload == {"purpose": "开学沟通", "summary": "开学前家访",
                              "follow_up": "两周后回访阅读落实情况"}
 
     r = client.get(f"/api/students/{s.id}/events", headers=headers)
@@ -515,12 +588,46 @@ def test_manual_event_create_list_patch_delete(make_client, db, headers):
     assert ev.payload == {"notes": "改：聊了阅读习惯"}
     assert ev.start_time == datetime(2026, 4, 2, 12, 0)
 
-    # system events stay read-only
+    # enrolled events: date and notes editable; type stays system-generated
     enrolled_id = db.query(Event).filter(Event.type == "enrolled").one().id
-    r = client.patch(f"/api/students/{s.id}/events/{enrolled_id}",
-                     json={"event_type": "talk", "summary": "x"}, headers=headers)
+    r = client.patch(
+        f"/api/students/{s.id}/events/{enrolled_id}",
+        json={
+            "event_type": "enrolled",
+            "summary": "2025 年秋季入学",
+            "occurred_at": "2025-09-01T08:00:00",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    enrolled = db.get(Event, enrolled_id)
+    assert enrolled.payload["notes"] == "2025 年秋季入学"
+    assert enrolled.start_time == datetime(2025, 9, 1, 8, 0)
+
+    r = client.patch(
+        f"/api/students/{s.id}/events/{enrolled_id}",
+        json={"event_type": "talk", "summary": "x"},
+        headers=headers,
+    )
     assert r.status_code == 400
-    assert r.json()["detail"] == "system events cannot be modified"
+    assert r.json()["detail"] == "cannot change system event type"
+
+    class_moved = db.query(Event).filter(Event.type == "class_moved").first()
+    if class_moved:
+        r = client.patch(
+            f"/api/students/{s.id}/events/{class_moved.id}",
+            json={
+                "event_type": "class_moved",
+                "summary": "调至初二三班",
+                "occurred_at": "2026-03-01T09:00:00",
+            },
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        db.refresh(class_moved)
+        assert class_moved.payload["notes"] == "调至初二三班"
+        assert class_moved.start_time == datetime(2026, 3, 1, 9, 0)
+
     r = client.delete(f"/api/students/{s.id}/events/{enrolled_id}", headers=headers)
     assert r.status_code == 400
     assert r.json()["detail"] == "system events cannot be deleted"
@@ -595,7 +702,7 @@ def test_events_lists_events_the_teacher_attends(make_client, db, headers):
     assert rows[0]["payload"] == {"notes": "作业潦草"}
     visit = rows[1]
     assert visit["title"] == "家访"
-    assert visit["payload"] == {"summary": "开学前家访", "guardian": "林女士"}
+    assert visit["payload"] == {"purpose": "例行家访", "summary": "开学前家访", "guardian": "林女士"}
     # the type param narrows the feed (the 家访 page reads home_visited only)
     r = client.get("/api/events?type=home_visited", headers=headers)
     assert [(row["event_type"], row["student_name"]) for row in r.json()] == [
@@ -660,6 +767,56 @@ def test_home_visit_guardian_participants(make_client, db, headers):
                     headers=headers)
     assert r.status_code == 400
     assert r.json()["detail"] == "监护人不属于该学生"
+
+
+def test_home_visit_mark_done_adds_tag(make_client, db, headers):
+    s = _seed_person(db, "林晓雨", "S001")
+    db.commit()
+    client = make_client(students.router)
+    r = client.post(
+        f"/api/students/{s.id}/events",
+        json={"event_type": "home_visited", "summary": "开学前家访"},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    ev_id = r.json()["id"]
+
+    r = client.patch(
+        f"/api/students/{s.id}/events/{ev_id}",
+        json={"event_type": "home_visited", "summary": "开学前家访", "done": True},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    ev = db.get(Event, uuid.UUID(ev_id))
+    assert ev.payload.get("done") is True
+    tag = db.query(Tag).filter(Tag.name == AUTO_HOME_VISIT_TAG_NAME).one()
+    linked = (
+        db.query(person_tags)
+        .filter(person_tags.c.person_id == s.id, person_tags.c.tag_id == tag.id)
+        .first()
+    )
+    assert linked is not None
+
+
+def test_home_visit_mark_done_skips_tag_when_auto_tags_disabled(make_client, db, headers):
+    teacher = db.query(Person).filter(Person.phone == "13800000001").one()
+    teacher.payload = validate_person_payload("teacher", {"auto_tags": False})
+    s = _seed_person(db, "王小明", "S002")
+    db.commit()
+    client = make_client(students.router)
+    r = client.post(
+        f"/api/students/{s.id}/events",
+        json={"event_type": "home_visited", "summary": "常规家访"},
+        headers=headers,
+    )
+    ev_id = r.json()["id"]
+    r = client.patch(
+        f"/api/students/{s.id}/events/{ev_id}",
+        json={"event_type": "home_visited", "summary": "常规家访", "done": True},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert db.query(Tag).filter(Tag.name == AUTO_HOME_VISIT_TAG_NAME).count() == 0
 
 
 def test_guardian_linking_and_detail(make_client, db, headers):

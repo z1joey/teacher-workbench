@@ -30,7 +30,7 @@ from ..models import AuthSession, Class, Enrollment, Person
 from ..models._common import utcnow
 from ..payloads import validate_person_payload
 from ..security import hash_password
-from ..seed import DEFAULT_SEMESTERS, seed
+from ..seed import seed
 from ..unassigned import class_for_api, ensure_unassigned_class, is_unassigned_class
 
 router = APIRouter(
@@ -140,8 +140,7 @@ def _require_teacher(user: Person) -> None:
 
 def _teacher_snapshot(user: Person) -> dict:
     payload = dict(user.payload or {})
-    if not payload.get("semesters"):
-        payload["semesters"] = DEFAULT_SEMESTERS
+    payload.pop("semesters", None)
     return {
         "name": user.name,
         "phone": user.phone,

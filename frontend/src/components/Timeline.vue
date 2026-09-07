@@ -38,7 +38,7 @@ function open(e) {
       :class="{ 'is-clickable': isEventClickable(row(e)) }"
       :tabindex="isEventClickable(row(e)) ? 0 : undefined"
       :role="isEventClickable(row(e)) ? 'button' : undefined"
-      :aria-label="isEventClickable(row(e)) ? `查看这条${eventTypeLabel(e.event_type)}记录` : undefined"
+      :aria-label="isEventClickable(row(e)) ? `查看这条${eventTypeLabel(e.event_type, e.payload)}记录` : undefined"
       @click="open(e)"
       @keydown.enter.prevent="open(e)"
       @keydown.space.prevent="open(e)"
@@ -48,7 +48,7 @@ function open(e) {
       </span>
       <div class="timeline__card">
         <div class="timeline__head">
-          <span class="timeline__title">{{ eventTypeLabel(e.event_type) }}</span>
+          <span class="timeline__title">{{ eventTypeLabel(e.event_type, e.payload) }}</span>
           <span v-if="e.actor" class="timeline__actor">{{ e.actor }}</span>
         </div>
         <p class="timeline__desc">{{ describeEvent(e.event_type, e.payload) }}</p>

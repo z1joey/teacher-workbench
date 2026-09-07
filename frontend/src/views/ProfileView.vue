@@ -22,21 +22,25 @@ const editing = ref(false)
 const saving = ref(false)
 const editForm = ref({ name: "", email: "" })
 const errors = ref({})
-const semesterForm = ref([])
-const semesterErrors = ref({})
-const savingSemesters = ref(false)
+const settingsSaving = ref(false)
 
-function newSemesterRow() {
-  return {
-    id: crypto.randomUUID(),
-    name: "",
-    start_date: "",
-    end_date: "",
+async function saveAutoTags() {
+  if (!profile.value) return
+  settingsSaving.value = true
+  error.value = ""
+  try {
+    const updated = await api.patch("/profile", {
+      name: profile.value.user.name,
+      email: profile.value.user.email || null,
+      auto_tags: profile.value.settings.auto_tags,
+    })
+    profile.value.settings = updated.settings
+    notify({ tone: "ok", title: t("profile.settingsSaved"), timeout: 2400 })
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    settingsSaving.value = false
   }
-}
-
-function syncSemesterForm(rows) {
-  semesterForm.value = (rows || []).map((row) => ({ ...row }))
 }
 
 async function load() {
@@ -44,7 +48,6 @@ async function load() {
   error.value = ""
   try {
     profile.value = await api.get("/profile")
-    syncSemesterForm(profile.value.semesters)
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -91,47 +94,6 @@ async function saveProfile() {
   }
 }
 
-function addSemester() {
-  semesterForm.value = [...semesterForm.value, newSemesterRow()]
-}
-
-function removeSemester(id) {
-  semesterForm.value = semesterForm.value.filter((row) => row.id !== id)
-}
-
-function validateSemesters() {
-  const e = {}
-  semesterForm.value.forEach((row, i) => {
-    if (!row.name.trim()) e[`name-${i}`] = t("profile.semesterNameRequired")
-    if (!row.start_date || !row.end_date) e[`dates-${i}`] = t("profile.semesterDatesRequired")
-    else if (row.end_date < row.start_date) e[`dates-${i}`] = t("profile.semesterEndInvalid")
-  })
-  semesterErrors.value = e
-  return !Object.keys(e).length
-}
-
-async function saveSemesters() {
-  if (!validateSemesters()) return
-  savingSemesters.value = true
-  error.value = ""
-  try {
-    const payload = semesterForm.value.map((row) => ({
-      id: row.id,
-      name: row.name.trim(),
-      start_date: row.start_date,
-      end_date: row.end_date,
-    }))
-    const updated = await api.patch("/profile/semesters", { semesters: payload })
-    profile.value.semesters = updated.semesters
-    syncSemesterForm(updated.semesters)
-    notify({ tone: "ok", title: t("profile.semestersSaved"), timeout: 2400 })
-  } catch (e) {
-    error.value = friendlyError(e)
-  } finally {
-    savingSemesters.value = false
-  }
-}
-
 async function logout() {
   const ok = await ask({
     title: "退出登录？",
@@ -163,16 +125,11 @@ const activity = computed(() => {
 </script>
 
 <template>
-  <PageHeader :title="t('profile.title')" :subtitle="t('profile.subtitle')">
-    <template #actions>
-      <button class="btn btn--danger" @click="logout">
-        <Icon name="logout" :size="15" /> {{ t("auth.logout") }}
-      </button>
-    </template>
-  </PageHeader>
+  <PageHeader :title="t('profile.title')" :subtitle="t('profile.subtitle')" />
 
   <AsyncState :loading="loading" :error="error" :rows="4" @retry="load">
-    <div v-if="profile" class="split">
+    <template v-if="profile">
+      <div class="split">
       <div>
         <!-- 资料 -->
         <div class="card">
@@ -219,59 +176,23 @@ const activity = computed(() => {
           </form>
         </div>
 
-        <!-- 学期设置 -->
+        <!-- 偏好设置 -->
         <div class="card">
           <div class="card__head">
-            <div>
-              <h2 class="card__title"><Icon name="calendar" :size="16" /> {{ t("profile.semesters") }}</h2>
-              <p class="card__desc">{{ t("profile.semestersHint") }}</p>
-            </div>
+            <h2 class="card__title"><Icon name="sliders" :size="16" /> {{ t("profile.settings") }}</h2>
           </div>
-          <form class="card__body" @submit.prevent="saveSemesters">
-            <p v-if="!semesterForm.length" class="state__desc" style="margin: 0 0 12px">
-              {{ t("profile.semestersEmpty") }}
-            </p>
-            <div v-for="(row, i) in semesterForm" :key="row.id" class="semester-row">
-              <FormField
-                :label="t('profile.semesterName')"
-                required
-                :error="semesterErrors[`name-${i}`] || ''"
-              >
-                <input v-model="row.name" class="input" type="text" maxlength="100" />
-              </FormField>
-              <FormField
-                :label="t('profile.semesterStart')"
-                required
-                :error="semesterErrors[`dates-${i}`] || ''"
-              >
-                <input v-model="row.start_date" class="input" type="date" />
-              </FormField>
-              <FormField
-                :label="t('profile.semesterEnd')"
-                required
-                :error="semesterErrors[`dates-${i}`] ? ' ' : ''"
-              >
-                <input v-model="row.end_date" class="input" type="date" />
-              </FormField>
-              <button
-                type="button"
-                class="btn btn--ghost btn--sm semester-row__remove"
-                :aria-label="t('action.delete')"
-                @click="removeSemester(row.id)"
-              >
-                <Icon name="trash" :size="14" />
-              </button>
-            </div>
-            <div class="form-actions">
-              <button type="button" class="btn" @click="addSemester">
-                <Icon name="plus" :size="14" /> {{ t("profile.addSemester") }}
-              </button>
-              <button type="submit" class="btn btn--primary" :disabled="savingSemesters">
-                <span v-if="savingSemesters" class="spinner" />
-                {{ savingSemesters ? t("action.saving") : t("action.save") }}
-              </button>
-            </div>
-          </form>
+          <div class="card__body">
+            <label class="check">
+              <input
+                v-model="profile.settings.auto_tags"
+                type="checkbox"
+                :disabled="settingsSaving"
+                @change="saveAutoTags"
+              />
+              <span>{{ t("profile.autoTags") }}</span>
+            </label>
+            <p class="field__hint" style="margin-top: 8px">{{ t("profile.autoTagsHint") }}</p>
+          </div>
         </div>
 
         <!-- 我的班级 -->
@@ -281,9 +202,9 @@ const activity = computed(() => {
             <span class="pill pill--muted pill--count">{{ profile.classes.length }}</span>
           </div>
           <div class="card__body">
-            <p v-if="!profile.classes.length" class="state__desc" style="text-align: center; padding: 12px 0">
-              {{ t("profile.noClasses") }}
-            </p>
+            <div v-if="!profile.classes.length" class="state state--in-card">
+              <p class="state__desc">{{ t("profile.noClasses") }}</p>
+            </div>
             <div v-for="c in profile.classes" :key="c.id" class="stack" style="gap: 8px; margin-bottom: 20px">
               <div class="row-wrap">
                 <router-link :to="`/classes/${c.id}`" class="pill">{{ c.name }}</router-link>
@@ -319,6 +240,12 @@ const activity = computed(() => {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+      <div class="form-actions" style="justify-content: center">
+        <button type="button" class="btn btn--danger" @click="logout">
+          <Icon name="logout" :size="15" /> {{ t("auth.logout") }}
+        </button>
+      </div>
+    </template>
   </AsyncState>
 </template>

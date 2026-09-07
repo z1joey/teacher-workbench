@@ -648,6 +648,19 @@ code {
   color: var(--muted);
   font-size: var(--fs-sm);
 }
+.page-head__meta-wrap {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.page-head__meta-row {
+  align-items: center;
+}
+.page-head__tag-form {
+  max-width: 520px;
+}
 .page-head__actions {
   display: flex;
   align-items: center;
@@ -1116,6 +1129,102 @@ code {
   border-radius: inherit;
 }
 
+.student-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+}
+.student-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.student-card.is-clickable {
+  cursor: pointer;
+}
+.student-card.is-clickable:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-strong);
+}
+.student-card.is-clickable:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.student-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.student-card__identity {
+  min-width: 0;
+}
+.student-card__name {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.student-card__no {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+}
+.student-card__chevron {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.student-card__tags {
+  flex-wrap: wrap;
+}
+.student-card__tags .tag {
+  font-size: var(--fs-xs);
+  padding: 1px 7px;
+}
+.student-card__event {
+  margin-top: auto;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+}
+.student-card__event-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: var(--fs-sm);
+}
+.student-card__event-type {
+  font-weight: 600;
+}
+.student-card__event-time {
+  font-size: var(--fs-xs);
+}
+.student-card__event-desc {
+  margin: 4px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.student-card__empty {
+  margin: 0;
+  font-size: var(--fs-xs);
+}
+
 .class-unassigned {
   border-style: dashed;
   background: var(--surface-sunken);
@@ -1282,6 +1391,15 @@ code {
   background: transparent;
   border: 1px solid var(--line-strong);
   color: var(--ink-soft);
+}
+button.pill {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+}
+button.pill.pill--outline:hover {
+  background: var(--surface-sunken);
 }
 .pill--count {
   min-width: 20px;
@@ -2660,49 +2778,6 @@ a.chip:hover {
   flex: 0 0 auto;
 }
 
-/* 成绩明细：每场考试独立一块，科目胶囊对齐图例样式 */
-.exam-group__head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-2);
-}
-.exam-group__title {
-  margin: 0;
-  font-size: var(--fs-md);
-  font-weight: 600;
-}
-.exam-group__range {
-  margin: 4px 0 0;
-  font-size: var(--fs-sm);
-  color: var(--muted);
-}
-
-.semester-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: var(--sp-2);
-  align-items: end;
-  padding-bottom: var(--sp-3);
-  margin-bottom: var(--sp-3);
-  border-bottom: 1px solid var(--line);
-}
-.semester-row:last-of-type {
-  margin-bottom: var(--sp-2);
-}
-.semester-row__remove {
-  margin-bottom: 2px;
-}
-@media (max-width: 720px) {
-  .semester-row {
-    grid-template-columns: 1fr 1fr;
-  }
-  .semester-row__remove {
-    grid-column: 2;
-    justify-self: end;
-  }
-}
-
 .score-exams {
   display: flex;
   flex-direction: column;
@@ -2859,6 +2934,24 @@ a.chip:hover {
   border-bottom: 1px solid var(--line);
   cursor: pointer;
   font-size: var(--fs-sm);
+}
+button.mention-picker__row {
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  font: inherit;
+  color: inherit;
+}
+button.mention-picker__row:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+button.mention-picker__row:not(:disabled):hover {
+  background: var(--surface-sunken);
 }
 .mention-picker__row:last-child {
   border-bottom: 0;
