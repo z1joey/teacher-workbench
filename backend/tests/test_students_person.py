@@ -20,7 +20,7 @@ from app.eventing import MANUAL_EVENT_TYPES, next_birthday_date
 from app.models import AuthSession, Class, Enrollment, Event, Person, Tag, person_tags, student_guardians
 from app.routers.students import AUTO_HOME_VISIT_TAG_NAME
 from app.payloads import validate_person_payload
-from app.routers import students
+from app.routers import dashboard, students
 from app.security import hash_password
 
 
@@ -1056,6 +1056,34 @@ def test_calendar_lists_comment_once_for_mentioned_students(client, db, headers)
     ]
     assert len(comments) == 1
     assert comments[0]["student_id"] == str(s1.id)
+
+
+def test_calendar_projects_birthdays_when_enabled(make_client, db, headers):
+    s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
+    db.commit()
+    client = make_client(dashboard.router)
+
+    r = client.get("/api/calendar?year=2026&month=5", headers=headers)
+    assert r.status_code == 200, r.text
+    birthdays = [i for i in r.json()["items"] if i.get("event_type") == "birthday"]
+    assert len(birthdays) == 1
+    assert birthdays[0]["student_id"] == str(s.id)
+    assert birthdays[0]["date"] == "2026-05-14"
+    assert birthdays[0]["id"] == f"birthday-{s.id}"
+
+
+def test_calendar_hides_birthdays_when_disabled(make_client, db, headers):
+    teacher = db.query(Person).filter(Person.phone == "13800000001").one()
+    payload = dict(teacher.payload or {})
+    payload["calendar_birthdays"] = False
+    teacher.payload = validate_person_payload("teacher", payload)
+    _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
+    db.commit()
+    client = make_client(dashboard.router)
+
+    r = client.get("/api/calendar?year=2026&month=5", headers=headers)
+    assert r.status_code == 200, r.text
+    assert all(i.get("event_type") != "birthday" for i in r.json()["items"])
 
 
 def test_teachers_me_event_types_returns_manual_list(make_client, db, headers):

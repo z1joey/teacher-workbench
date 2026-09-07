@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from ..display_name import teacher_display_name
 from ..database import get_db
 from ..deps import get_current_person
-from ..eventing import MANUAL_EVENT_TYPES, RECORD_EVENT_TYPES
+from ..eventing import MANUAL_EVENT_TYPES, RECORD_EVENT_TYPES, birthday_in_month
 from ..models import Class, Event, Person, person_events
 from ..unassigned import is_unassigned_class
 
@@ -98,6 +98,34 @@ def month_calendar(
             "actor": None,  # the actor column is gone (see students.py)
             "payload": ev.payload or {},
         })
+    user_payload = user.payload or {}
+    if user_payload.get("role") == "teacher" and user_payload.get("calendar_birthdays", True):
+        active = or_(
+            Person.payload["is_active"].as_boolean().is_(None),
+            Person.payload["is_active"].as_boolean().is_not(False),
+        )
+        for student in (
+            db.query(Person)
+            .filter(Person.payload["role"].as_string() == "student", active)
+            .all()
+        ):
+            birth_raw = (student.payload or {}).get("birth_date")
+            if not birth_raw:
+                continue
+            bday = birthday_in_month(date.fromisoformat(birth_raw), year, month)
+            if bday is None:
+                continue
+            items.append({
+                "date": bday.isoformat(),
+                "kind": "record",
+                "id": f"birthday-{student.id}",
+                "event_type": "birthday",
+                "student_id": str(student.id),
+                "student_name": student.name,
+                "actor": None,
+                "payload": {"birth_date": birth_raw},
+                "recurrence": "yearly",
+            })
     items.sort(key=lambda i: i["date"])
     return {"year": year, "month": month, "items": items}
 

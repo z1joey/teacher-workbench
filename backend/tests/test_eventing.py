@@ -49,3 +49,9 @@ def test_create_event_rejects_bad_payload(db, person):
 def test_next_birthday_date_feb29():
     assert eventing.next_birthday_date(date(2012, 2, 29), today=date(2026, 1, 1)) == date(2026, 2, 28)
     assert eventing.next_birthday_date(date(2012, 2, 29), today=date(2026, 3, 1)) == date(2027, 2, 28)
+
+
+def test_birthday_in_month():
+    assert eventing.birthday_in_month(date(2012, 5, 14), 2026, 5) == date(2026, 5, 14)
+    assert eventing.birthday_in_month(date(2012, 5, 14), 2026, 6) is None
+    assert eventing.birthday_in_month(date(2012, 2, 29), 2026, 2) == date(2026, 2, 28)

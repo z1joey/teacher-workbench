@@ -37,6 +37,7 @@ def settings_out(payload: dict) -> dict:
     return {
         "auto_tags": payload.get("auto_tags", True),
         "name_display": payload.get("name_display", "full"),
+        "calendar_birthdays": payload.get("calendar_birthdays", True),
     }
 
 
@@ -45,6 +46,7 @@ class ProfileIn(BaseModel):
     email: str | None = None
     auto_tags: bool | None = None
     name_display: Literal["full", "teacher"] | None = None
+    calendar_birthdays: bool | None = None
 
 
 @router.get("/profile")
@@ -115,6 +117,8 @@ def update_profile(
         payload["auto_tags"] = body.auto_tags
     if "name_display" in body.model_fields_set and body.name_display is not None:
         payload["name_display"] = body.name_display
+    if "calendar_birthdays" in body.model_fields_set and body.calendar_birthdays is not None:
+        payload["calendar_birthdays"] = body.calendar_birthdays
     person.payload = validate_person_payload("teacher", payload)
     db.commit()
     return {**user_out(person), "settings": settings_out(person.payload or {})}

@@ -35,6 +35,7 @@ async function saveSettings() {
       email: profile.value.user.email || null,
       auto_tags: profile.value.settings.auto_tags,
       name_display: profile.value.settings.name_display,
+      calendar_birthdays: profile.value.settings.calendar_birthdays,
     })
     profile.value.settings = updated.settings
     profile.value.user = { ...profile.value.user, ...updated }
@@ -243,6 +244,16 @@ const activity = computed(() => {
               <span>{{ t("profile.autoTags") }}</span>
             </label>
             <p class="field__hint">{{ t("profile.autoTagsHint") }}</p>
+            <label class="check">
+              <input
+                v-model="profile.settings.calendar_birthdays"
+                type="checkbox"
+                :disabled="settingsSaving"
+                @change="saveSettings"
+              />
+              <span>{{ t("profile.calendarBirthdays") }}</span>
+            </label>
+            <p class="field__hint">{{ t("profile.calendarBirthdaysHint") }}</p>
           </div>
         </div>
 

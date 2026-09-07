@@ -138,13 +138,21 @@ def test_profile_patch_get_round_trips_name(make_client, db):
     r = client.patch("/api/profile", json={"name": "陈老师"}, headers=headers)
     assert r.status_code == 200, r.text
     assert set(r.json()) == {"id", "name", "phone", "email", "role", "settings", "display_name"}
-    assert r.json()["settings"] == {"auto_tags": True, "name_display": "full"}
+    assert r.json()["settings"] == {
+        "auto_tags": True,
+        "name_display": "full",
+        "calendar_birthdays": True,
+    }
     assert r.json()["name"] == "陈老师"
 
     r = client.get("/api/profile", headers=headers)
     assert r.status_code == 200, r.text
     assert set(r.json()) == {"user", "classes", "stats", "settings"}
-    assert r.json()["settings"] == {"auto_tags": True, "name_display": "full"}
+    assert r.json()["settings"] == {
+        "auto_tags": True,
+        "name_display": "full",
+        "calendar_birthdays": True,
+    }
     assert r.json()["user"]["name"] == "陈老师"
 
 
@@ -161,9 +169,34 @@ def test_profile_name_display_setting(make_client, db):
     )
     assert r.status_code == 200, r.text
     assert r.json()["display_name"] == "张老师"
-    assert r.json()["settings"] == {"auto_tags": True, "name_display": "teacher"}
+    assert r.json()["settings"] == {
+        "auto_tags": True,
+        "name_display": "teacher",
+        "calendar_birthdays": True,
+    }
     db.refresh(person)
     assert person.payload["name_display"] == "teacher"
+
+
+def test_profile_calendar_birthdays_setting(make_client, db):
+    client = make_client(profile.router)
+    person = seed_person(db, "13800000023", name="陈老师")
+    token = seed_token(db, person, "h" * 64)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = client.patch(
+        "/api/profile",
+        json={"name": person.name, "calendar_birthdays": False},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["settings"] == {
+        "auto_tags": True,
+        "name_display": "full",
+        "calendar_birthdays": False,
+    }
+    db.refresh(person)
+    assert person.payload["calendar_birthdays"] is False
 
 
 def test_profile_auto_tags_setting(make_client, db):
@@ -178,7 +211,11 @@ def test_profile_auto_tags_setting(make_client, db):
         headers=headers,
     )
     assert r.status_code == 200, r.text
-    assert r.json()["settings"] == {"auto_tags": False, "name_display": "full"}
+    assert r.json()["settings"] == {
+        "auto_tags": False,
+        "name_display": "full",
+        "calendar_birthdays": True,
+    }
     db.refresh(person)
     assert person.payload["auto_tags"] is False
 

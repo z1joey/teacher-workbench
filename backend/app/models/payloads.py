@@ -42,6 +42,7 @@ class TeacherPayload(_Strict):
     is_active: bool = True
     auto_tags: bool = True
     name_display: Literal["full", "teacher"] = "full"
+    calendar_birthdays: bool = True
 
 
 class AdminPayload(_Strict):

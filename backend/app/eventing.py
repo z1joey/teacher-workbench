@@ -40,6 +40,18 @@ def next_birthday_date(birth_date: date, today: date | None = None) -> date:
     return cand
 
 
+def birthday_in_month(birth_date: date, year: int, month: int) -> date | None:
+    """Return this student's birthday date within the given calendar month."""
+    if birth_date.month != month:
+        return None
+    try:
+        return date(year, month, birth_date.day)
+    except ValueError:  # Feb 29 → Feb 28 on non-leap years
+        if month == 2:
+            return date(year, 2, 28)
+        return None
+
+
 def create_event(db: Session, *, event_type: str, title: str, start_time: datetime,
                  end_time: datetime | None = None, location: str | None = None,
                  description: str | None = None, payload: dict | None = None,
