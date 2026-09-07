@@ -156,8 +156,10 @@ export const router = createRouter({
 
 router.beforeEach(async (to) => {
   const loggedIn = !!getToken()
-  if (!loggedIn && to.path !== "/login") return "/login"
-  if (loggedIn && to.path === "/login") {
+  if (!loggedIn) {
+    return to.path === "/login" ? true : "/login"
+  }
+  if (to.path === "/login") {
     if (!me.value) await loadMe()
     return me.value?.role === "admin" ? "/admin" : "/"
   }

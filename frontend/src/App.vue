@@ -66,7 +66,7 @@ async function logout() {
   clearSearch()
   clearAll()
   loggingOut.value = false
-  router.replace("/login")
+  await router.replace("/login")
 }
 
 async function onLogout() {
@@ -76,7 +76,7 @@ async function onLogout() {
     confirmLabel: "退出登录",
     tone: "warn",
   })
-  if (ok) logout()
+  if (ok) await logout()
 }
 
 // -------------------------------------------------------- 命令面板数据源

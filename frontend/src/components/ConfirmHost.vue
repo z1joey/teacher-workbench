@@ -72,10 +72,11 @@ function onConfirm() {
       </div>
 
       <div class="modal__foot">
-        <button ref="cancelBtn" class="btn" @click="closeConfirm(false)">
+        <button ref="cancelBtn" type="button" class="btn" @click="closeConfirm(false)">
           {{ confirmDialog.cancelLabel }}
         </button>
         <button
+          type="button"
           class="btn"
           :class="confirmDialog.tone === 'danger' ? 'btn--danger-solid' : 'btn--primary'"
           :disabled="!canConfirm"

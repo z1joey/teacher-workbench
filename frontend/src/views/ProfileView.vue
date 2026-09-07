@@ -11,6 +11,7 @@ import { clearMe, me } from "../auth"
 import { ask } from "../confirm"
 import { notify } from "../feedback"
 import { clearAll } from "../feedback"
+import { clearSearch } from "../search"
 import { friendlyError, genderLabel, t } from "../strings"
 
 const router = useRouter()
@@ -110,8 +111,9 @@ async function logout() {
   }
   setToken(null)
   clearMe()
+  clearSearch()
   clearAll()
-  router.push("/login")
+  await router.replace("/login")
 }
 
 const activity = computed(() => {
