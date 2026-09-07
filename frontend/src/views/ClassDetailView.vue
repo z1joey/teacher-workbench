@@ -17,7 +17,6 @@ const props = defineProps({ id: { type: String, required: true } })
 const router = useRouter()
 
 const detail = ref(null)
-const teachers = ref([])
 const loading = ref(true)
 const error = ref("")
 
@@ -29,9 +28,7 @@ const editForm = ref({})
 function emptyEditForm(c) {
   return {
     name: c.name || "",
-    grade_level: c.grade_level,
     academic_year: c.academic_year,
-    homeroom_teacher_id: c.homeroom_teacher_id,
   }
 }
 
@@ -39,12 +36,8 @@ async function load() {
   loading.value = true
   error.value = ""
   try {
-    const tasks = [api.get(`/classes/${props.id}`)]
-    if (!teachers.value.length) tasks.push(api.get("/teachers").catch(() => []))
-    const [d, ts] = await Promise.all(tasks)
-    detail.value = d
-    setPageTitle(d.class.name)
-    if (ts) teachers.value = ts
+    detail.value = await api.get(`/classes/${props.id}`)
+    setPageTitle(detail.value.class.name)
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -75,9 +68,7 @@ async function saveEdit() {
   try {
     const updated = await api.patch(`/classes/${props.id}`, {
       name: editForm.value.name.trim(),
-      grade_level: Number(editForm.value.grade_level),
       academic_year: editForm.value.academic_year.trim(),
-      homeroom_teacher_id: editForm.value.homeroom_teacher_id || null,
     })
     detail.value.class = { ...detail.value.class, ...updated }
     editing.value = false
@@ -144,9 +135,8 @@ function fmtPct(score, full) {
     <template v-if="detail">
       <PageHeader
         :title="detail.class.name"
-        :subtitle="`${detail.class.academic_year} · ${t('classes.homeroom')}：${detail.class.homeroom_teacher || t('common.none')}`"
+        :subtitle="detail.class.academic_year"
         :meta="[
-          { label: t('classes.grade'), value: detail.class.grade_level },
           { label: '学生', value: detail.students.length },
         ]"
       >
@@ -170,17 +160,8 @@ function fmtPct(score, full) {
             <FormField :label="t('classes.name')" required>
               <input v-model="editForm.name" class="input" type="text" maxlength="60" />
             </FormField>
-            <FormField :label="t('classes.grade')">
-              <input v-model="editForm.grade_level" class="input" type="number" min="1" max="12" />
-            </FormField>
             <FormField :label="t('classes.year')">
               <input v-model="editForm.academic_year" class="input" type="text" />
-            </FormField>
-            <FormField :label="t('classes.homeroom')" optional>
-              <select v-model="editForm.homeroom_teacher_id" class="select">
-                <option :value="null">{{ t("common.none") }}</option>
-                <option v-for="tc in teachers" :key="tc.id" :value="tc.id">{{ tc.name }}</option>
-              </select>
             </FormField>
           </div>
 

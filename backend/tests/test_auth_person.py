@@ -23,6 +23,28 @@ def test_register_route_is_gone(make_client):
     assert r.status_code == 404
 
 
+def test_setup_and_bootstrap_empty_db(make_client, db):
+    client = _auth_client(make_client)
+    status = client.get("/api/auth/setup")
+    assert status.status_code == 200
+    assert status.json()["needs_bootstrap"] is True
+    assert status.json()["has_demo_account"] is False
+
+    boot = client.post("/api/auth/bootstrap")
+    assert boot.status_code == 200, boot.text
+    body = boot.json()
+    assert body["user"]["phone"] == "13800000001"
+    headers = {"Authorization": f"Bearer {body['token']}"}
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+
+    again = client.post("/api/auth/bootstrap")
+    assert again.status_code == 400
+
+    after = client.get("/api/auth/setup")
+    assert after.json()["needs_bootstrap"] is False
+    assert after.json()["has_demo_account"] is True
+
+
 def test_login_me_logout_flow(make_client, db):
     client = _auth_client(make_client)
     person = seed_person(db, "13800000000", name="李老师")

@@ -135,13 +135,7 @@ def delete_user(
     # Students are removed via /students/{id} (soft delete keeps the timeline).
     if (u.payload or {}).get("role") == "student":
         raise HTTPException(status_code=400, detail="学生账号不支持此操作")
-    # Evidence FKs (class.homeroom_person_id, enrollment.person_id) have no
-    # cascades — only hard-delete unreferenced accounts; referenced ones hit
-    # the 409 guard below.
-    referenced = (
-        db.query(Class.id).filter(Class.homeroom_person_id == user_id).first()
-        or db.query(Enrollment.id).filter(Enrollment.person_id == user_id).first()
-    )
+    referenced = db.query(Enrollment.id).filter(Enrollment.person_id == user_id).first()
     if referenced is not None:
         raise HTTPException(status_code=409, detail="该账号仍有关联记录，无法删除")
     # Login sessions go with the account (tags/events ride the ORM's

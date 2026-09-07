@@ -97,10 +97,8 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
         if not payload.get("semesters"):
             payload["semesters"] = DEFAULT_SEMESTERS
             teacher.payload = validate_person_payload("teacher", payload)
-    c71 = Class(name="七年级1班", grade_level=7,
-                academic_year=ACADEMIC_YEAR, homeroom_person_id=teacher.id)
-    c72 = Class(name="七年级2班", grade_level=7,
-                academic_year=ACADEMIC_YEAR, homeroom_person_id=teacher.id)
+    c71 = Class(name="七年级1班", academic_year=ACADEMIC_YEAR)
+    c72 = Class(name="七年级2班", academic_year=ACADEMIC_YEAR)
     db.add_all([c71, c72])
     db.flush()
 

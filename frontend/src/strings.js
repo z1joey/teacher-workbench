@@ -129,6 +129,9 @@ const messages = {
   "login.demoHint": "演示账号",
   "login.subtitle": "学校教学管理，从这里开始",
   "login.needHelp": "忘记密码请联系管理员重置。",
+  "login.noSignup": "本应用不支持自助注册，账号由管理员分配或在「数据」页加载演示数据后使用你自己的手机号登录。",
+  "login.emptyDb": "当前还没有任何教师账号。你可以一键初始化演示环境，或使用管理员后台创建账号。",
+  "login.bootstrap": "初始化演示环境",
 
   // --- 首页 ---
   "home.greeting": "你好，{name}",
@@ -165,15 +168,15 @@ const messages = {
   // --- 数据 ---
   "data.demoTitle": "演示数据",
   "data.demoSub": "用于本地试用或发布前验收：演示内容绑定当前教师账号，仅教师可操作。",
-  "data.demoBody": "包含两个班级、完整成绩曲线、家访与跟进记录。加载后会清空现有业务数据，但保留你当前登录的教师账号与密码。",
+  "data.demoBody": "包含两个班级、完整成绩曲线、家访与跟进记录。加载或清空后都会保留你当前登录的教师账号，无需重新登录。",
   "data.demoSeed": "加载演示数据",
   "data.demoSeedWarn": "这会清空现有业务数据，并写入演示用的班级、学生、考试与跟进记录。",
   "data.demoSeedDone": "演示数据已加载",
   "data.demoSeedFail": "加载演示数据失败",
-  "data.demoReset": "清空所有数据",
-  "data.demoResetWarn": "这会删除全部学生、班级、考试、成绩、跟进记录和账号。",
+  "data.demoReset": "清空业务数据",
+  "data.demoResetWarn": "这会删除全部学生、班级、考试、成绩和跟进记录，回到空白工作台。",
   "data.demoResetConfirm": "清空数据",
-  "data.demoResetDone": "数据已清空",
+  "data.demoResetDone": "业务数据已清空",
   "data.demoResetFail": "清空失败",
 
   // --- 事件（普通事件） ---

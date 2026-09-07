@@ -83,8 +83,7 @@ def _seed_student_with_evidence(db):
     teacher = seed_person(db, "13900000001", name="陈老师")
     seed_token(db, teacher, TEACHER_TOKEN)
     student = seed_person(db, None, role="student", name="林小明", admission_no="S901")
-    klass = Class(name="七年级1班", grade_level=7, academic_year="2025/2026",
-                  homeroom_person_id=teacher.id)
+    klass = Class(name="七年级1班", academic_year="2025/2026")
     db.add(klass)
     db.flush()
     db.add(Enrollment(person_id=student.id, class_id=klass.id, valid_from=date(2025, 9, 1)))

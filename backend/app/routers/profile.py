@@ -8,6 +8,7 @@ from ..eventing import MANUAL_EVENT_TYPES
 from ..models import Class, Enrollment, Event, Person
 from ..payloads import validate_person_payload
 from ..semesters import default_semesters, ensure_teacher_semesters
+from ..unassigned import is_unassigned_class
 
 router = APIRouter(tags=["profile"])
 
@@ -46,14 +47,10 @@ def get_profile(
     db: Session = Depends(get_db),
     person: Person = Depends(get_current_person),
 ):
-    classes = (
-        db.query(Class)
-        .filter(Class.homeroom_person_id == person.id)
-        .order_by(Class.name)
-        .all()
-    )
-    out_classes = []
-    for c in classes:
+    classes = []
+    for c in db.query(Class).order_by(Class.name).all():
+        if is_unassigned_class(c):
+            continue
         students = (
             db.query(Person)
             .join(Enrollment, Enrollment.person_id == Person.id)
@@ -61,7 +58,7 @@ def get_profile(
             .order_by(Person.payload["admission_no"].as_string())
             .all()
         )
-        out_classes.append(
+        classes.append(
             {
                 "id": str(c.id),
                 "name": c.name,
@@ -93,7 +90,7 @@ def get_profile(
     }
     return {
         "user": user_out(person),
-        "classes": out_classes,
+        "classes": classes,
         "stats": stats,
         "semesters": _semesters_for_person(person),
     }

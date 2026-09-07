@@ -65,7 +65,7 @@ def _headers(db, person: Person, token: str = "t" * 64) -> dict:
 
 
 def _seed_class(db, name: str = "七年级1班") -> Class:
-    c = Class(name=name, grade_level=7, academic_year="2026")
+    c = Class(name=name, academic_year="2026")
     db.add(c)
     db.flush()
     return c

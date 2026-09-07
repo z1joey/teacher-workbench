@@ -107,7 +107,7 @@ def test_roster_import_to_unassigned_by_default(client, db):
 
 
 def test_roster_import_into_existing_class(client, db):
-    klass = Class(name="707班", grade_level=7, academic_year="2025")
+    klass = Class(name="707班", academic_year="2025")
     db.add(klass)
     db.commit()
 
@@ -120,7 +120,7 @@ def test_roster_import_into_existing_class(client, db):
 
 
 def test_roster_import_updates_existing_without_moving_class(client, db):
-    old = Class(name="七年级1班", grade_level=7, academic_year="2025/2026")
+    old = Class(name="七年级1班", academic_year="2025/2026")
     db.add(old)
     db.flush()
     existing = _student(db, "吴梓涵", "2025070701", gender="M")
@@ -140,8 +140,8 @@ def test_roster_import_updates_existing_without_moving_class(client, db):
 
 
 def test_roster_import_with_class_id_moves_existing(client, db):
-    old = Class(name="七年级1班", grade_level=7, academic_year="2025/2026")
-    target = Class(name="707班", grade_level=7, academic_year="2025")
+    old = Class(name="七年级1班", academic_year="2025/2026")
+    target = Class(name="707班", academic_year="2025")
     db.add_all([old, target])
     db.flush()
     existing = _student(db, "吴梓涵", "2025070701")
@@ -208,7 +208,7 @@ def test_roster_import_without_header_fails(client, db):
 
 
 def test_roster_export_roundtrip(client, db):
-    klass = Class(name="707班", grade_level=7, academic_year="2025")
+    klass = Class(name="707班", academic_year="2025")
     db.add(klass)
     db.flush()
     _student(db, "吴梓涵", "2025070701", gender="F")
@@ -287,10 +287,17 @@ def test_demo_seed_requires_teacher(client, db):
 def test_demo_reset_clears_database(client, db):
     seed_res = client.post("/api/data/demo/seed", headers=AUTH)
     assert seed_res.status_code == 200
-    assert _students(db)
+    assert len(_students(db)) >= 20
 
     reset_res = client.post("/api/data/demo/reset", headers=AUTH)
     assert reset_res.status_code == 200
-    assert reset_res.json()["ok"] is True
-    assert db.query(Person).count() == 0
-    assert db.query(Class).count() == 0
+    body = reset_res.json()
+    assert body["ok"] is True
+    assert body["teacher"]["phone"] == "13800000001"
+    assert len(_students(db)) == 0
+    assert db.query(Event).count() == 0
+    assert db.query(Class).filter(Class.name == "七年级1班").count() == 0
+    assert db.query(Person).filter(
+        Person.payload["role"].as_string() == "teacher"
+    ).count() == 1
+    assert db.query(AuthSession).filter(AuthSession.token == TEACHER_TOKEN).count() == 1

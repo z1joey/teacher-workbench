@@ -5,7 +5,7 @@ import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
-import api, { downloadFile, setToken, triggerDownload, uploadFile } from "../api"
+import api, { downloadFile, triggerDownload, uploadFile } from "../api"
 import { ask } from "../confirm"
 import { notify } from "../feedback"
 import { friendlyError, t } from "../strings"
@@ -101,11 +101,6 @@ function targetClassLabel(result) {
 const seeding = ref(false)
 const resetting = ref(false)
 
-function goLogin() {
-  setToken(null)
-  window.location.href = `${import.meta.env.BASE_URL}login`
-}
-
 async function loadDemoData() {
   const ok = await ask({
     title: t("data.demoSeed"),
@@ -135,8 +130,8 @@ async function resetApp() {
     title: t("data.demoReset"),
     message: t("data.demoResetWarn"),
     consequences: [
-      "所有学生、班级、考试、成绩、跟进记录都会消失。",
-      "账号也会一并清空，你需要重新登录或加载演示数据。",
+      "所有学生、班级、考试、成绩、跟进记录都会被清空。",
+      "你当前登录的教师账号会保留，无需重新登录。",
     ],
     confirmLabel: t("data.demoReset"),
     confirmWord: t("data.demoResetConfirm"),
@@ -146,7 +141,10 @@ async function resetApp() {
   try {
     await api.post("/data/demo/reset")
     notify({ tone: "ok", title: t("data.demoResetDone"), timeout: 4000 })
-    goLogin()
+    rosterResult.value = null
+    rosterClassId.value = ""
+    exportClassId.value = ""
+    await load()
   } catch (e) {
     notify({ tone: "error", title: t("data.demoResetFail"), detail: friendlyError(e) })
   } finally {

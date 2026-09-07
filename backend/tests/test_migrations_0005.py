@@ -178,8 +178,7 @@ def test_upgrade_rebuilds_event_schema(migrated):
 
         # --- class + enrollment (remapped FKs, dates as-is) ---------------
         cls = sess.query(Class).one()
-        assert (cls.name, cls.grade_level, cls.academic_year) == ("七年级1班", 7, "2025/2026")
-        assert cls.homeroom_person_id == teacher.id      # homeroom remap
+        assert (cls.name, cls.academic_year) == ("七年级1班", "2025/2026")
 
         enrolls = sess.query(Enrollment).all()
         assert len(enrolls) == 2

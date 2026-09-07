@@ -16,7 +16,6 @@ const router = useRouter()
 
 const classes = ref([])
 const unassigned = ref([])
-const teachers = ref([])
 const loading = ref(true)
 const error = ref("")
 
@@ -29,7 +28,7 @@ const EVENTS_VISIBLE = 3
 const expandedEvents = ref({})
 
 function emptyForm() {
-  return { name: "", grade_level: 7, academic_year: defaultYear(), homeroom_teacher_id: null }
+  return { name: "", academic_year: defaultYear() }
 }
 
 function defaultYear() {
@@ -42,13 +41,11 @@ async function load() {
   loading.value = true
   error.value = ""
   try {
-    const [cs, ts, students] = await Promise.all([
+    const [cs, students] = await Promise.all([
       api.get("/classes"),
-      api.get("/teachers"),
       api.get("/students"),
     ])
     classes.value = cs
-    teachers.value = ts
     unassigned.value = students.filter((s) => s.status === "active" && !s.class)
   } catch (e) {
     error.value = friendlyError(e)
@@ -75,9 +72,7 @@ async function createClass() {
   try {
     await api.post("/classes", {
       name: createForm.value.name.trim(),
-      grade_level: Number(createForm.value.grade_level),
       academic_year: createForm.value.academic_year.trim(),
-      homeroom_teacher_id: createForm.value.homeroom_teacher_id || null,
     })
     createForm.value = emptyForm()
     showCreate.value = false
@@ -168,25 +163,8 @@ const hasContent = computed(() => classes.value.length > 0 || unassigned.value.l
           <FormField :label="t('classes.name')" required>
             <input v-model="createForm.name" class="input" type="text" maxlength="60" />
           </FormField>
-          <FormField :label="t('classes.grade')">
-            <input
-              v-model="createForm.grade_level"
-              class="input"
-              type="number"
-              min="1"
-              max="12"
-            />
-          </FormField>
           <FormField :label="t('classes.year')" hint="跨年的学年，比如 2025/2026">
             <input v-model="createForm.academic_year" class="input" type="text" />
-          </FormField>
-          <FormField :label="t('classes.homeroom')" optional>
-            <select v-model="createForm.homeroom_teacher_id" class="select">
-              <option :value="null">{{ t("common.none") }}</option>
-              <option v-for="teacher in teachers" :key="teacher.id" :value="teacher.id">
-                {{ teacher.name }}
-              </option>
-            </select>
           </FormField>
         </div>
 

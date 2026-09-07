@@ -84,9 +84,9 @@ function fmtDate(ts) {
             <span class="pill pill--count">{{ data.follow_ups.length }}</span>
           </div>
           <div class="card__body card__body--tight">
-            <p v-if="!data.follow_ups.length" class="state__desc" style="padding: 12px 8px; text-align: center">
-              {{ t("home.noFollowUps") }}
-            </p>
+            <div v-if="!data.follow_ups.length" class="state state--in-card">
+              <p class="state__desc">{{ t("home.noFollowUps") }}</p>
+            </div>
             <div
               v-for="f in data.follow_ups"
               :key="`${f.student_id}-${f.occurred_at}`"

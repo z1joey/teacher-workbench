@@ -176,7 +176,7 @@ async function resetDb() {
     message: t("admin.resetDbWarn"),
     consequences: [
       "所有学生、班级、考试、成绩、跟进记录都会消失。",
-      "账号也会一并清空，你需要重新注册。",
+      "账号也会一并清空，你需要重新登录或初始化演示环境。",
     ],
     confirmLabel: t("admin.resetDb"),
     // 极端操作：必须手动输入名称，防止手滑

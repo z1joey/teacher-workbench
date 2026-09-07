@@ -14,6 +14,8 @@ from ..database import get_db
 from ..deps import bearer_scheme, get_current_person
 from ..models import AuthSession, Person
 from ..security import new_token, verify_password
+from ..seed import seed
+from ..unassigned import ensure_unassigned_class
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -42,6 +44,37 @@ def create_session(db: Session, person_id) -> str:
     token = new_token()
     db.add(AuthSession(token=token, person_id=person_id))
     return token
+
+
+@router.get("/setup")
+def setup_status(db: Session = Depends(get_db)):
+    """Tell the login page whether first-time bootstrap is available."""
+    role = Person.payload["role"].as_string()
+    teachers = db.query(Person).filter(role == "teacher").count()
+    demo = db.query(Person).filter(Person.phone == "13800000001").first()
+    return {
+        "needs_bootstrap": teachers == 0,
+        "has_demo_account": demo is not None,
+    }
+
+
+@router.post("/bootstrap")
+def bootstrap_demo(db: Session = Depends(get_db)):
+    """First-run only: load CLI demo data and sign in as the demo teacher."""
+    role = Person.payload["role"].as_string()
+    if db.query(Person).filter(role == "teacher").count() > 0:
+        raise HTTPException(status_code=400, detail="已有教师账号，无法重复初始化")
+    try:
+        ensure_unassigned_class(db)
+        seed(db)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"初始化失败: {exc}") from exc
+    teacher = db.query(Person).filter(Person.phone == "13800000001").one()
+    token = create_session(db, teacher.id)
+    db.commit()
+    return {"token": token, "user": user_out(teacher)}
 
 
 @router.post("/login")

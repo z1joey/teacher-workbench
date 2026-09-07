@@ -34,17 +34,13 @@ router = APIRouter(
 
 def class_out(
     c: Class,
-    teacher: Person | None,
     students: list[Person],
     visited: set[uuid.UUID] | None = None,
 ) -> dict:
     return {
         "id": str(c.id),
         "name": c.name,
-        "grade_level": c.grade_level,
         "academic_year": c.academic_year,
-        "homeroom_teacher_id": str(c.homeroom_person_id) if c.homeroom_person_id else None,
-        "homeroom_teacher": teacher.name if teacher else None,
         "student_count": len(students),
         "students": [
             {
@@ -175,17 +171,7 @@ def current_students(db: Session, class_id: uuid.UUID) -> list[Person]:
 
 class ClassIn(BaseModel):
     name: str = Field(min_length=1, max_length=50)
-    grade_level: int = Field(ge=1, le=12)
     academic_year: str = Field(min_length=4, max_length=20)
-    homeroom_teacher_id: uuid.UUID | None = None
-
-
-def _validate_homeroom(db: Session, teacher_id: uuid.UUID | None) -> None:
-    if teacher_id is None:
-        return
-    u = db.get(Person, teacher_id)
-    if u is None or u.role != "teacher":
-        raise HTTPException(status_code=400, detail="teacher not found")
 
 
 def _check_duplicate(db: Session, name: str, academic_year: str,
@@ -200,14 +186,13 @@ def _check_duplicate(db: Session, name: str, academic_year: str,
 @router.get("/classes")
 def list_classes(db: Session = Depends(get_db)):
     out = []
-    for c in db.query(Class).order_by(Class.grade_level, Class.name).all():
+    for c in db.query(Class).order_by(Class.name).all():
         if is_unassigned_class(c):
             continue
-        teacher = db.get(Person, c.homeroom_person_id) if c.homeroom_person_id else None
         students = current_students(db, c.id)
         ids = [s.id for s in students]
         visited = _visited_ids(db, ids)
-        base = class_out(c, teacher, students, visited)
+        base = class_out(c, students, visited)
         base["avg_trend"] = _avg_trend(db, c.id)
         base["recent_events"] = _recent_events(db, ids)
         out.append(base)
@@ -220,18 +205,14 @@ def create_class(
     db: Session = Depends(get_db),
     current: Person = Depends(get_current_person),
 ):
-    _validate_homeroom(db, body.homeroom_teacher_id)
     _check_duplicate(db, body.name.strip(), body.academic_year.strip())
     c = Class(
         name=body.name.strip(),
-        grade_level=body.grade_level,
         academic_year=body.academic_year.strip(),
-        homeroom_person_id=body.homeroom_teacher_id,
     )
     db.add(c)
     db.commit()
-    teacher = db.get(Person, c.homeroom_person_id) if c.homeroom_person_id else None
-    return class_out(c, teacher, [])
+    return class_out(c, [])
 
 
 @router.get("/classes/{class_id}")
@@ -239,7 +220,6 @@ def get_class(class_id: uuid.UUID, db: Session = Depends(get_db)):
     c = db.get(Class, class_id)
     if c is None or is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
-    teacher = db.get(Person, c.homeroom_person_id) if c.homeroom_person_id else None
 
     # per-sitting, per-subject class averages; roster attribution uses the
     # enrollment valid at each exam date (same rule as the exam averages page)
@@ -273,10 +253,7 @@ def get_class(class_id: uuid.UUID, db: Session = Depends(get_db)):
         "class": {
             "id": str(c.id),
             "name": c.name,
-            "grade_level": c.grade_level,
             "academic_year": c.academic_year,
-            "homeroom_teacher_id": str(c.homeroom_person_id) if c.homeroom_person_id else None,
-            "homeroom_teacher": teacher.name if teacher else None,
         },
         "students": [
             {"id": str(s.id), "name": s.name,
@@ -320,15 +297,11 @@ def update_class(
     c = db.get(Class, class_id)
     if c is None or is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
-    _validate_homeroom(db, body.homeroom_teacher_id)
     _check_duplicate(db, body.name.strip(), body.academic_year.strip(), exclude_id=class_id)
     c.name = body.name.strip()
-    c.grade_level = body.grade_level
     c.academic_year = body.academic_year.strip()
-    c.homeroom_person_id = body.homeroom_teacher_id
     db.commit()
-    teacher = db.get(Person, c.homeroom_person_id) if c.homeroom_person_id else None
-    return class_out(c, teacher, current_students(db, class_id))
+    return class_out(c, current_students(db, class_id))
 
 
 @router.delete("/classes/{class_id}")

@@ -31,7 +31,6 @@ def ensure_unassigned_class(db: Session) -> Class:
     if cls is None:
         cls = Class(
             name=UNASSIGNED_CLASS_NAME,
-            grade_level=0,
             academic_year=UNASSIGNED_ACADEMIC_YEAR,
         )
         db.add(cls)

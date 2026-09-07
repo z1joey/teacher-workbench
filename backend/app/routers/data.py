@@ -151,6 +151,29 @@ def _teacher_snapshot(user: Person) -> dict:
     }
 
 
+def _rebind_teacher_workspace(
+    db: Session,
+    user: Person,
+    token: str,
+    *,
+    load_seed: bool,
+) -> Person:
+    """Wipe business data, keep the current teacher account and bearer session."""
+    teacher_snap = _teacher_snapshot(user)
+    _wipe_db(db.get_bind())
+    db.rollback()
+    db.expire_all()
+    db.expunge(user)
+    ensure_unassigned_class(db)
+    teacher = Person(**teacher_snap)
+    db.add(teacher)
+    db.flush()
+    if load_seed:
+        seed(db, teacher=teacher, include_admin=False)
+    db.add(AuthSession(token=token, person_id=teacher.id))
+    return teacher
+
+
 @router.post("/data/demo/seed")
 def load_demo_data(
     db: Session = Depends(get_db),
@@ -161,19 +184,10 @@ def load_demo_data(
     _require_teacher(user)
     if credentials is None:
         raise HTTPException(status_code=401, detail="未登录")
-    token = credentials.credentials
-    teacher_snap = _teacher_snapshot(user)
     try:
-        _wipe_db(db.get_bind())
-        db.rollback()
-        db.expire_all()
-        db.expunge(user)
-        ensure_unassigned_class(db)
-        teacher = Person(**teacher_snap)
-        db.add(teacher)
-        db.flush()
-        seed(db, teacher=teacher, include_admin=False)
-        db.add(AuthSession(token=token, person_id=teacher.id))
+        teacher = _rebind_teacher_workspace(
+            db, user, credentials.credentials, load_seed=True
+        )
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -188,16 +202,24 @@ def load_demo_data(
 def reset_app_data(
     db: Session = Depends(get_db),
     user: Person = Depends(get_current_person),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ):
-    """Drop all tables and recreate an empty schema."""
+    """Clear all business data but keep the current teacher signed in."""
     _require_teacher(user)
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="未登录")
     try:
-        _wipe_db(db.get_bind())
-        db.rollback()
-        db.expire_all()
+        teacher = _rebind_teacher_workspace(
+            db, user, credentials.credentials, load_seed=False
+        )
+        db.commit()
     except Exception as exc:
+        db.rollback()
         raise HTTPException(status_code=500, detail=f"重置失败: {exc}") from exc
-    return {"ok": True}
+    return {
+        "ok": True,
+        "teacher": {"name": teacher.name, "phone": teacher.phone},
+    }
 
 
 @router.post("/data/import/roster")

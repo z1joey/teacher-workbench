@@ -55,10 +55,8 @@ def _headers(db, person: Person, token: str = "t" * 64) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _seed_class(db, name: str = "七年级1班", grade_level: int = 7,
-                academic_year: str = "2026", homeroom: Person | None = None) -> Class:
-    c = Class(name=name, grade_level=grade_level, academic_year=academic_year,
-              homeroom_person_id=homeroom.id if homeroom else None)
+def _seed_class(db, name: str = "七年级1班", academic_year: str = "2026") -> Class:
+    c = Class(name=name, academic_year=academic_year)
     db.add(c)
     db.flush()
     return c
@@ -521,42 +519,32 @@ def test_delete_exam_keeps_score_events(make_client, db, headers):
 
 def test_class_crud_contract(make_client, db, headers):
     client = make_client(classes_router.router)
-    teacher = _seed_teacher(db, phone="13800000002", name="李老师")
     student = _seed_person(db, "张一", "S1")
     db.commit()
 
     r = client.post("/api/classes", json={
-        "name": "七年级1班", "grade_level": 7, "academic_year": "2026",
-        "homeroom_teacher_id": str(teacher.id),
+        "name": "七年级1班", "academic_year": "2026",
     }, headers=headers)
     assert r.status_code == 201, r.text
     data = r.json()
     assert data == {
-        "id": data["id"], "name": "七年级1班", "grade_level": 7,
-        "academic_year": "2026", "homeroom_teacher_id": str(teacher.id),
-        "homeroom_teacher": "李老师", "student_count": 0, "students": [],
+        "id": data["id"], "name": "七年级1班",
+        "academic_year": "2026", "student_count": 0, "students": [],
     }
 
     dup = client.post("/api/classes", json={
-        "name": "七年级1班", "grade_level": 7, "academic_year": "2026",
+        "name": "七年级1班", "academic_year": "2026",
     }, headers=headers)
     assert dup.status_code == 409
     assert dup.json()["detail"] == "该学年已存在同名班级"
 
-    bad_teacher = client.post("/api/classes", json={
-        "name": "七年级2班", "grade_level": 7, "academic_year": "2026",
-        "homeroom_teacher_id": str(student.id),  # a student is not a teacher
-    }, headers=headers)
-    assert bad_teacher.status_code == 400
-    assert bad_teacher.json()["detail"] == "teacher not found"
-
     _enroll(db, student, db.get(Class, uuid.UUID(data["id"])))
     db.commit()
     patched = client.patch(f"/api/classes/{data['id']}", json={
-        "name": "七年级1班", "grade_level": 8, "academic_year": "2026",
+        "name": "七年级1班", "academic_year": "2026/2027",
     }, headers=headers)
     assert patched.status_code == 200
-    assert patched.json()["grade_level"] == 8
+    assert patched.json()["academic_year"] == "2026/2027"
     assert patched.json()["student_count"] == 1
 
     conflict = client.delete(f"/api/classes/{data['id']}", headers=headers)
@@ -564,7 +552,7 @@ def test_class_crud_contract(make_client, db, headers):
     assert conflict.json()["detail"] == "班级内仍有学生或历史记录，无法删除"
 
     empty = client.post("/api/classes", json={
-        "name": "七年级3班", "grade_level": 7, "academic_year": "2026",
+        "name": "七年级3班", "academic_year": "2026",
     }, headers=headers)
     assert empty.status_code == 201
     gone = client.delete(f"/api/classes/{empty.json()['id']}", headers=headers)

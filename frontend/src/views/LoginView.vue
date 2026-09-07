@@ -1,7 +1,7 @@
 <script setup>
 // 登录：错误就地说明怎么改，而不是弹出一个看不懂的提示。
-// 单教师应用：账号来自初始化数据，不提供自助注册。
-import { ref } from "vue"
+// 单教师应用：不提供自助注册；空库时可一键初始化演示环境。
+import { onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import FormField from "../components/FormField.vue"
@@ -14,6 +14,15 @@ const form = ref({ phone: "", password: "" })
 const error = ref("")
 const busy = ref(false)
 const showPassword = ref(false)
+const setup = ref(null)
+
+onMounted(async () => {
+  try {
+    setup.value = await api.get("/auth/setup")
+  } catch {
+    setup.value = null
+  }
+})
 
 async function submit() {
   error.value = ""
@@ -36,6 +45,21 @@ async function submit() {
 function fillDemo() {
   form.value.phone = "13800000001"
   form.value.password = "123456"
+}
+
+async function bootstrap() {
+  error.value = ""
+  busy.value = true
+  try {
+    const res = await api.post("/auth/bootstrap")
+    setToken(res.token)
+    await loadMe()
+    router.push("/")
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -93,12 +117,29 @@ function fillDemo() {
         </button>
       </form>
 
-      <div class="auth-note">
-        <span class="row nowrap" style="gap: 6px">
-          <Icon name="info" :size="14" />
-          {{ t("login.needHelp") }}
-        </span>
-        <button class="btn btn--sm nowrap" @click="fillDemo">
+      <div class="auth-note stack" style="gap: 10px">
+        <p v-if="setup?.needs_bootstrap" class="muted" style="margin: 0">
+          {{ t("login.emptyDb") }}
+        </p>
+        <p v-else class="muted" style="margin: 0">
+          {{ t("login.noSignup") }}
+        </p>
+
+        <button
+          v-if="setup?.needs_bootstrap"
+          type="button"
+          class="btn btn--primary btn--sm btn--block"
+          :disabled="busy"
+          @click="bootstrap"
+        >
+          <Icon name="refresh" :size="14" /> {{ t("login.bootstrap") }}
+        </button>
+        <button
+          v-else-if="setup?.has_demo_account"
+          type="button"
+          class="btn btn--sm nowrap"
+          @click="fillDemo"
+        >
           {{ t("login.demoHint") }}：13800000001 / 123456
         </button>
       </div>
