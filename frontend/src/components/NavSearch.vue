@@ -15,12 +15,14 @@ const cursor = ref(-1)
 const matches = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return []
+  const ungrouped = t("students.ungrouped").toLowerCase()
   return searchStudents.value
     .filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.admission_no.toLowerCase().includes(q) ||
-        (s.class && s.class.name.toLowerCase().includes(q))
+        (s.class && s.class.name.toLowerCase().includes(q)) ||
+        (!s.class && ungrouped.includes(q))
     )
     .slice(0, 7)
 })
