@@ -190,6 +190,22 @@ def test_create_exam_creates_event_with_class_attendees(make_client, db, headers
     # the per-subject full_score config round-trips through the registry
     assert exam.payload == {"full_scores": {"语文": 120.0, "数学": 100.0}}
 
+    # per-subject color is optional and round-trips next to full_scores
+    colored = client.post(
+        "/api/exams",
+        json={"name": "加试", "exam_date": "2026-07-01",
+              "subjects": [{"subject": "物理", "full_score": 100, "color": "#6D5BB8"}]},
+        headers=headers,
+    )
+    assert colored.status_code == 201, colored.text
+    colored_exam = db.get(Event, uuid.UUID(colored.json()["id"]))
+    assert colored_exam.payload == {
+        "full_scores": {"物理": 100.0},
+        "subject_colors": {"物理": "#6d5bb8"},
+    }
+    listed = client.get(f"/api/exams/{colored.json()['id']}", headers=headers).json()
+    assert listed["subjects"][0]["color"] == "#6d5bb8"
+
     # duplicate name on the same date → 409, same Chinese message
     dup = client.post(
         "/api/exams",
@@ -240,6 +256,30 @@ def test_exam_list_and_detail_shapes(make_client, db, headers):
     missing = client.get(f"/api/exams/{uuid.uuid4()}", headers=headers)
     assert missing.status_code == 404
     assert missing.json()["detail"] == "exam not found"
+
+
+def test_create_exam_rejects_duplicate_subjects(make_client, db, headers):
+    client = make_client(exams_router.router)
+    r = client.post(
+        "/api/exams",
+        json={"name": "期中考试", "exam_date": "2026-05-20",
+              "subjects": [{"subject": "语文", "full_score": 100},
+                           {"subject": "语文", "full_score": 120}]},
+        headers=headers,
+    )
+    assert r.status_code == 400
+    assert r.json()["detail"] == "科目不能重复"
+
+
+def test_create_exam_rejects_invalid_color(make_client, db, headers):
+    client = make_client(exams_router.router)
+    r = client.post(
+        "/api/exams",
+        json={"name": "期中考试", "exam_date": "2026-05-20",
+              "subjects": [{"subject": "语文", "full_score": 100, "color": "red"}]},
+        headers=headers,
+    )
+    assert r.status_code == 422
 
 
 # ---------------------------------------------------------------------------

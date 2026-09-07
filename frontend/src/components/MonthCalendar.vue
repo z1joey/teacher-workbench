@@ -2,10 +2,12 @@
 // 首页月历：考试与跟进记录放在一起看。
 // 有记录的日期可以点开；弹窗里 Esc / 点遮罩 / 点取消都能安全退出（用户控制与自由）。
 import { computed, nextTick, onMounted, ref } from "vue"
+import { useRouter } from "vue-router"
 import Icon from "./Icon.vue"
 import api from "../api"
 import { ask } from "../confirm"
 import { runUndoable } from "../feedback"
+import { isEventClickable, openEvent } from "../eventNav"
 import {
   dateLocale,
   describeEvent,
@@ -24,6 +26,7 @@ const todayISO = isoOf(mounted.getFullYear(), mounted.getMonth() + 1, mounted.ge
 const year = ref(mounted.getFullYear())
 const month = ref(mounted.getMonth() + 1) // 1-12
 const items = ref([])
+const nearTermItems = ref([])
 const loading = ref(true)
 const loadError = ref("")
 const selectedDate = ref("")
@@ -47,15 +50,59 @@ function emptyForm() {
   }
 }
 
+const router = useRouter()
+
 function isoOf(y, m, d) {
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`
+}
+
+function startOfWeek(d) {
+  const copy = new Date(d)
+  copy.setHours(12, 0, 0, 0)
+  copy.setDate(copy.getDate() - ((copy.getDay() + 6) % 7))
+  return copy
+}
+
+function addDays(d, days) {
+  const copy = new Date(d)
+  copy.setDate(copy.getDate() + days)
+  return copy
+}
+
+function weekDates(start) {
+  const dates = []
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(start, i)
+    dates.push(isoOf(d.getFullYear(), d.getMonth() + 1, d.getDate()))
+  }
+  return dates
+}
+
+async function loadNearTerm() {
+  const start = startOfWeek(new Date())
+  const seen = new Set()
+  const fetches = []
+  for (let i = 0; i < 14; i++) {
+    const d = addDays(start, i)
+    const y = d.getFullYear()
+    const m = d.getMonth() + 1
+    const key = `${y}-${m}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    fetches.push(api.get(`/calendar?year=${y}&month=${m}`))
+  }
+  const results = await Promise.all(fetches)
+  nearTermItems.value = results.flatMap((r) => r.items)
 }
 
 async function load() {
   loading.value = true
   loadError.value = ""
   try {
-    const data = await api.get(`/calendar?year=${year.value}&month=${month.value}`)
+    const [data] = await Promise.all([
+      api.get(`/calendar?year=${year.value}&month=${month.value}`),
+      loadNearTerm(),
+    ])
     items.value = data.items
   } catch (e) {
     loadError.value = friendlyError(e)
@@ -92,6 +139,57 @@ function selectDay(c) {
 }
 
 onMounted(load)
+
+const thisWeekStart = computed(() => startOfWeek(new Date(`${todayISO}T12:00:00`)))
+
+function itemsInDates(dates) {
+  const allowed = new Set(dates)
+  const seen = new Set()
+  const list = []
+  for (const it of nearTermItems.value) {
+    if (!allowed.has(it.date)) continue
+    const key = `${it.kind}-${it.id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    list.push(it)
+  }
+  return list.sort((a, b) => a.date.localeCompare(b.date))
+}
+
+const nearTermBlocks = computed(() =>
+  [
+    { key: "this", label: t("home.calNotifyThisWeek"), dates: weekDates(thisWeekStart.value) },
+    {
+      key: "next",
+      label: t("home.calNotifyNextWeek"),
+      dates: weekDates(addDays(thisWeekStart.value, 7)),
+    },
+  ]
+    .map((block) => ({ ...block, items: itemsInDates(block.dates) }))
+    .filter((block) => block.items.length > 0)
+)
+
+function notifyDateLabel(iso) {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale(), {
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+  })
+}
+
+function calendarItemAsEvent(it) {
+  if (it.kind === "exam") return { id: it.id, event_type: "exam", title: it.name }
+  return {
+    id: it.id,
+    event_type: it.event_type,
+    student_id: it.student_id,
+    payload: it.payload,
+  }
+}
+
+function openCalendarItem(it) {
+  openEvent(router, calendarItemAsEvent(it))
+}
 
 const isCurrentMonth = computed(
   () => year.value === mounted.getFullYear() && month.value === mounted.getMonth() + 1
@@ -322,6 +420,42 @@ async function deleteRecord(it) {
           <span class="cal-legend__item">
             <i class="cal-legend__swatch" style="background: var(--primary)" /> {{ t("home.calLegendRecord") }}
           </span>
+        </div>
+
+        <div v-if="nearTermBlocks.length" class="cal-notify">
+          <section v-for="block in nearTermBlocks" :key="block.key" class="cal-notify__block">
+            <header class="cal-notify__head">
+              <span class="cal-notify__label">{{ block.label }}</span>
+              <span class="pill pill--muted pill--count">{{ block.items.length }}</span>
+            </header>
+            <div class="cal-notify__list">
+              <button
+                v-for="it in block.items"
+                :key="`${it.kind}-${it.id}`"
+                type="button"
+                class="cal-notify__item"
+                :class="{ 'cal-notify__item--static': !isEventClickable(calendarItemAsEvent(it)) }"
+                @click="openCalendarItem(it)"
+              >
+                <span
+                  class="feed__dot cal-notify__dot"
+                  :style="{ background: it.kind === 'exam' ? '#b42318' : eventTypeColor(it.event_type) }"
+                >
+                  <Icon :name="it.kind === 'exam' ? 'clipboard' : eventTypeIcon(it.event_type)" :size="12" />
+                </span>
+                <span class="cal-notify__text">
+                  <span class="cal-notify__when">{{ notifyDateLabel(it.date) }}</span>
+                  <template v-if="it.kind === 'exam'"> · {{ it.name }}</template>
+                  <template v-else>
+                    · {{ it.student_name }} · {{ eventTypeLabel(it.event_type) }}
+                    <span v-if="describeEvent(it.event_type, it.payload)" class="cal-notify__sub">
+                      · {{ describeEvent(it.event_type, it.payload) }}
+                    </span>
+                  </template>
+                </span>
+              </button>
+            </div>
+          </section>
         </div>
 
         <!-- 选中日期的明细 -->

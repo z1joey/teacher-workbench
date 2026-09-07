@@ -23,22 +23,29 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .database import Base, SessionLocal, engine
+from .unassigned import ensure_unassigned_class
 from .eventing import create_event
 from .models import Class, Enrollment, Event, Person, Tag, student_guardians
 from .payloads import validate_person_payload
 from .routers.students import _guardians_of, _find_or_create_guardian
 from .security import hash_password
+from .semesters import default_semesters
 
 random.seed(2026)
 
 ACADEMIC_YEAR = "2025/2026"
 ENROLL_DATE = date(2025, 9, 1)
 
-# 初中全科：科目 key 与满分（语数英 120，其余 100）
+# 初中全科：科目 key 与满分（语数英 120，其余 100），颜色与前端目录一致
 SUBJECT_FULL_SCORES = {
     "chinese": 120.0, "math": 120.0, "english": 120.0,
     "politics": 100.0, "history": 100.0, "geography": 100.0,
     "biology": 100.0, "physics": 100.0, "chemistry": 100.0,
+}
+SUBJECT_COLORS = {
+    "chinese": "#b98a2e", "math": "#2e6ba8", "english": "#2f7d4f",
+    "politics": "#c2608f", "history": "#8c564b", "geography": "#2b8a8a",
+    "biology": "#5a8f29", "physics": "#6d5bb8", "chemistry": "#b42318",
 }
 ALL_SUBJECTS = list(SUBJECT_FULL_SCORES)
 
@@ -55,6 +62,9 @@ NAMES_7_2 = [
 ]
 
 EXAM_HOUR = time(9, 0)  # sittings and their score rows are dated the exam day 09:00
+
+# Demo "today" is Sep 2026 — three academic years of 9–1 / 2–7 semesters.
+DEFAULT_SEMESTERS = default_semesters(date(2026, 9, 7))
 
 
 def dt(d: date, t: time) -> datetime:
@@ -73,7 +83,7 @@ def seed(db: Session) -> None:
                    payload=validate_person_payload("admin", {}))
     chen = Person(name="陈老师", phone="13800000001", email="chen@school.edu",
                   password_hash=hash_password("123456"),
-                  payload=validate_person_payload("teacher", {}))
+                  payload=validate_person_payload("teacher", {"semesters": DEFAULT_SEMESTERS}))
     # single-teacher product: 陈老师 is THE teacher (the signed-in 班主任);
     # no second teacher account exists
     db.add_all([admin, chen])
@@ -164,7 +174,8 @@ def seed(db: Session) -> None:
         exams_by_key[exam_key] = create_event(
             db, event_type="exam", title=exam_name,
             start_time=dt(exam_date, EXAM_HOUR),
-            payload={"full_scores": dict(SUBJECT_FULL_SCORES)},
+            payload={"full_scores": dict(SUBJECT_FULL_SCORES),
+                     "subject_colors": dict(SUBJECT_COLORS)},
             attendee_ids=[chen.id, *[s.id for s in students]],
         )
     db.flush()
@@ -318,6 +329,8 @@ def run() -> None:
     Base.metadata.create_all(engine)
     db = SessionLocal()
     try:
+        ensure_unassigned_class(db)
+        db.commit()
         seed(db)
         db.commit()
         role_of = Person.payload["role"].as_string()

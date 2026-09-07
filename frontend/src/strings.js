@@ -89,12 +89,14 @@ const messages = {
 
   // --- 班级 ---
   "classes.title": "班级",
-  "classes.subtitle": "全校班级与学生名单",
+  "classes.subtitle": "班均与最近动态，点进班级查看完整名单",
   "classes.homeroom": "班主任",
   "classes.noStudents": "这个班级还没有学生",
   "classes.avgLabel": "最近一次班均",
   "classes.visitedYes": "已家访",
   "classes.visitedNo": "未家访",
+  "classes.visitedSummary": "{n}/{total} 已家访",
+  "classes.recentEvents": "最近事件",
   "classes.birthday": "生日",
   "classes.showAllStudents": "显示全部学生",
   "classes.showAllEvents": "显示全部事件",
@@ -109,6 +111,8 @@ const messages = {
   "classes.nameRequired": "请填写班级名称",
   "classes.emptyTitle": "还没有班级",
   "classes.emptyDesc": "先建一个班级，再把学生分配进去。",
+  "classes.unassignedHint": "尚未分配班级，可在学生档案里指定班级",
+  "classes.viewUnassigned": "在学生列表查看",
   "classdetail.back": "返回班级列表",
   "classdetail.trendTitle": "班级平均得分率趋势",
   "classdetail.trendSub": "各科平均得分率（%）随考试变化，满分不同也可比较 · 悬停查看原始分 · 点击科目名显示/隐藏",
@@ -135,11 +139,6 @@ const messages = {
   "home.followUpsSub": "勾选了「需要跟进」的事件，处理完记得回来取消勾选",
   "home.noFollowUps": "暂时没有需要跟进的事",
   "home.followUpPrefix": "跟进",
-  "home.countdown": "考试倒计时",
-  "home.noCountdown": "近期没有安排考试",
-  "home.examToday": "今天",
-  "home.examTomorrow": "明天",
-  "home.inDays": "{n} 天后",
   "home.calendar": "日历",
   "home.calPrev": "上个月",
   "home.calNext": "下个月",
@@ -160,6 +159,8 @@ const messages = {
   "home.calReadOnly": "生日是每年自动生成的记录，不能编辑；不想要可以直接删除。",
   "home.calLegendExam": "考试",
   "home.calLegendRecord": "跟进记录",
+  "home.calNotifyThisWeek": "本周",
+  "home.calNotifyNextWeek": "下周",
 
   // --- 事件（普通事件） ---
   "events.title": "事件",
@@ -208,7 +209,7 @@ const messages = {
 
   // --- 新建学生 ---
   "new.title": "添加学生",
-  "new.subtitle": "新学生会加入所选班级，并自动记录一条入学时间线",
+  "new.subtitle": "可先录入学生，班级可以稍后再分配",
   "new.sectionBasic": "基本信息",
   "new.sectionGuardian": "监护人信息",
   "new.sectionClass": "分配班级",
@@ -220,12 +221,13 @@ const messages = {
   "new.guardianPhone": "监护人电话",
   "new.address": "家庭住址",
   "new.class": "分配班级",
-  "new.classPlaceholder": "请选择班级",
-  "new.classRequired": "请选择班级",
+  "new.classPlaceholder": "暂不分配",
+  "new.classHint": "可选；未分配的学生会出现在学生列表的「未分班」分组",
   "new.noClassYet": "还没有班级可选，请先去「班级」里新建一个。",
   "new.submit": "保存并打开档案",
   "new.saving": "保存中…",
   "students.add": "添加学生",
+  "students.addComment": "写评语",
 
   // --- 个人中心 ---
   "profile.title": "个人中心",
@@ -241,6 +243,17 @@ const messages = {
   "profile.editInfo": "编辑资料",
   "profile.saved": "已保存",
   "profile.studentsCount": "{n} 人",
+  "profile.semesters": "学期设置",
+  "profile.semestersHint": "默认按 9–1 月、2–7 月划分两个学期；可按需要修改名称和日期",
+  "profile.semesterName": "学期名称",
+  "profile.semesterStart": "开始日期",
+  "profile.semesterEnd": "结束日期",
+  "profile.addSemester": "添加学期",
+  "profile.semestersSaved": "学期已保存",
+  "profile.semestersEmpty": "保存后会按 9–1 月、2–7 月自动生成默认学期",
+  "profile.semesterNameRequired": "请填写学期名称",
+  "profile.semesterDatesRequired": "请填写起止日期",
+  "profile.semesterEndInvalid": "结束日期不能早于开始日期",
 
   // --- 考试 ---
   "examnew.title": "新建考试",
@@ -253,6 +266,15 @@ const messages = {
   "examnew.year": "学年",
   "examnew.subjects": "考试科目",
   "examnew.fullScore": "满分",
+  "examnew.subjectsHint": "点常用科目加入，每科可改名称、满分和颜色；也可以自行添加。",
+  "examnew.selectAllSubjects": "全选",
+  "examnew.addSubject": "添加科目",
+  "examnew.customSubject": "自定义科目",
+  "examnew.subjectName": "科目名称",
+  "examnew.subjectColor": "颜色",
+  "examnew.subjectDup": "科目名称不能重复",
+  "examnew.subjectNameRequired": "请填写科目名称",
+  "examnew.fullScoreInvalid": "每科满分须大于 0",
   "examnew.submit": "创建考试",
   "examnew.saving": "创建中…",
   "examnew.subjectsRequired": "请至少选择一个科目",
@@ -271,6 +293,9 @@ const messages = {
   "exams.create": "新建考试",
   "exams.title": "考试",
   "exams.subtitle": "共 {count} 次考试 · 点开可查看平均分",
+  "exams.unassigned": "未归入学期",
+  "exams.noSemesters": "请先在个人中心设置学期",
+  "exams.setupSemesters": "去设置学期",
   "exams.viewAverages": "查看平均分",
   "exams.fullScore": "满分",
   "exams.emptyTitle": "还没有考试",
@@ -298,6 +323,26 @@ const messages = {
   "students.emptyTitle": "还没有学生",
   "students.emptyDesc": "先把学生加进班级，才能开始记成绩和跟进。",
   "students.groupCollapsed": "已折叠",
+
+  // --- 评语 ---
+  "commentNew.title": "写评语",
+  "commentNew.subtitle": "记录关于学生的评语；若涉及其他学生，他们也会在自己的时间线里看到",
+  "commentNew.studentLabel": "学生",
+  "commentNew.studentHint": "这条评语主要关于哪位学生",
+  "commentNew.studentPlaceholder": "请选择学生",
+  "commentNew.studentRequired": "请选择一名学生",
+  "commentNew.notesLabel": "评语内容",
+  "commentNew.notesHint": "例如课堂表现、同学矛盾、需要跟进的情况",
+  "commentNew.notesPlaceholder": "写下你的观察或记录…",
+  "commentNew.notesRequired": "请填写评语内容",
+  "commentNew.dateLabel": "日期",
+  "commentNew.mentionLabel": "涉及的其他学生",
+  "commentNew.mentionHint": "可选；被提到的学生时间线也会显示这条评语",
+  "commentNew.showMentions": "选择涉及的学生",
+  "commentNew.hideMentions": "收起学生列表",
+  "commentNew.mentionCount": "已选 {n} 人",
+  "commentNew.submit": "保存评语",
+  "commentNew.saving": "保存中…",
 
   "th.admissionNo": "学号",
   "th.name": "姓名",
@@ -351,6 +396,7 @@ const messages = {
   "event.save": "保存事件",
   "event.saving": "保存中…",
   "event.deleteConfirm": "删除后，这条记录会从时间线上消失。",
+  "event.systemReadOnly": "这条记录由系统自动生成，只能查看，不能修改或删除。",
 
   "empty.scores": "还没有成绩",
   "empty.events": "还没有事件记录",
@@ -379,6 +425,7 @@ const messages = {
   "tl.talk": "谈心",
   "tl.tutoring": "辅导",
   "tl.note_added": "教师备注",
+  "tl.comment": "评语",
   "tl.joined": "加入 {class}",
 
   // --- 404 ---
@@ -421,35 +468,49 @@ export function formatDateRange(d1, d2) {
   return `${fmtFull(d1)} – ${endText}`
 }
 
+/** Group exams (newest first) into profile-defined semesters. */
+export function groupExamsBySemester(exams, semesters) {
+  const sorted = [...(semesters || [])].sort((a, b) => b.start_date.localeCompare(a.start_date))
+  const byId = Object.fromEntries(sorted.map((sem) => [sem.id, { ...sem, exams: [] }]))
+  const other = { id: "_other", name: t("exams.unassigned"), start_date: "", end_date: "", exams: [] }
+
+  for (const exam of exams) {
+    const day = exam.exam_date
+    const match = sorted.find((sem) => day >= sem.start_date && day <= sem.end_date)
+    if (match) byId[match.id].exams.push(exam)
+    else other.exams.push(exam)
+  }
+
+  const groups = sorted.map((sem) => byId[sem.id]).filter((g) => g.exams.length)
+  if (other.exams.length) groups.push(other)
+  return groups
+}
+
 // ------------------------------------------------------------------ 学科
 
-const SUBJECTS = {
-  chinese: "语文",
-  math: "数学",
-  english: "英语",
-  politics: "道德与法治",
-  history: "历史",
-  geography: "地理",
-  biology: "生物",
-  physics: "物理",
-  chemistry: "化学",
-}
+// 常用科目目录：key 是存进考试 payload 的稳定标识（与 seed 一致），
+// label / fullScore / color 是新建考试时的预填值，也可被当场改掉。
+export const COMMON_SUBJECTS = [
+  { key: "chinese", label: "语文", fullScore: 120, color: "#b98a2e" },
+  { key: "math", label: "数学", fullScore: 120, color: "#2e6ba8" },
+  { key: "english", label: "英语", fullScore: 120, color: "#2f7d4f" },
+  { key: "politics", label: "道德与法治", fullScore: 100, color: "#c2608f" },
+  { key: "history", label: "历史", fullScore: 100, color: "#8c564b" },
+  { key: "geography", label: "地理", fullScore: 100, color: "#2b8a8a" },
+  { key: "biology", label: "生物", fullScore: 100, color: "#5a8f29" },
+  { key: "physics", label: "物理", fullScore: 100, color: "#6d5bb8" },
+  { key: "chemistry", label: "化学", fullScore: 100, color: "#b42318" },
+]
+export const COMMON_SUBJECT_KEYS = COMMON_SUBJECTS.map((s) => s.key)
+
+const SUBJECTS = Object.fromEntries(COMMON_SUBJECTS.map((s) => [s.key, s.label]))
 export function subject(s) {
   return SUBJECTS[s] ?? (s ?? "")
 }
 
-const SUBJECT_COLORS = {
-  chinese: "#b98a2e",
-  math: "#2e6ba8",
-  english: "#2f7d4f",
-  politics: "#c2608f",
-  history: "#8c564b",
-  geography: "#2b8a8a",
-  biology: "#5a8f29",
-  physics: "#6d5bb8",
-  chemistry: "#b42318",
-}
-export function subjectColor(s) {
+const SUBJECT_COLORS = Object.fromEntries(COMMON_SUBJECTS.map((s) => [s.key, s.color]))
+export function subjectColor(s, override) {
+  if (override) return override
   return SUBJECT_COLORS[s] || "#64748b"
 }
 
@@ -472,6 +533,10 @@ export const GENDER_OPTIONS = [
   { value: "M", label: "男" },
   { value: "O", label: "其他" },
 ]
+
+export function tagStyle(color) {
+  return color ? { "--tag-color": color } : {}
+}
 
 export function genderLabel(g) {
   if (!g) return "—"
@@ -506,6 +571,7 @@ const EVENT_TYPES = {
   talk: { icon: "note", color: "#4F6EAD" },
   tutoring: { icon: "board", color: "#854D0E" },
   note_added: { icon: "note", color: "#5C6B63" },
+  comment: { icon: "note", color: "#7C5BA8" },
   birthday: { icon: "cake", color: "#9A5B07" },
   activity: { icon: "flag", color: "#0E7490" },
   exam: { icon: "clipboard", color: "#2E6BA8" },
@@ -528,9 +594,9 @@ export function eventTypeLabel(type) {
 export function describeEvent(type, p = {}) {
   switch (type) {
     case "enrolled":
-      return t("tl.joined", { class: p.class ?? "" })
+      return t("tl.joined", { class: p.class_name ?? p.class ?? "" })
     case "class_moved":
-      return `${p.from ?? ""} → ${p.to ?? ""}${p.reason ? " · " + p.reason : ""}`
+      return `${p.from_class ?? p.from ?? ""} → ${p.to_class ?? p.to ?? ""}${p.reason ? " · " + p.reason : ""}`
     case "exam_taken": {
       const scores = p.scores
         ? Object.entries(p.scores).map(([s, v]) => `${subject(s)} ${v}`).join(", ")
@@ -551,7 +617,12 @@ export function describeEvent(type, p = {}) {
     case "talk":
     case "tutoring":
     case "note_added":
-      return p.notes ?? p.summary ?? p.note ?? ""
+    case "comment": {
+      const base = p.notes ?? p.summary ?? p.note ?? ""
+      const names = (p.mentioned || []).map((m) => m.name).filter(Boolean)
+      if (!names.length) return base
+      return `${base}${base ? " · " : ""}涉及：${names.join("、")}`
+    }
     case "exam": {
       const subjects = p.full_scores ? Object.keys(p.full_scores).map(subject).join("、") : ""
       return [p.term ? `${p.term}考试` : "", subjects].filter(Boolean).join(" · ") || "考试"

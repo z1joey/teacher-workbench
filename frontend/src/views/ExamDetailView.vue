@@ -12,7 +12,7 @@ import LineChart from "../components/LineChart.vue"
 import { ask } from "../confirm"
 import { notify, runUndoable } from "../feedback"
 import { setPageTitle } from "../title"
-import { friendlyError, subject, subjectColor, t } from "../strings"
+import { friendlyError, formatDateRange, subject, subjectColor, t } from "../strings"
 
 const props = defineProps({ id: { type: String, required: true } })
 const router = useRouter()
@@ -120,10 +120,11 @@ const trendChart = computed(() => {
   )
   return {
     labels: trendData.value.exams.map((e) => e.name),
+    dates: trendData.value.exams.map((e) => e.exam_date),
     series: trendData.value.series.map((s) => ({
       key: s.subject,
       label: subject(s.subject),
-      color: subjectColor(s.subject),
+      color: subjectColor(s.subject, exam.value?.subjects.find((x) => x.subject === s.subject)?.color),
       values: s.values,
     })),
     yMax: Math.max(100, ...trendData.value.series.map((s) => s.full_score || 0)),
@@ -170,7 +171,10 @@ function pct(score, full) {
           v-for="s in exam.subjects"
           :key="s.id"
           class="pill pill--outline"
-        >{{ subject(s.subject) }} · {{ t("exams.fullScore") }} {{ s.full_score }}</span>
+        >
+          <span class="subject-dot" :style="{ background: subjectColor(s.subject, s.color) }" />
+          {{ subject(s.subject) }} · {{ t("exams.fullScore") }} {{ s.full_score }}
+        </span>
       </div>
 
       <!-- 就地编辑 -->
@@ -243,6 +247,7 @@ function pct(score, full) {
           <LineChart
             v-if="trendChart"
             :labels="trendChart.labels"
+            :dates="trendChart.dates"
             :series="trendChart.series"
             :y-max="trendChart.yMax"
             :highlight-index="trendChart.highlightIndex"

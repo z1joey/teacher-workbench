@@ -3,9 +3,10 @@
 - Existing legacy volume (legacy `user` table present, no `person`): run the
   real Alembic chain to head — 0005 migrates the legacy data in place.
 - Otherwise: create the event-schema tables via metadata.create_all
-  (idempotent — existing tables are left alone). On a fresh database with no
-  `alembic_version` table yet, stamp head so the NEXT migration starts from
-  head instead of re-running the chain on existing tables.
+  (idempotent — existing tables are left alone), then drop any DB-level
+  event-type CHECK constraint left from older builds (types are validated in
+  Python instead). On a fresh database with no `alembic_version` table yet,
+  stamp head.
 
 Run `python -m app.seed` for a fresh database with demo data.
 """
@@ -13,37 +14,83 @@ from pathlib import Path
 
 import alembic.command
 import alembic.config
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
+from sqlalchemy.orm import Session
 
 from . import models  # noqa: F401  (registers the tables on Base.metadata)
 from .database import Base, engine
+from .unassigned import ensure_unassigned_class
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
 
 def _alembic_config() -> alembic.config.Config:
-    # alembic/env.py prefers DATABASE_URL, so this targets the same database
-    # the engine above talks to.
     cfg = alembic.config.Config(str(BACKEND_DIR / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND_DIR / "alembic"))
     return cfg
+
+
+def _drop_event_type_check() -> None:
+    """Remove ck_event_type_valid so new event types work without migrations."""
+    if not inspect(engine).has_table("event"):
+        return
+    with engine.begin() as conn:
+        dialect = conn.dialect.name
+        if dialect == "postgresql":
+            conn.execute(text("ALTER TABLE event DROP CONSTRAINT IF EXISTS ck_event_type_valid"))
+            return
+        if dialect != "sqlite":
+            return
+        ddl = conn.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='event'")
+        ).scalar()
+        if not ddl or "ck_event_type_valid" not in ddl:
+            return
+        conn.execute(text("PRAGMA foreign_keys=OFF"))
+        for stmt in (
+            """
+            CREATE TABLE event__new (
+                id CHAR(32) NOT NULL PRIMARY KEY,
+                type VARCHAR(40) NOT NULL,
+                title VARCHAR(100) NOT NULL,
+                description TEXT,
+                start_time DATETIME NOT NULL,
+                end_time DATETIME,
+                location VARCHAR(200),
+                payload JSON,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL
+            )
+            """,
+            "INSERT INTO event__new SELECT * FROM event",
+            "DROP TABLE event",
+            "ALTER TABLE event__new RENAME TO event",
+            "CREATE INDEX IF NOT EXISTS ix_event_type_time ON event (type, start_time)",
+        ):
+            conn.execute(text(stmt))
+        conn.execute(text("PRAGMA foreign_keys=ON"))
+
+
+def ensure_schema() -> None:
+    """Idempotent setup used on app startup and in Docker CMD."""
+    Base.metadata.create_all(engine)
+    _drop_event_type_check()
+    with Session(engine, autoflush=False, expire_on_commit=False) as db:
+        ensure_unassigned_class(db)
+        db.commit()
+    if not inspect(engine).has_table("alembic_version"):
+        alembic.command.stamp(_alembic_config(), "head")
 
 
 def main() -> None:
     cfg = _alembic_config()
     insp = inspect(engine)
     if insp.has_table("user") and not insp.has_table("person"):
-        # Legacy volume: 0005 migrates the legacy data to the event schema.
         print("legacy schema detected — running alembic upgrade head")
         alembic.command.upgrade(cfg, "head")
+        _drop_event_type_check()
         return
-    Base.metadata.create_all(engine)
-    # re-inspect: the check must see what create_all just did
-    if not inspect(engine).has_table("alembic_version"):
-        # Fresh database: mark the chain as applied so future migrations
-        # start from head instead of re-running on existing tables.
-        print("fresh database — stamping alembic head")
-        alembic.command.stamp(cfg, "head")
+    ensure_schema()
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import LoginView from "./views/LoginView.vue"
 import ProfileView from "./views/ProfileView.vue"
 import EventsView from "./views/EventsView.vue"
 import HomeVisitsView from "./views/HomeVisitsView.vue"
+import CommentNewView from "./views/CommentNewView.vue"
 import ActivityNewView from "./views/ActivityNewView.vue"
 import ActivityDetailView from "./views/ActivityDetailView.vue"
 import GuardianDetailView from "./views/GuardianDetailView.vue"
@@ -18,13 +19,14 @@ import ExamsView from "./views/ExamsView.vue"
 import ExamNewView from "./views/ExamNewView.vue"
 import ExamDetailView from "./views/ExamDetailView.vue"
 import EventDetailView from "./views/EventDetailView.vue"
+import DataView from "./views/DataView.vue"
 import AdminView from "./views/AdminView.vue"
 import NotFoundView from "./views/NotFoundView.vue"
 
 // Routes that only teachers (non-admin) may enter. Admin accounts get
 // redirected away — they are developers, not classroom teachers.
 const TEACHER_ROUTE_PREFIXES = [
-  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/events", "/guardians",
+  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/events", "/comments", "/guardians", "/data",
 ]
 
 function isTeacherRoute(path) {
@@ -65,6 +67,7 @@ export const router = createRouter({
       props: true,
       meta: { title: "事件详情", parent: { label: "事件", to: "/events" } },
     },
+    { path: "/data", name: "data", component: DataView, meta: { title: "数据" } },
     {
       path: "/guardians/:id",
       name: "guardianDetail",
@@ -84,6 +87,27 @@ export const router = createRouter({
       meta: { title: "班级详情", parent: { label: "班级", to: "/classes" } },
     },
     { path: "/students", name: "students", component: StudentsView, meta: { title: "学生" } },
+    {
+      path: "/comments/:eventId",
+      name: "commentEdit",
+      component: CommentNewView,
+      props: (r) => ({ eventId: r.params.eventId }),
+      meta: { title: "评语" },
+    },
+    {
+      path: "/students/:studentId/comments/new",
+      name: "commentNew",
+      component: CommentNewView,
+      props: (r) => ({ studentId: r.params.studentId }),
+      meta: { title: "写评语", parent: { label: "学生", to: "/students" } },
+    },
+    {
+      path: "/students/:studentId/comments/:eventId",
+      name: "commentDetail",
+      component: CommentNewView,
+      props: (r) => ({ studentId: r.params.studentId, eventId: r.params.eventId }),
+      meta: { title: "评语", parent: { label: "学生", to: "/students" } },
+    },
     {
       path: "/students/new",
       name: "studentNew",

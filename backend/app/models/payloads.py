@@ -5,7 +5,12 @@ path funnels through this registry before touching the models. `name` and the
 login credentials are typed columns on `person` now (see person.py); only
 role-specific attributes stay here.
 """
-from pydantic import BaseModel, ConfigDict, Field
+import re
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from ..gender import GENDER_CODES, parse_gender
 
 
 class _Strict(BaseModel):
@@ -15,15 +20,47 @@ class _Strict(BaseModel):
 class StudentPayload(_Strict):
     role: str = "student"
     admission_no: str = Field(max_length=40)
-    gender: str | None = None
+    gender: Literal["F", "M", "O"] | None = None
     birth_date: str | None = None  # ISO "YYYY-MM-DD"
     address: str | None = None
     is_active: bool = True
+
+    @field_validator("gender", mode="before")
+    @classmethod
+    def _normalize_gender(cls, value):
+        if value is None or value == "":
+            return None
+        if isinstance(value, str) and value in GENDER_CODES:
+            return value
+        return parse_gender(value if isinstance(value, str) else str(value))
+
+
+class SemesterEntry(_Strict):
+    id: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=100)
+    start_date: str  # ISO "YYYY-MM-DD"
+    end_date: str
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def _iso_date(cls, value: str) -> str:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise ValueError("date must be YYYY-MM-DD")
+        return value
+
+    @field_validator("end_date")
+    @classmethod
+    def _end_on_or_after_start(cls, end: str, info) -> str:
+        start = info.data.get("start_date")
+        if start and end < start:
+            raise ValueError("end_date must be on or after start_date")
+        return end
 
 
 class TeacherPayload(_Strict):
     role: str = "teacher"
     is_active: bool = True
+    semesters: list[SemesterEntry] = Field(default_factory=list)
 
 
 class AdminPayload(_Strict):
@@ -61,6 +98,17 @@ class NotesPayload(_Strict):
     notes: str | None = None
 
 
+class MentionedStudent(_Strict):
+    id: str = Field(max_length=40)
+    name: str = Field(max_length=100)
+
+
+class CommentPayload(_Strict):
+    notes: str | None = None
+    mentioned: list[MentionedStudent] | None = None
+    about: MentionedStudent | None = None  # primary student the comment is about
+
+
 class HomeVisitPayload(_Strict):
     summary: str | None = None
     follow_up: str | None = None
@@ -69,11 +117,29 @@ class HomeVisitPayload(_Strict):
     guardian: str | None = None
 
 
+_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
 class ExamPayload(_Strict):
     term: str | None = None
     # per-subject full_score config of a sitting (subject name -> full score);
     # the score-entry flow reads it to set each score payload's max_score
     full_scores: dict[str, float] | None = None
+    # optional theme color per subject (hex); charts and pills fall back to
+    # the frontend catalog when a subject has none stored
+    subject_colors: dict[str, str] | None = None
+
+    @field_validator("subject_colors")
+    @classmethod
+    def _hex_colors(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if not value:
+            return value
+        out = {}
+        for key, color in value.items():
+            if not isinstance(color, str) or not _COLOR_RE.match(color):
+                raise ValueError(f"invalid subject color: {color!r}")
+            out[key] = color.lower()
+        return out
 
 
 class ActivityPayload(_Strict):
@@ -99,6 +165,7 @@ EVENT_PAYLOAD_SCHEMAS = {
     "tutoring": NotesPayload,
     "parent_call": NotesPayload,
     "note_added": NotesPayload,
+    "comment": CommentPayload,
     "exam": ExamPayload,
     "activity": ActivityPayload,
     "enrolled": EnrolledPayload,

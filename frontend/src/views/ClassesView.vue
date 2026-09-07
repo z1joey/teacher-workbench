@@ -1,6 +1,5 @@
 <script setup>
-// 班级：卡片上直接看到班均、家访情况和最近事件，不点进去也能判断要不要看。
-// 学生名单默认只显示前 12 个，多的折叠 —— 不用 JS 量高度，窄屏也不会算错。
+// 班级列表：班均摘要 + 最近事件，点卡片进详情看完整名单。
 import { computed, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
@@ -8,14 +7,15 @@ import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
 import api from "../api"
-import { ask } from "../confirm"
-import { notify, runUndoable } from "../feedback"
-import { eventTypeLabel, friendlyError, subject, t } from "../strings"
+import { notify } from "../feedback"
+import { eventTypeLabel, friendlyError, subject, COMMON_SUBJECT_KEYS, t } from "../strings"
+import { openEvent } from "../eventNav"
 
 const route = useRoute()
 const router = useRouter()
 
 const classes = ref([])
+const unassigned = ref([])
 const teachers = ref([])
 const loading = ref(true)
 const error = ref("")
@@ -25,9 +25,7 @@ const creating = ref(false)
 const createError = ref("")
 const createForm = ref(emptyForm())
 
-const CHIPS_VISIBLE = 12
 const EVENTS_VISIBLE = 3
-const expandedChips = ref({})
 const expandedEvents = ref({})
 
 function emptyForm() {
@@ -44,9 +42,14 @@ async function load() {
   loading.value = true
   error.value = ""
   try {
-    const [cs, ts] = await Promise.all([api.get("/classes"), api.get("/teachers")])
+    const [cs, ts, students] = await Promise.all([
+      api.get("/classes"),
+      api.get("/teachers"),
+      api.get("/students"),
+    ])
     classes.value = cs
     teachers.value = ts
+    unassigned.value = students.filter((s) => s.status === "active" && !s.class)
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -56,7 +59,6 @@ async function load() {
 
 onMounted(async () => {
   await load()
-  // 从命令面板或「还没有班级」引导过来时，直接把表单打开
   if (route.query.create === "1") showCreate.value = true
 })
 watch(() => route.query.create, (v) => {
@@ -88,37 +90,14 @@ async function createClass() {
   }
 }
 
-async function removeClass(c) {
-  const ok = await ask({
-    title: `删除班级「${c.name}」？`,
-    consequences: [t("classes.deleteConfirm")],
-    confirmLabel: t("action.delete"),
-  })
-  if (!ok) return
-
-  const snapshot = classes.value
-  classes.value = classes.value.filter((x) => x.id !== c.id)
-  runUndoable({
-    title: `已删除班级「${c.name}」`,
-    run: () => api.delete(`/classes/${c.id}`),
-    onUndo: () => {
-      classes.value = snapshot
-    },
-    onDone: () => load(),
-  })
-}
-
-const SUBJECT_ORDER = ["chinese", "math", "english", "politics", "history", "geography", "biology", "physics", "chemistry"]
-
-// per-subject class averages of the latest exam, with delta vs the previous one
 function avgSummary(c) {
   const trend = c.avg_trend || []
   if (!trend.length) return []
   const last = trend[trend.length - 1]
   const prev = trend.length > 1 ? trend[trend.length - 2] : null
   const subs = Object.keys(last.averages).sort((a, b) => {
-    const ia = SUBJECT_ORDER.indexOf(a)
-    const ib = SUBJECT_ORDER.indexOf(b)
+    const ia = COMMON_SUBJECT_KEYS.indexOf(a)
+    const ib = COMMON_SUBJECT_KEYS.indexOf(b)
     return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
   })
   return subs.map((sub) => {
@@ -129,32 +108,30 @@ function avgSummary(c) {
   })
 }
 
+function visitedCount(c) {
+  return (c.students || []).filter((s) => s.home_visited).length
+}
+
 function shortDate(ts) {
   return new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
 }
 
-function visibleStudents(c) {
-  if (expandedChips.value[c.id]) return c.students
-  return c.students.slice(0, CHIPS_VISIBLE)
-}
-function hiddenStudentCount(c) {
-  return Math.max(0, c.students.length - CHIPS_VISIBLE)
-}
 function visibleEvents(c) {
   const evs = c.recent_events || []
   return expandedEvents.value[c.id] ? evs : evs.slice(0, EVENTS_VISIBLE)
 }
 
 const totalStudents = computed(() =>
-  classes.value.reduce((n, c) => n + (c.student_count || 0), 0)
+  classes.value.reduce((n, c) => n + (c.student_count || 0), 0) + unassigned.value.length
 )
+const hasContent = computed(() => classes.value.length > 0 || unassigned.value.length > 0)
 </script>
 
 <template>
   <PageHeader
     :title="t('classes.title')"
     :subtitle="t('classes.subtitle')"
-    :meta="classes.length ? [
+    :meta="hasContent ? [
       { label: '班级', value: classes.length },
       { label: '学生', value: totalStudents },
     ] : []"
@@ -170,7 +147,7 @@ const totalStudents = computed(() =>
   <AsyncState
     :loading="loading"
     :error="error"
-    :empty="!loading && !classes.length"
+    :empty="!loading && !hasContent"
     :empty-title="t('classes.emptyTitle')"
     :empty-desc="t('classes.emptyDesc')"
     empty-icon="building"
@@ -182,7 +159,6 @@ const totalStudents = computed(() =>
       </button>
     </template>
 
-    <!-- 新建班级 -->
     <div v-if="showCreate" class="card" style="max-width: 620px">
       <div class="card__head">
         <h2 class="card__title"><Icon name="building" :size="16" /> {{ t("classes.create") }}</h2>
@@ -230,102 +206,104 @@ const totalStudents = computed(() =>
       </form>
     </div>
 
-    <!-- 班级卡片 -->
     <div class="grid grid--2">
-      <article v-for="c in classes" :key="c.id" class="card">
+      <router-link
+        v-for="c in classes"
+        :key="c.id"
+        :to="`/classes/${c.id}`"
+        class="card card--link"
+      >
         <div class="card__head">
           <div class="grow">
-            <h2 class="card__title" style="font-size: 16px">
-              <router-link :to="`/classes/${c.id}`">{{ c.name }}</router-link>
-            </h2>
+            <h2 class="card__title" style="font-size: 16px">{{ c.name }}</h2>
             <p class="card__desc">
-              {{ c.academic_year }} · {{ t("classes.homeroom") }}：{{ c.homeroom_teacher || t("common.none") }}
+              {{ c.academic_year }}
               · {{ t("profile.studentsCount", { n: c.student_count }) }}
+              <template v-if="c.student_count">
+                · {{ t("classes.visitedSummary", { n: visitedCount(c), total: c.student_count }) }}
+              </template>
             </p>
           </div>
-          <button
-            class="icon-btn icon-btn--danger"
-            :aria-label="`删除班级 ${c.name}`"
-            :title="t('classes.delete')"
-            @click="removeClass(c)"
-          >
-            <Icon name="trash" :size="15" />
-          </button>
+          <Icon name="chevron-right" :size="16" style="color: var(--muted); flex-shrink: 0" />
         </div>
 
         <div class="card__body">
-          <!-- 班均 -->
-          <div v-if="avgSummary(c).length" class="stat-grid" style="margin-bottom: 14px">
-            <div v-for="a in avgSummary(c)" :key="a.sub" class="stat stat--plain" style="margin: 0">
-              <div class="stat__label">{{ a.label }}</div>
-              <div class="stat__value tnum" style="font-size: 20px">
-                {{ a.avg }}
+          <div v-if="avgSummary(c).length" class="stack" style="gap: 8px">
+            <span class="field__hint">{{ t("classes.avgLabel") }}</span>
+            <div class="row-wrap">
+              <span v-for="a in avgSummary(c)" :key="a.sub" class="pill pill--outline">
+                {{ a.label }}
+                <b class="tnum">{{ a.avg }}</b>
                 <span
                   v-if="a.delta !== null"
-                  class="stat__sub"
+                  class="tnum"
                   :style="{ color: a.delta >= 0 ? 'var(--ok)' : 'var(--warn)' }"
                 >
                   {{ a.delta > 0 ? "↑" : "↓" }}{{ Math.abs(a.delta) }}
                 </span>
-              </div>
+              </span>
             </div>
           </div>
+          <p v-else class="state__desc" style="margin: 0">{{ t("classdetail.noScores") }}</p>
 
-          <!-- 最近事件 -->
-          <div v-if="(c.recent_events || []).length" class="stack" style="gap: 4px; margin-bottom: 12px">
-            <div v-for="ev in visibleEvents(c)" :key="`e${ev.id}`" class="row" style="font-size: 13px">
+          <div
+            v-if="(c.recent_events || []).length"
+            class="stack"
+            style="gap: 4px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line)"
+          >
+            <span class="field__hint">{{ t("classes.recentEvents") }}</span>
+            <div
+              v-for="ev in visibleEvents(c)"
+              :key="`e${ev.id}`"
+              class="row muted feed__item--inline"
+              style="font-size: 13px; cursor: pointer"
+              @click.stop.prevent="openEvent(router, ev)"
+            >
               <span class="stat__sub nowrap">{{ shortDate(ev.occurred_at) }}</span>
-              <router-link :to="`/students/${ev.student_id}`">{{ ev.student_name }}</router-link>
-              <span class="muted">· {{ eventTypeLabel(ev.event_type) }}</span>
+              <span>{{ ev.student_name }}</span>
+              <span>· {{ eventTypeLabel(ev.event_type) }}</span>
               <span v-if="ev.recurrence === 'yearly'" class="pill pill--muted">↻ 每年</span>
             </div>
             <button
               v-if="(c.recent_events || []).length > EVENTS_VISIBLE || expandedEvents[c.id]"
+              type="button"
               class="btn btn--sm btn--quiet"
               style="align-self: flex-start"
-              @click="expandedEvents[c.id] = !expandedEvents[c.id]"
+              @click.prevent="expandedEvents[c.id] = !expandedEvents[c.id]"
             >
               {{ expandedEvents[c.id] ? t("action.collapse") : t("classes.showAllEvents") }}
             </button>
           </div>
-
-          <!-- 学生名单 -->
-          <template v-if="c.students.length">
-            <div class="chips">
-              <router-link
-                v-for="s in visibleStudents(c)"
-                :key="s.id"
-                :to="`/students/${s.id}`"
-                class="chip"
-                :title="`${s.admission_no} · ${s.home_visited ? t('classes.visitedYes') : t('classes.visitedNo')}`"
-              >
-                {{ s.name }}
-                <span v-if="s.home_visited" class="visited" :title="t('classes.visitedYes')">✓</span>
-              </router-link>
-            </div>
-            <button
-              v-if="hiddenStudentCount(c) > 0 || expandedChips[c.id]"
-              class="btn btn--sm btn--quiet"
-              style="margin-top: 8px"
-              @click="expandedChips[c.id] = !expandedChips[c.id]"
-            >
-              <Icon :name="expandedChips[c.id] ? 'chevron-up' : 'chevron-down'" :size="13" />
-              {{
-                expandedChips[c.id]
-                  ? t("action.collapse")
-                  : `${t("classes.showAllStudents")}（还有 ${hiddenStudentCount(c)} 人）`
-              }}
-            </button>
-          </template>
-          <p v-else class="state__desc">{{ t("classes.noStudents") }}</p>
         </div>
+      </router-link>
+    </div>
 
-        <div class="card__foot">
-          <router-link :to="`/classes/${c.id}`" class="btn btn--sm btn--ghost">
-            {{ t("classes.viewDetail") }} <Icon name="chevron-right" :size="13" />
+    <section v-if="unassigned.length" class="card class-unassigned" style="margin-top: var(--sp-5)">
+      <div class="card__head">
+        <div class="grow">
+          <h2 class="card__title" style="font-size: 16px">{{ t("students.ungrouped") }}</h2>
+          <p class="card__desc">
+            {{ t("profile.studentsCount", { n: unassigned.length }) }}
+            · {{ t("classes.unassignedHint") }}
+          </p>
+        </div>
+        <router-link to="/students" class="btn btn--sm btn--ghost">
+          {{ t("classes.viewUnassigned") }}
+        </router-link>
+      </div>
+      <div class="card__body card__body--tight">
+        <div class="chips">
+          <router-link
+            v-for="s in unassigned"
+            :key="s.id"
+            :to="`/students/${s.id}`"
+            class="chip"
+          >
+            {{ s.name }}
+            <span class="muted tnum" style="font-size: 12px">{{ s.admission_no }}</span>
           </router-link>
         </div>
-      </article>
-    </div>
+      </div>
+    </section>
   </AsyncState>
 </template>

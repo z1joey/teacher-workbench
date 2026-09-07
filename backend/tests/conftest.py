@@ -39,6 +39,7 @@ from app.database import Base, get_db
 from app.deps import get_current_person
 from app.payloads import validate_person_payload
 from app.security import hash_password
+from app.unassigned import ensure_unassigned_class
 
 
 @pytest.fixture()
@@ -49,6 +50,12 @@ def engine(tmp_path):
         connect_args={"check_same_thread": False},
     )
     Base.metadata.create_all(eng)
+    session = sessionmaker(bind=eng, autoflush=False, expire_on_commit=False)()
+    try:
+        ensure_unassigned_class(session)
+        session.commit()
+    finally:
+        session.close()
     yield eng
     eng.dispose()
 

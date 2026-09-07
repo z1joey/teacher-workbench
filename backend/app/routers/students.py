@@ -45,6 +45,7 @@ from ..models import (
 from ..models._common import utcnow
 from ..payloads import validate_event_payload, validate_person_payload
 from ..security import hash_password
+from ..unassigned import class_for_api, ensure_unassigned_class, is_unassigned_class
 
 router = APIRouter(
     tags=["students"],
@@ -61,6 +62,7 @@ _RECORD_TITLES = {
     "tutoring": "辅导",
     "parent_call": "电话沟通",
     "note_added": "随笔",
+    "comment": "评语",
     "birthday": "生日",
     "enrolled": "入学",
     "class_moved": "调班",
@@ -92,6 +94,14 @@ def _record_payload(event_type: str, summary: str, purpose: str | None,
         }
     if event_type == "birthday":
         return {"birth_date": (old_payload or {}).get("birth_date")}
+    if event_type == "comment":
+        out = {"notes": summary}
+        if old_payload:
+            if old_payload.get("mentioned"):
+                out["mentioned"] = old_payload["mentioned"]
+            if old_payload.get("about"):
+                out["about"] = old_payload["about"]
+        return out
     return {"notes": summary}
 
 
@@ -314,7 +324,7 @@ def get_guardian(
                 "name": person.name,
                 "admission_no": (person.payload or {}).get("admission_no"),
                 "relationship": rel,
-                "class": {"id": str(cls.id), "name": cls.name} if cls else None,
+                "class": class_for_api(cls),
             }
         )
     return {
@@ -359,6 +369,30 @@ def _exam_event_id(db: Session, exam_name: str, exam_date: str,
     if cache is not None:
         cache[(exam_name, exam_date)] = exam_id
     return exam_id
+
+
+def _subject_color_of_exam(
+    db: Session,
+    exam_id: str | None,
+    subject: str | None,
+    colors_cache: dict[str, dict],
+) -> str | None:
+    """Per-exam subject color from the sitting payload, when configured."""
+    if not exam_id or not subject:
+        return None
+    if exam_id not in colors_cache:
+        try:
+            exam = db.get(Event, uuid.UUID(exam_id))
+        except ValueError:
+            colors_cache[exam_id] = {}
+            return None
+        if exam is None or exam.type != "exam":
+            colors_cache[exam_id] = {}
+        else:
+            raw = (exam.payload or {}).get("subject_colors")
+            colors_cache[exam_id] = raw if isinstance(raw, dict) else {}
+    color = colors_cache[exam_id].get(subject)
+    return color if isinstance(color, str) and color else None
 
 
 def last_exam_summary(db: Session, person_id: uuid.UUID) -> dict | None:
@@ -414,7 +448,7 @@ def list_students(db: Session = Depends(get_db)):
                 "name": s.name,
                 "gender": (s.payload or {}).get("gender"),
                 "status": _status_of(s),
-                "class": {"id": str(cls.id), "name": cls.name} if cls else None,
+                "class": class_for_api(cls),
                 "last_exam": last_exam_summary(db, s.id),
                 "tags": _tags_for_student(db, s.id),
             }
@@ -495,7 +529,7 @@ class StudentIn(BaseModel):
     guardian_name: str | None = None
     guardian_phone: str | None = Field(default=None, max_length=40)
     address: str | None = None
-    class_id: uuid.UUID
+    class_id: uuid.UUID | None = None
 
 
 @router.post("/students", status_code=201)
@@ -503,9 +537,13 @@ def create_student(
     body: StudentIn,
     db: Session = Depends(get_db),
 ):
-    cls = db.get(Class, body.class_id)
-    if cls is None:
-        raise HTTPException(status_code=400, detail="class not found")
+    cls = None
+    if body.class_id is not None:
+        cls = db.get(Class, body.class_id)
+        if cls is None or is_unassigned_class(cls):
+            raise HTTPException(status_code=400, detail="class not found")
+    else:
+        cls = ensure_unassigned_class(db)
     max_no = 0
     admission_nos = (
         db.query(Person.payload["admission_no"].as_string())
@@ -536,8 +574,11 @@ def create_student(
     _set_primary_guardian(db, person.id, body.guardian_name, body.guardian_phone)
     db.add(Enrollment(person_id=person.id, class_id=cls.id,
                       valid_from=date.today(), reason="admitted"))
+    enrolled_payload = (
+        {} if is_unassigned_class(cls) else {"class_name": cls.name}
+    )
     create_event(db, event_type="enrolled", title="入学", start_time=utcnow(),
-                 payload={"class_name": cls.name}, attendee_ids=[person.id])
+                 payload=enrolled_payload, attendee_ids=[person.id])
     # no persisted birthday event: the timeline projects it from birth_date
     db.commit()
     return {"id": str(person.id), "admission_no": admission_no, "name": person.name}
@@ -550,18 +591,24 @@ def get_student(student_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="student not found")
     cls = current_class(db, s.id)
     exam_id_cache: dict = {}
+    subject_colors_cache: dict[str, dict] = {}
     scores = []
     for r in _score_events(db, s.id):
         pl = r.payload or {}
         exam_name = _exam_name_of_score(r)
         exam_date = r.start_time.date().isoformat()
+        subj = pl.get("subject")
+        exam_id = _exam_event_id(db, exam_name, exam_date, exam_id_cache)
         scores.append(
             {
                 "result_id": str(r.id),
-                "exam_id": _exam_event_id(db, exam_name, exam_date, exam_id_cache),
+                "exam_id": exam_id,
                 "exam_name": exam_name,
                 "exam_date": exam_date,
-                "subject": pl.get("subject"),
+                "subject": subj,
+                "subject_color": _subject_color_of_exam(
+                    db, exam_id, subj, subject_colors_cache
+                ),
                 "score": pl.get("score"),
                 "full_score": pl.get("max_score"),
                 "status": "absent" if pl.get("absent") else "entered",
@@ -585,7 +632,7 @@ def get_student(student_id: uuid.UUID, db: Session = Depends(get_db)):
         "guardians": guardians,
         "address": (s.payload or {}).get("address"),
         "status": _status_of(s),
-        "class": {"id": str(cls.id), "name": cls.name} if cls else None,
+        "class": class_for_api(cls),
         "scores": scores,
         "tags": _tags_for_student(db, s.id),
     }
@@ -684,6 +731,98 @@ def create_event_record(
     )
     db.commit()
     return {"id": str(event.id), "status": "created"}
+
+
+class CommentIn(BaseModel):
+    student_id: uuid.UUID
+    notes: str = Field(min_length=1, max_length=2000)
+    mentioned_student_ids: list[uuid.UUID] = Field(default_factory=list)
+    occurred_at: datetime | None = None
+
+
+@router.post("/comments", status_code=201)
+def create_comment(
+    body: CommentIn,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Teacher remark on a student; mentioned students also see it on their timeline."""
+    primary = db.get(Person, body.student_id)
+    if primary is None or primary.role != "student":
+        raise HTTPException(status_code=404, detail="student not found")
+    mention_ids = [i for i in dict.fromkeys(body.mentioned_student_ids) if i != body.student_id]
+    mentioned = _resolve_roster(db, mention_ids)
+    notes = body.notes.strip()
+    payload_data: dict = {
+        "notes": notes,
+        "about": {"id": str(primary.id), "name": primary.name},
+    }
+    if mentioned:
+        payload_data["mentioned"] = [{"id": str(s.id), "name": s.name} for s in mentioned]
+    payload = validate_event_payload("comment", payload_data)
+    event = create_event(
+        db,
+        event_type="comment",
+        title=_record_title("comment"),
+        start_time=body.occurred_at or utcnow(),
+        payload=payload,
+        attendee_ids=[primary.id, *[s.id for s in mentioned], user.id],
+    )
+    db.commit()
+    return {"id": str(event.id), "student_id": str(primary.id), "status": "created"}
+
+
+class CommentUpdateIn(BaseModel):
+    notes: str = Field(min_length=1, max_length=2000)
+    mentioned_student_ids: list[uuid.UUID] = Field(default_factory=list)
+    occurred_at: datetime | None = None
+
+
+@router.patch("/comments/{event_id}")
+def update_comment(
+    event_id: uuid.UUID,
+    body: CommentUpdateIn,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    ev = db.get(Event, event_id)
+    if ev is None or ev.type != "comment":
+        raise HTTPException(status_code=404, detail="comment not found")
+    primary = _comment_primary(db, ev)
+    old = ev.payload or {}
+    mention_ids = [
+        i for i in dict.fromkeys(body.mentioned_student_ids)
+        if str(i) != str(primary.id)
+    ]
+    mentioned = _resolve_roster(db, mention_ids)
+    notes = body.notes.strip()
+    payload = validate_event_payload(
+        "comment",
+        {
+            "notes": notes,
+            "about": {"id": str(primary.id), "name": primary.name},
+            "mentioned": [{"id": str(s.id), "name": s.name} for s in mentioned] or None,
+        },
+    )
+    ev.payload = payload
+    ev.start_time = body.occurred_at or ev.start_time
+    teachers = [p for p in ev.attendees if p.role == "teacher"]
+    ev.attendees = [primary, *mentioned, *teachers]
+    db.commit()
+    return {"id": str(ev.id), "student_id": str(primary.id), "status": "updated"}
+
+
+@router.delete("/comments/{event_id}")
+def delete_comment(
+    event_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    ev = db.get(Event, event_id)
+    if ev is None or ev.type != "comment":
+        raise HTTPException(status_code=404, detail="comment not found")
+    db.delete(ev)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/students/{student_id}/events")
@@ -835,6 +974,48 @@ def _event_students(db: Session, event_id: uuid.UUID) -> list[Person]:
         .order_by(Person.payload["admission_no"].as_string())
         .all()
     )
+
+
+def _comment_primary(db: Session, ev: Event) -> Person:
+    """Student the comment is about — from payload.about, or infer for legacy rows."""
+    payload = ev.payload or {}
+    about = payload.get("about") or {}
+    if about.get("id"):
+        primary = db.get(Person, uuid.UUID(str(about["id"])))
+        if primary is not None and primary.role == "student":
+            return primary
+    mentioned_ids = {str(m["id"]) for m in (payload.get("mentioned") or [])}
+    for student in _event_students(db, ev.id):
+        if str(student.id) not in mentioned_ids:
+            return student
+    students = _event_students(db, ev.id)
+    if not students:
+        raise HTTPException(status_code=404, detail="comment not found")
+    return students[0]
+
+
+def _comment_out(db: Session, ev: Event) -> dict:
+    primary = _comment_primary(db, ev)
+    payload = ev.payload or {}
+    return {
+        "id": str(ev.id),
+        "student_id": str(primary.id),
+        "student_name": primary.name,
+        "notes": payload.get("notes") or "",
+        "mentioned": payload.get("mentioned") or [],
+        "occurred_at": ev.start_time.isoformat(),
+    }
+
+
+@router.get("/comments/{event_id}")
+def get_comment(
+    event_id: uuid.UUID,
+    db: Session = Depends(get_db),
+):
+    ev = db.get(Event, event_id)
+    if ev is None or ev.type != "comment":
+        raise HTTPException(status_code=404, detail="comment not found")
+    return _comment_out(db, ev)
 
 
 def _activity_out(db: Session, e: Event) -> dict:
@@ -1114,18 +1295,23 @@ def update_student(
         _set_primary_guardian(db, s.id, body.guardian_name, body.guardian_phone)
 
     # Class change: close current enrollment, open a new one, record event.
-    if body.class_id is not None:
-        new_cls = db.get(Class, body.class_id)
-        if new_cls is None:
-            raise HTTPException(status_code=400, detail="class not found")
+    if "class_id" in body.model_fields_set:
+        if body.class_id is None:
+            new_cls = ensure_unassigned_class(db)
+        else:
+            new_cls = db.get(Class, body.class_id)
+            if new_cls is None or is_unassigned_class(new_cls):
+                raise HTTPException(status_code=400, detail="class not found")
         current = current_class(db, s.id)
-        if current is None or current.id != body.class_id:
+        if current is None or current.id != new_cls.id:
             old_enrollment = (
                 db.query(Enrollment)
                 .filter(Enrollment.person_id == student_id, Enrollment.valid_to.is_(None))
                 .first()
             )
-            old_name = current.name if current else None
+            old_name = (
+                None if current is None or is_unassigned_class(current) else current.name
+            )
             if old_enrollment is not None:
                 old_enrollment.valid_to = date.today()
             db.add(
@@ -1136,13 +1322,14 @@ def update_student(
                     reason="moved",
                 )
             )
-            if old_name is not None:
+            new_name = None if is_unassigned_class(new_cls) else new_cls.name
+            if old_name is not None or new_name is not None:
                 create_event(
                     db,
                     event_type="class_moved",
                     title="调班",
                     start_time=utcnow(),
-                    payload={"from_class": old_name, "to_class": new_cls.name},
+                    payload={"from_class": old_name, "to_class": new_name},
                     attendee_ids=[s.id],
                 )
 
@@ -1154,7 +1341,7 @@ def update_student(
         "name": s.name,
         "gender": (s.payload or {}).get("gender"),
         "status": _status_of(s),
-        "class": {"id": str(cls.id), "name": cls.name} if cls else None,
+        "class": class_for_api(cls),
     }
 
 

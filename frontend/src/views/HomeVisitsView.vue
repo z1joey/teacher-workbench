@@ -2,11 +2,15 @@
 // 家访：我参与的家访记录，按时间倒序。家访常常带着「下次再确认」的承诺，
 // 所以待跟进的可以直接筛出来，不用靠翻聊天记录回忆。
 import { computed, onMounted, ref } from "vue"
+import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
 import { dateLocale, eventTypeColor, friendlyError, t } from "../strings"
+import { openEvent } from "../eventNav"
+
+const router = useRouter()
 
 const visits = ref([])
 const error = ref("")
@@ -97,7 +101,12 @@ function fmtDate(ts) {
     <div class="card">
       <div class="card__body card__body--tight">
         <div class="feed">
-          <div v-for="v in shown" :key="v.id" class="feed__item">
+          <div
+            v-for="v in shown"
+            :key="v.id"
+            class="feed__item feed__item--clickable"
+            @click="openEvent(router, v)"
+          >
             <span class="feed__dot" :style="{ background: eventTypeColor('home_visited') }">
               <Icon name="map-pin" :size="13" />
             </span>

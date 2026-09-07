@@ -163,6 +163,7 @@ def test_create_student_201_old_keys_seeds_payload_enrollment_enrolled_event(mak
     assert person.name == "林新"
     assert person.payload["admission_no"] == "S8"
     assert person.payload["birth_date"] == "2013-06-01"
+    assert person.payload["gender"] == "F"
     assert person.payload["is_active"] is True
 
     # the guardian is a Person linked through student_guardians, not a flat
@@ -196,6 +197,21 @@ def test_create_student_class_not_found_400(make_client, db, headers):
     assert r.json()["detail"] == "class not found"
 
 
+def test_create_student_without_class_enrolls_unassigned(make_client, db, headers):
+    r = make_client(students.router).post(
+        "/api/students",
+        json={"name": "待分班"},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    person = db.get(Person, uuid.UUID(r.json()["id"]))
+    assert db.query(Enrollment).filter(Enrollment.person_id == person.id).count() == 1
+
+    listed = make_client(students.router).get("/api/students", headers=headers).json()
+    row = next(item for item in listed if item["id"] == r.json()["id"])
+    assert row["class"] is None
+
+
 def test_get_student_shape_scores_and_404(make_client, db, headers):
     cls = _seed_class(db)
     s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
@@ -220,7 +236,7 @@ def test_get_student_shape_scores_and_404(make_client, db, headers):
         ("月考", "math"), ("期中考试", "english"), ("期中考试", "math")]
     row = body["scores"][2]
     assert set(row) == {"result_id", "exam_id", "exam_name", "exam_date",
-                        "subject", "score", "full_score", "status"}
+                        "subject", "subject_color", "score", "full_score", "status"}
     assert row["result_id"] and row["score"] == 90.0
     assert row["full_score"] == 100.0  # from payload max_score
     assert row["exam_date"] == "2026-05-20"  # from score event start_time
@@ -791,6 +807,101 @@ def test_activity_event_detail_update_delete(make_client, db, headers):
     db.expire_all()  # the API session deleted it; drop this session's cache
     assert db.get(Event, uuid.UUID(event_id)) is None
     assert client.get(f"/api/events/{event_id}", headers=headers).status_code == 404
+
+
+def test_create_comment_appears_on_primary_and_mentioned_timelines(make_client, db, headers):
+    s1 = _seed_person(db, "林晓雨", "S001")
+    s2 = _seed_person(db, "王小明", "S002")
+    db.commit()
+    client = make_client(students.router)
+
+    r = client.post(
+        "/api/comments",
+        json={
+            "student_id": str(s1.id),
+            "notes": "课间与王小明发生争执，已分别谈话。",
+            "mentioned_student_ids": [str(s2.id)],
+            "occurred_at": "2026-09-02T10:00:00",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    event_id = r.json()["id"]
+    ev = db.get(Event, uuid.UUID(event_id))
+    assert ev.type == "comment"
+    assert ev.title == "评语"
+    assert ev.payload["notes"] == "课间与王小明发生争执，已分别谈话。"
+    assert ev.payload["about"] == {"id": str(s1.id), "name": "林晓雨"}
+    assert ev.payload["mentioned"] == [{"id": str(s2.id), "name": "王小明"}]
+    teacher_id = db.query(Person).filter(Person.phone == "13800000001").one().id
+    assert {p.id for p in ev.attendees} == {s1.id, s2.id, teacher_id}
+
+    for sid in (s1.id, s2.id):
+        r = client.get(f"/api/students/{sid}/timeline", headers=headers)
+        assert r.status_code == 200, r.text
+        types = [row["event_type"] for row in r.json()]
+        assert "comment" in types
+
+
+def test_get_comment_infers_primary_without_about(make_client, db, headers):
+    s1 = _seed_person(db, "林晓雨", "S001")
+    s2 = _seed_person(db, "王小明", "S002")
+    db.commit()
+    client = make_client(students.router)
+
+    r = client.post(
+        "/api/comments",
+        json={
+            "student_id": str(s1.id),
+            "notes": "legacy shape test",
+            "mentioned_student_ids": [str(s2.id)],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    event_id = r.json()["id"]
+    ev = db.get(Event, uuid.UUID(event_id))
+    payload = dict(ev.payload or {})
+    payload.pop("about", None)
+    ev.payload = payload
+    db.commit()
+
+    r = client.get(f"/api/comments/{event_id}", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["student_id"] == str(s1.id)
+    assert r.json()["notes"] == "legacy shape test"
+
+
+def test_calendar_lists_comment_once_for_mentioned_students(client, db, headers):
+    s1 = _seed_person(db, "林晓雨", "S001")
+    s2 = _seed_person(db, "王小明", "S002")
+    cls = _seed_class(db)
+    _enroll(db, s1, cls)
+    _enroll(db, s2, cls)
+    db.commit()
+    r = client.post(
+        "/api/comments",
+        json={
+            "student_id": str(s1.id),
+            "notes": "提及王小明",
+            "mentioned_student_ids": [str(s2.id)],
+            "occurred_at": "2026-09-02T10:00:00",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+
+    cal = client.get(
+        "/api/calendar?year=2026&month=9",
+        headers=headers,
+    )
+    assert cal.status_code == 200, cal.text
+    comments = [
+        item for item in cal.json()["items"]
+        if item.get("event_type") == "comment"
+    ]
+    assert len(comments) == 1
+    assert comments[0]["student_id"] == str(s1.id)
 
 
 def test_teachers_me_event_types_returns_manual_list(make_client, db, headers):

@@ -47,7 +47,6 @@ onMounted(loadClasses)
 function validate() {
   const e = {}
   if (!form.value.name.trim()) e.name = t("new.nameRequired")
-  if (!form.value.class_id) e.class_id = t("new.classRequired")
   errors.value = e
   return !Object.keys(e).length
 }
@@ -57,15 +56,16 @@ async function submit() {
   if (!validate()) return
   busy.value = true
   try {
-    const res = await api.post("/students", {
+    const body = {
       name: form.value.name.trim(),
       gender: form.value.gender || null,
       birth_date: form.value.birth_date || null,
       guardian_name: form.value.guardian_name || null,
       guardian_phone: form.value.guardian_phone || null,
       address: form.value.address || null,
-      class_id: Number(form.value.class_id),
-    })
+    }
+    if (form.value.class_id) body.class_id = form.value.class_id
+    const res = await api.post("/students", body)
     router.push(`/students/${res.id}`)
   } catch (e) {
     error.value = friendlyError(e)
@@ -143,12 +143,11 @@ async function submit() {
 
         <FormField
           :label="t('new.class')"
-          required
-          :error="errors.class_id || ''"
-          :hint="hasClasses ? '' : t('new.noClassYet')"
+          optional
+          :hint="hasClasses ? t('new.classHint') : t('new.noClassYet')"
         >
-          <select v-model="form.class_id" class="select" :aria-invalid="!!errors.class_id">
-            <option :value="null" disabled>{{ t("new.classPlaceholder") }}</option>
+          <select v-model="form.class_id" class="select">
+            <option :value="null">{{ t("new.classPlaceholder") }}</option>
             <option v-for="c in classes" :key="c.id" :value="c.id">
               {{ c.name }} · {{ c.academic_year }}（{{ t("profile.studentsCount", { n: c.student_count } ) }}）
             </option>
@@ -160,7 +159,7 @@ async function submit() {
         </p>
 
         <div class="form-actions">
-          <button type="submit" class="btn btn--primary" :disabled="busy || !hasClasses">
+          <button type="submit" class="btn btn--primary" :disabled="busy">
             <span v-if="busy" class="spinner" />
             {{ busy ? t("new.saving") : t("new.submit") }}
           </button>
@@ -169,7 +168,7 @@ async function submit() {
           <router-link
             v-if="!hasClasses"
             to="/classes?create=1"
-            class="btn btn--primary"
+            class="btn"
           >{{ t("classes.create") }}</router-link>
         </div>
       </form>

@@ -23,6 +23,7 @@ from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import MANUAL_EVENT_TYPES, RECORD_EVENT_TYPES
 from ..models import Class, Event, Person, person_events
+from ..unassigned import is_unassigned_class
 
 router = APIRouter(
     tags=["dashboard"],
@@ -83,6 +84,10 @@ def month_calendar(
         .all()
     )
     for ev, student in rows:
+        if ev.type == "comment":
+            about = (ev.payload or {}).get("about") or {}
+            if about.get("id") and str(student.id) != str(about["id"]):
+                continue
         items.append({
             "date": ev.start_time.date().isoformat(),
             "kind": "record",
@@ -112,7 +117,7 @@ def dashboard(
             .filter(Person.payload["role"].as_string() == "student", active)
             .count()
         ),
-        "classes": db.query(Class).count(),
+        "classes": sum(1 for _ in db.query(Class).all() if not is_unassigned_class(_)),
         "exams": db.query(Event).filter(Event.type == "exam").count(),
         # 跟进记录: every teacher-written record Event (visits, talks, notes, …)
         "interactions": (
@@ -182,6 +187,7 @@ def dashboard(
         ],
         "follow_ups": [
             {
+                "id": str(ev.id),
                 "student_id": str(person.id),
                 "student_name": person.name,
                 "event_type": ev.type,

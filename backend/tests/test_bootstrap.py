@@ -54,6 +54,7 @@ def test_fresh_db_creates_tables_and_stamps_head(tmp_path, monkeypatch):
 
     insp = inspect(engine)
     assert insp.has_table("person")
+    assert insp.has_table("class")
     assert insp.has_table("event")
     assert insp.has_table("alembic_version")
     with engine.connect() as conn:
@@ -72,7 +73,7 @@ def test_already_migrated_db_is_noop(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(alembic.command, "upgrade", lambda cfg, rev: calls.append("upgrade"))
     monkeypatch.setattr(alembic.command, "stamp", lambda cfg, rev: calls.append("stamp"))
-    bootstrap_db.main()  # must not raise and must call neither command
+    bootstrap_db.main()
 
     assert calls == []
     engine.dispose()

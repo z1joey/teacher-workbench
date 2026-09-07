@@ -10,7 +10,7 @@ import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
 import { ask } from "../confirm"
 import { notify, runUndoable } from "../feedback"
-import { friendlyError, recordableEventOptions, eventTypeLabel, t } from "../strings"
+import { describeEvent, friendlyError, recordableEventOptions, eventTypeLabel, t } from "../strings"
 
 const props = defineProps({
   studentId: { type: String, required: true },
@@ -19,6 +19,7 @@ const props = defineProps({
 const router = useRouter()
 
 const isCreate = computed(() => !props.eventId)
+const readOnly = computed(() => !isCreate.value && event.value?.is_system === true)
 
 const CUSTOM_VALUE = "__custom__"
 
@@ -73,6 +74,10 @@ onMounted(async () => {
     }
     if (!isCreate.value) {
       const ev = res[2]
+      if (ev.event_type === "comment") {
+        router.replace(`/comments/${props.eventId}`)
+        return
+      }
       event.value = ev
       const p = ev.payload || {}
       const known = [...PRESET_VALUES, ...customEventTypes.value]
@@ -80,7 +85,7 @@ onMounted(async () => {
       form.value = {
         event_type: isCustom ? CUSTOM_VALUE : ev.event_type,
         custom_type: isCustom ? ev.event_type : "",
-        summary: p.summary || "",
+        summary: p.summary || p.notes || "",
         purpose: p.purpose || "",
         follow_up_needed: !!p.follow_up_needed,
         follow_up_note: p.follow_up_note || "",
@@ -204,12 +209,26 @@ function goBack() {
 
   <template v-else>
     <PageHeader
-      :title="isCreate ? '记录家访' : `编辑${eventTypeLabelSafe()}`"
+      :title="isCreate ? '记录家访' : readOnly ? eventTypeLabelSafe() : `编辑${eventTypeLabelSafe()}`"
       :subtitle="student ? student.name : ''"
     />
 
     <AsyncState :loading="loading" :error="error" :rows="4" @retry="router.go(0)">
-      <div class="card" style="max-width: 620px">
+      <div v-if="readOnly" class="card" style="max-width: 620px">
+        <div class="card__body">
+          <p class="field__hint" style="margin-bottom: 12px">{{ t("event.systemReadOnly") }}</p>
+          <p class="section-title">{{ eventTypeLabelSafe() }}</p>
+          <p v-if="form.occurred_at" class="stat__sub" style="margin-top: 6px">{{ form.occurred_at.slice(0, 16).replace("T", " ") }}</p>
+          <p v-if="describeEvent(event?.event_type, event?.payload)" class="feed__desc" style="margin-top: 12px">
+            {{ describeEvent(event?.event_type, event?.payload) }}
+          </p>
+          <div class="form-actions" style="margin-top: 16px">
+            <button type="button" class="btn btn--ghost" @click="goBack">{{ t("action.back") }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-else class="card" style="max-width: 620px">
         <form class="card__body" @submit.prevent="save" novalidate>
           <!-- 新建固定为家访，不再选类型；类型下拉只在编辑历史记录时出现 -->
           <FormField

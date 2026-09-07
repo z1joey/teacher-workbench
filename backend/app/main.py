@@ -1,10 +1,20 @@
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .bootstrap_db import ensure_schema
 from .deps import get_current_user
-from .routers import admin, auth, classes, dashboard, exams, misc, profile, students
+from .routers import admin, auth, classes, dashboard, data, exams, misc, profile, students
 
-app = FastAPI(title="Teacher Workbench API", version="0.3.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    ensure_schema()
+    yield
+
+
+app = FastAPI(title="Teacher Workbench API", version="0.3.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,6 +30,7 @@ app.include_router(exams.router, prefix="/api", dependencies=[Depends(get_curren
 app.include_router(misc.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(dashboard.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(profile.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(data.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(admin.router, prefix="/api")
 
 

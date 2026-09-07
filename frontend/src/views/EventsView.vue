@@ -16,6 +16,7 @@ import {
   friendlyError,
   t,
 } from "../strings"
+import { openEvent } from "../eventNav"
 
 const router = useRouter()
 const events = ref([])
@@ -78,9 +79,8 @@ function fmtDate(ts) {
           <div
             v-for="r in events"
             :key="r.id"
-            class="feed__item"
-            style="cursor: pointer"
-            @click="router.push(`/events/${r.id}`)"
+            class="feed__item feed__item--clickable"
+            @click="openEvent(router, r)"
           >
             <span class="feed__dot" :style="{ background: eventTypeColor(r.event_type) }">
               <Icon :name="eventTypeIcon(r.event_type)" :size="13" />

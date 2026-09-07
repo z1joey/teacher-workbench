@@ -22,12 +22,29 @@ const editing = ref(false)
 const saving = ref(false)
 const editForm = ref({ name: "", email: "" })
 const errors = ref({})
+const semesterForm = ref([])
+const semesterErrors = ref({})
+const savingSemesters = ref(false)
+
+function newSemesterRow() {
+  return {
+    id: crypto.randomUUID(),
+    name: "",
+    start_date: "",
+    end_date: "",
+  }
+}
+
+function syncSemesterForm(rows) {
+  semesterForm.value = (rows || []).map((row) => ({ ...row }))
+}
 
 async function load() {
   loading.value = true
   error.value = ""
   try {
     profile.value = await api.get("/profile")
+    syncSemesterForm(profile.value.semesters)
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -71,6 +88,47 @@ async function saveProfile() {
     error.value = friendlyError(e)
   } finally {
     saving.value = false
+  }
+}
+
+function addSemester() {
+  semesterForm.value = [...semesterForm.value, newSemesterRow()]
+}
+
+function removeSemester(id) {
+  semesterForm.value = semesterForm.value.filter((row) => row.id !== id)
+}
+
+function validateSemesters() {
+  const e = {}
+  semesterForm.value.forEach((row, i) => {
+    if (!row.name.trim()) e[`name-${i}`] = t("profile.semesterNameRequired")
+    if (!row.start_date || !row.end_date) e[`dates-${i}`] = t("profile.semesterDatesRequired")
+    else if (row.end_date < row.start_date) e[`dates-${i}`] = t("profile.semesterEndInvalid")
+  })
+  semesterErrors.value = e
+  return !Object.keys(e).length
+}
+
+async function saveSemesters() {
+  if (!validateSemesters()) return
+  savingSemesters.value = true
+  error.value = ""
+  try {
+    const payload = semesterForm.value.map((row) => ({
+      id: row.id,
+      name: row.name.trim(),
+      start_date: row.start_date,
+      end_date: row.end_date,
+    }))
+    const updated = await api.patch("/profile/semesters", { semesters: payload })
+    profile.value.semesters = updated.semesters
+    syncSemesterForm(updated.semesters)
+    notify({ tone: "ok", title: t("profile.semestersSaved"), timeout: 2400 })
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    savingSemesters.value = false
   }
 }
 
@@ -156,6 +214,61 @@ const activity = computed(() => {
               </button>
               <button type="button" class="btn btn--ghost" @click="cancelEdit">
                 {{ t("action.cancel") }}
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- 学期设置 -->
+        <div class="card">
+          <div class="card__head">
+            <div>
+              <h2 class="card__title"><Icon name="calendar" :size="16" /> {{ t("profile.semesters") }}</h2>
+              <p class="card__desc">{{ t("profile.semestersHint") }}</p>
+            </div>
+          </div>
+          <form class="card__body" @submit.prevent="saveSemesters">
+            <p v-if="!semesterForm.length" class="state__desc" style="margin: 0 0 12px">
+              {{ t("profile.semestersEmpty") }}
+            </p>
+            <div v-for="(row, i) in semesterForm" :key="row.id" class="semester-row">
+              <FormField
+                :label="t('profile.semesterName')"
+                required
+                :error="semesterErrors[`name-${i}`] || ''"
+              >
+                <input v-model="row.name" class="input" type="text" maxlength="100" />
+              </FormField>
+              <FormField
+                :label="t('profile.semesterStart')"
+                required
+                :error="semesterErrors[`dates-${i}`] || ''"
+              >
+                <input v-model="row.start_date" class="input" type="date" />
+              </FormField>
+              <FormField
+                :label="t('profile.semesterEnd')"
+                required
+                :error="semesterErrors[`dates-${i}`] ? ' ' : ''"
+              >
+                <input v-model="row.end_date" class="input" type="date" />
+              </FormField>
+              <button
+                type="button"
+                class="btn btn--ghost btn--sm semester-row__remove"
+                :aria-label="t('action.delete')"
+                @click="removeSemester(row.id)"
+              >
+                <Icon name="trash" :size="14" />
+              </button>
+            </div>
+            <div class="form-actions">
+              <button type="button" class="btn" @click="addSemester">
+                <Icon name="plus" :size="14" /> {{ t("profile.addSemester") }}
+              </button>
+              <button type="submit" class="btn btn--primary" :disabled="savingSemesters">
+                <span v-if="savingSemesters" class="spinner" />
+                {{ savingSemesters ? t("action.saving") : t("action.save") }}
               </button>
             </div>
           </form>

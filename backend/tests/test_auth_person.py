@@ -78,8 +78,64 @@ def test_profile_patch_get_round_trips_name(make_client, db):
 
     r = client.get("/api/profile", headers=headers)
     assert r.status_code == 200, r.text
-    assert set(r.json()) == {"user", "classes", "stats"}
+    assert set(r.json()) == {"user", "classes", "stats", "semesters"}
     assert r.json()["user"]["name"] == "陈老师"
+    semesters = r.json()["semesters"]
+    assert len(semesters) == 6
+    t1 = next(row for row in semesters if row["id"] == "2025-t1")
+    t2 = next(row for row in semesters if row["id"] == "2025-t2")
+    assert t1 == {
+        "id": "2025-t1",
+        "name": "2025-2026 第一学期",
+        "start_date": "2025-09-01",
+        "end_date": "2026-01-31",
+    }
+    assert t2["start_date"] == "2026-02-01"
+    assert t2["end_date"] == "2026-07-31"
+    db.refresh(person)
+    assert not (person.payload or {}).get("semesters")
+
+
+def test_profile_get_does_not_persist_default_semesters(make_client, db):
+    client = make_client(profile.router)
+    person = seed_person(db, "13800000020", name="陈老师")
+    token = seed_token(db, person, "e" * 64)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = client.get("/api/profile", headers=headers)
+    assert r.status_code == 200, r.text
+    assert len(r.json()["semesters"]) == 6
+    db.refresh(person)
+    assert not (person.payload or {}).get("semesters")
+
+
+def test_profile_semesters_patch_round_trip(make_client, db):
+    client = make_client(profile.router)
+    person = seed_person(db, "13800000019", name="陈老师")
+    token = seed_token(db, person, "d" * 64)
+    headers = {"Authorization": f"Bearer {token}"}
+    rows = [
+        {
+            "id": "2025-t1",
+            "name": "2025-2026 第一学期",
+            "start_date": "2025-09-01",
+            "end_date": "2026-01-31",
+        },
+        {
+            "id": "2025-t2",
+            "name": "2025-2026 第二学期",
+            "start_date": "2026-02-01",
+            "end_date": "2026-07-31",
+        },
+    ]
+
+    r = client.patch("/api/profile/semesters", json={"semesters": rows}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["semesters"] == rows
+
+    r = client.get("/api/profile", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["semesters"] == rows
 
 
 def test_teachers_lists_only_teachers(make_client, db):
