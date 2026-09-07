@@ -70,12 +70,6 @@ async function markDone(v, e) {
     :rows="3"
     @retry="load"
   >
-    <template #emptyAction>
-      <router-link to="/students">
-        <button class="btn btn--primary"><Icon name="users" :size="15" /> {{ t("visits.record") }}</button>
-      </router-link>
-    </template>
-
     <div class="card">
       <div class="card__body card__body--tight">
         <div class="feed">

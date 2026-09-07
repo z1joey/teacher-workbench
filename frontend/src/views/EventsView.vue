@@ -49,12 +49,6 @@ onMounted(load)
     :rows="3"
     @retry="load"
   >
-    <template #emptyAction>
-      <router-link to="/events/new">
-        <button class="btn btn--primary"><Icon name="plus" :size="15" /> {{ t("events.create") }}</button>
-      </router-link>
-    </template>
-
     <div class="card">
       <div class="card__body card__body--tight">
         <div class="feed">
