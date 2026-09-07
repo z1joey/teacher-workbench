@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 
 from . import models  # noqa: F401  (registers the tables on Base.metadata)
 from .database import Base, engine
+from .models import Event
+from .payloads import validate_event_payload
 from .unassigned import ensure_unassigned_class
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -115,11 +117,29 @@ def _strip_class_legacy_columns() -> None:
         conn.execute(text("PRAGMA foreign_keys=ON"))
 
 
+def _strip_follow_up_from_events() -> None:
+    """Remove legacy follow_up notes from home-visit event payloads."""
+    if not inspect(engine).has_table("event"):
+        return
+    with Session(engine, autoflush=False, expire_on_commit=False) as db:
+        changed = False
+        for ev in db.query(Event).filter(Event.type == "home_visited").all():
+            payload = dict(ev.payload or {})
+            if "follow_up" not in payload:
+                continue
+            payload.pop("follow_up", None)
+            ev.payload = validate_event_payload("home_visited", payload)
+            changed = True
+        if changed:
+            db.commit()
+
+
 def ensure_schema() -> None:
     """Idempotent setup used on app startup and in Docker CMD."""
     Base.metadata.create_all(engine)
     _drop_event_type_check()
     _strip_class_legacy_columns()
+    _strip_follow_up_from_events()
     with Session(engine, autoflush=False, expire_on_commit=False) as db:
         ensure_unassigned_class(db)
         db.commit()

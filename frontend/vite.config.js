@@ -7,8 +7,8 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/gao/api": { target: "http://127.0.0.1:8000", changeOrigin: true, rewrite: (p) => p.replace(/^\/gao/, "") },
-      "/api": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      "/gao/api": { target: "http://127.0.0.1:8001", changeOrigin: true, rewrite: (p) => p.replace(/^\/gao/, "") },
+      "/api": { target: "http://127.0.0.1:8001", changeOrigin: true },
     },
   },
 })

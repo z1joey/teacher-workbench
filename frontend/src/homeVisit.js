@@ -7,8 +7,6 @@ export function homeVisitPatchBody(payload, done = true) {
     event_type: "home_visited",
     purpose: p.purpose || t("event.defaultPurpose"),
     summary: p.summary || "",
-    follow_up_needed: !!p.follow_up,
-    follow_up_note: p.follow_up || null,
     done,
   }
 }

@@ -89,7 +89,7 @@ def _seed_student_with_evidence(db):
     db.add(Enrollment(person_id=student.id, class_id=klass.id, valid_from=date(2025, 9, 1)))
     eventing.create_event(db, event_type="home_visited", title="家访",
                           start_time=datetime(2026, 3, 20, 19, 0),
-                          payload={"summary": "常规家访", "follow_up": None},
+                          payload={"summary": "常规家访"},
                           attendee_ids=[student.id])
     db.commit()
     return teacher, student

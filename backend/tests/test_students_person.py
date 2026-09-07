@@ -554,17 +554,14 @@ def test_manual_event_create_list_patch_delete(make_client, db, headers):
     ev = db.get(Event, uuid.UUID(created["id"]))
     assert ev.type == "talk" and ev.payload == {"notes": "聊了作业习惯"}
 
-    # home visit maps purpose/summary/follow_up onto the home_visited payload
+    # home visit maps purpose/summary onto the home_visited payload
     r = client.post(f"/api/students/{s.id}/events",
                     json={"event_type": "home_visited", "purpose": "开学沟通",
-                          "summary": "开学前家访",
-                          "follow_up_needed": True,
-                          "follow_up_note": "两周后回访阅读落实情况"},
+                          "summary": "开学前家访"},
                     headers=headers)
     assert r.status_code == 201, r.text
     visit = db.get(Event, uuid.UUID(r.json()["id"]))
-    assert visit.payload == {"purpose": "开学沟通", "summary": "开学前家访",
-                             "follow_up": "两周后回访阅读落实情况"}
+    assert visit.payload == {"purpose": "开学沟通", "summary": "开学前家访"}
 
     r = client.get(f"/api/students/{s.id}/events", headers=headers)
     assert r.status_code == 200, r.text

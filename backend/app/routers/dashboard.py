@@ -9,8 +9,7 @@ The summary recomputes counts over the new tables: students = active student
 Persons, exams = sitting Events, interactions = manual record Events. Score
 Events are per-student-per-subject rows with no old-world counterpart in the
 recent-events digest, so they (and multi-attendee sitting Events) are skipped
-there; follow-ups are home visits whose payload follow_up note is set (the
-old follow_up_needed flag collapsed into it — see students.py).
+there.
 """
 from calendar import monthrange
 from datetime import date, datetime, time, timedelta
@@ -124,22 +123,6 @@ def dashboard(
             db.query(Event).filter(Event.type.in_(list(MANUAL_EVENT_TYPES))).count()
         ),
     }
-    follow_ups = (
-        db.query(Event, Person)
-        .join(person_events, person_events.c.event_id == Event.id)
-        .join(Person, Person.id == person_events.c.person_id)
-        .filter(
-            Event.type == "home_visited",
-            _STUDENT_ATTENDEE,
-            # follow_up_needed collapsed into the follow_up note (students.py);
-            # as_string() keeps the NULL compare a plain SQL NULL (a bare
-            # JSON-path IS (NOT) NULL binds JSON 'null', matching every row)
-            Event.payload["follow_up"].as_string().is_not(None),
-        )
-        .order_by(Event.start_time.desc())
-        .limit(5)
-        .all()
-    )
     recent = (
         db.query(Event)
         .filter(Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)))
@@ -184,19 +167,6 @@ def dashboard(
                 "end_date": (exam.end_time.date().isoformat() if exam.end_time else None),
             }
             for exam in upcoming
-        ],
-        "follow_ups": [
-            {
-                "id": str(ev.id),
-                "student_id": str(person.id),
-                "student_name": person.name,
-                "event_type": ev.type,
-                "occurred_at": ev.start_time.isoformat(),
-                "purpose": None,  # no payload slot anymore (see students.py)
-                "summary": (ev.payload or {}).get("summary"),
-                "follow_up_note": (ev.payload or {}).get("follow_up"),
-            }
-            for ev, person in follow_ups
         ],
         "recent_events": [
             {

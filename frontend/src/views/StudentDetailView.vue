@@ -479,8 +479,14 @@ const headerMeta = computed(() => {
 </script>
 
 <template>
-  <AsyncState :loading="loading" :error="error" :rows="5" @retry="load">
-    <template v-if="student">
+  <AsyncState
+    :loading="loading"
+    :error="error"
+    :empty="!loading && !error && !student"
+    empty-title="学生档案没能加载"
+    :rows="5"
+    @retry="load"
+  >
       <PageHeader
         :title="student.name"
         :subtitle="`${student.admission_no} · ${student.class ? student.class.name : t('students.ungrouped')}`"
@@ -661,9 +667,6 @@ const headerMeta = computed(() => {
                 <h2 class="card__title"><Icon name="note" :size="16" /> {{ t("detail.timeline") }}</h2>
                 <p class="card__desc">{{ t("detail.timelineSub") }}</p>
               </div>
-              <button class="btn btn--sm btn--primary" @click="addEvent">
-                <Icon name="plus" :size="13" /> {{ t("detail.recordEvent") }}
-              </button>
             </div>
             <div class="card__body">
               <Timeline :events="timeline" :student-id="props.id" />
@@ -818,7 +821,9 @@ const headerMeta = computed(() => {
               <button type="button" class="btn btn--ghost" @click="cancelProfileEdit">
                 {{ t("action.cancel") }}
               </button>
-              <span class="form-actions__spacer" />
+            </div>
+
+            <div class="form-actions form-actions--danger">
               <button
                 type="button"
                 class="btn btn--danger"
@@ -831,6 +836,5 @@ const headerMeta = computed(() => {
           </form>
         </div>
       </div>
-    </template>
   </AsyncState>
 </template>

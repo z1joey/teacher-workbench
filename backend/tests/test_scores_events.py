@@ -102,9 +102,8 @@ def _enter_scores(db, exam: Event, person: Person, subject_scores: dict[str, flo
 
 
 def _manual_event(db, person: Person, event_type: str, summary: str,
-                  start: datetime, follow_up: str | None = None) -> Event:
-    payload = ({"summary": summary, "follow_up": follow_up}
-               if event_type == "home_visited" else {"notes": summary})
+                  start: datetime) -> Event:
+    payload = {"summary": summary} if event_type == "home_visited" else {"notes": summary}
     ev = eventing.create_event(db, event_type=event_type, title=summary,
                                start_time=start, payload=payload,
                                attendee_ids=[person.id])
@@ -571,8 +570,7 @@ def test_class_crud_contract(make_client, db, headers):
 def test_calendar_range_and_kinds(graded, db):
     ctx = graded
     a = ctx["students"][0]
-    _manual_event(db, a, "home_visited", "6月家访", datetime(2026, 6, 5, 10, 0),
-                  follow_up="需要二次跟进")
+    _manual_event(db, a, "home_visited", "6月家访", datetime(2026, 6, 5, 10, 0))
     _manual_event(db, a, "talk", "七月谈话", datetime(2026, 7, 1, 9, 0))
     db.commit()
 
@@ -591,7 +589,7 @@ def test_calendar_range_and_kinds(graded, db):
     assert visit["event_type"] == "home_visited"
     assert visit["student_id"] == str(a.id)
     assert visit["student_name"] == "张一"
-    assert visit["payload"] == {"summary": "6月家访", "follow_up": "需要二次跟进"}
+    assert visit["payload"] == {"summary": "6月家访"}
     # the old calendar carried no birthdays — none projected here either
     assert all(i["kind"] != "birthday" for i in items)
 
@@ -604,8 +602,7 @@ def test_calendar_range_and_kinds(graded, db):
 def test_dashboard_summary_counts_and_panels(graded, db):
     ctx = graded
     client, a, b = ctx["client"], ctx["students"][0], ctx["students"][1]
-    _manual_event(db, a, "home_visited", "家访甲", datetime(2026, 6, 5, 10, 0),
-                  follow_up="需要二次跟进")
+    _manual_event(db, a, "home_visited", "家访甲", datetime(2026, 6, 5, 10, 0))
     _manual_event(db, a, "home_visited", "家访乙", datetime(2026, 6, 6, 10, 0))
     _manual_event(db, b, "note_added", "课堂随笔", datetime(2026, 6, 7, 10, 0))
     # the recording teacher attends the visit too — digest rows stay
@@ -614,7 +611,7 @@ def test_dashboard_summary_counts_and_panels(graded, db):
     eventing.create_event(
         db, event_type="home_visited", title="家访丙",
         start_time=datetime(2026, 6, 8, 10, 0),
-        payload={"summary": "有老师同行的家访", "follow_up": "两周后回访"},
+        payload={"summary": "有老师同行的家访"},
         attendee_ids=[b.id, teacher.id],
     )
     db.commit()  # release the write lock before the API session writes
@@ -634,16 +631,6 @@ def test_dashboard_summary_counts_and_panels(graded, db):
 
     assert [e["name"] for e in data["upcoming_exams"]] == ["十月月考", "十一月月考"]
     assert data["upcoming_exams"][0]["exam_date"] == (date.today() + timedelta(days=30)).isoformat()
-
-    # follow_ups: only home visits with a follow-up note; purpose has no slot.
-    # 家访丙 has the teacher attending, yet the row is the student's alone.
-    assert [f["summary"] for f in data["follow_ups"]] == ["有老师同行的家访", "家访甲"]
-    assert [f["student_name"] for f in data["follow_ups"]] == ["李二", "张一"]
-    assert data["follow_ups"][0]["follow_up_note"] == "两周后回访"
-    assert data["follow_ups"][0]["purpose"] is None
-    assert data["follow_ups"][1]["follow_up_note"] == "需要二次跟进"
-    assert data["follow_ups"][1]["purpose"] is None
-    assert data["follow_ups"][1]["student_name"] == "张一"
 
     # recent events: one row per Event with its student roster (score/exam
     # rows are not digest items; the attending teacher never surfaces)

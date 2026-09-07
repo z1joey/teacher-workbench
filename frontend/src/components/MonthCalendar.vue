@@ -45,8 +45,6 @@ function emptyForm() {
     recurrence: "once",
     summary: "",
     purpose: "",
-    follow_up_needed: false,
-    follow_up_note: "",
   }
 }
 
@@ -233,9 +231,6 @@ const typeOptions = computed(() => recordableEventOptions())
 function needsPurpose(type) {
   return type === "home_visited" || type === "parent_call"
 }
-function needsFollowUp(type) {
-  return type === "home_visited"
-}
 
 // ------------------------------------------------------------ 新增 / 编辑
 
@@ -258,8 +253,6 @@ async function openEdit(it) {
     recurrence: it.recurrence || "once",
     summary: p.summary || "",
     purpose: p.purpose || "",
-    follow_up_needed: !!p.follow_up_needed,
-    follow_up_note: p.follow_up_note || "",
   }
   await ensureStudents()
   await nextTick()
@@ -293,11 +286,9 @@ async function saveForm() {
   formSaving.value = true
   try {
     const body = {
-      event_type: form.value.event_type,
+      event_type: modal.value?.mode === "edit" ? modal.value.item.event_type : form.value.event_type,
       summary: form.value.summary.trim(),
       purpose: form.value.purpose.trim() || null,
-      follow_up_needed: form.value.follow_up_needed,
-      follow_up_note: form.value.follow_up_note.trim() || null,
     }
     if (modal.value?.mode === "edit") {
       // keep the original time; only the content is editable here
@@ -444,14 +435,25 @@ async function deleteRecord(it) {
                   <Icon :name="it.kind === 'exam' ? 'clipboard' : eventTypeIcon(it.event_type)" :size="12" />
                 </span>
                 <span class="cal-notify__text">
-                  <span class="cal-notify__when">{{ notifyDateLabel(it.date) }}</span>
-                  <template v-if="it.kind === 'exam'"> · {{ it.name }}</template>
-                  <template v-else>
-                    · {{ it.student_name }} · {{ eventTypeLabel(it.event_type) }}
-                    <span v-if="describeEvent(it.event_type, it.payload)" class="cal-notify__sub">
-                      · {{ describeEvent(it.event_type, it.payload) }}
-                    </span>
-                  </template>
+                  <span class="cal-notify__line">
+                    <time class="cal-notify__when">{{ notifyDateLabel(it.date) }}</time>
+                    <template v-if="it.kind === 'exam'">
+                      <span class="cal-notify__sep" aria-hidden="true">·</span>
+                      <span>{{ it.name }}</span>
+                    </template>
+                    <template v-else>
+                      <span class="cal-notify__sep" aria-hidden="true">·</span>
+                      <span>{{ it.student_name }}</span>
+                      <span class="cal-notify__sep" aria-hidden="true">·</span>
+                      <span>{{ eventTypeLabel(it.event_type) }}</span>
+                    </template>
+                  </span>
+                  <span
+                    v-if="it.kind !== 'exam' && describeEvent(it.event_type, it.payload)"
+                    class="cal-notify__sub"
+                  >
+                    {{ describeEvent(it.event_type, it.payload) }}
+                  </span>
                 </span>
               </button>
             </div>
@@ -555,7 +557,7 @@ async function deleteRecord(it) {
             </select>
           </div>
 
-          <div class="field">
+          <div v-if="modal.mode !== 'edit'" class="field">
             <label class="field__label" for="cal-type">{{ t("home.calType") }}</label>
             <select
               id="cal-type"
@@ -598,19 +600,6 @@ async function deleteRecord(it) {
           <div v-if="needsPurpose(form.event_type)" class="field">
             <label class="field__label" for="cal-purpose">{{ t("home.calPurpose") }}</label>
             <input id="cal-purpose" v-model="form.purpose" class="input" type="text" />
-          </div>
-
-          <div v-if="needsFollowUp(form.event_type)" class="field">
-            <label class="check">
-              <input v-model="form.follow_up_needed" type="checkbox" />
-              <span>{{ t("home.calFollowUp") }}</span>
-            </label>
-            <span class="field__hint">{{ t("event.followUpHint") }}</span>
-          </div>
-
-          <div v-if="needsFollowUp(form.event_type) && form.follow_up_needed" class="field">
-            <label class="field__label" for="cal-followup">{{ t("home.calFollowUpNote") }}</label>
-            <input id="cal-followup" v-model="form.follow_up_note" class="input" type="text" />
           </div>
 
           <p v-if="formError" class="field__error" style="margin-bottom: 12px">

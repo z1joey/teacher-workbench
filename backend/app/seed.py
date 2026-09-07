@@ -290,23 +290,19 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     # Visits involve 陈老师 (the visiting teacher), the student and the
     # guardian of record (snapshotted from the linked guardian Person); notes
     # involve her and the student. Home-visit purpose folds into the summary
-    # (HomeVisitPayload has summary/follow_up/guardian only) and
-    # follow_up_needed collapses into the note (students.py rule).
+    # (HomeVisitPayload has summary/purpose/guardian only).
     visits = [
         (hao, datetime(2026, 3, 20, 19, 0),
-         "频繁迟到：父母上早班，商定由爷爷负责早餐和晨间作息。",
-         "四月中旬再次检查出勤情况"),
+         "频繁迟到：父母上早班，商定由爷爷负责早餐和晨间作息。"),
         (lin, datetime(2026, 5, 10, 19, 30),
-         "数学提升计划：与家长沟通分数专项练习计划，每周二、周四各练习20分钟。",
-         None),
+         "数学提升计划：与家长沟通分数专项练习计划，每周二、周四各练习20分钟。"),
         (guo, datetime(2026, 6, 5, 18, 30),
-         "期末走访：家庭支持到位，学生自述备考状态良好。",
-         None),
+         "期末走访：家庭支持到位，学生自述备考状态良好。"),
     ]
-    for student, when, summary, follow_up in visits:
+    for student, when, summary in visits:
         guardians = _guardians_of(db, student.id)
         create_event(db, event_type="home_visited", title="家访", start_time=when,
-                     payload={"summary": summary, "follow_up": follow_up,
+                     payload={"summary": summary,
                               "guardian": guardians[0][0].name if guardians else None},
                      attendee_ids=[student.id, teacher.id])
 

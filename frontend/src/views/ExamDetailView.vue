@@ -150,18 +150,21 @@ function pct(score, full) {
 </script>
 
 <template>
-  <AsyncState :loading="loading" :error="error" :rows="4" @retry="load">
-    <template v-if="averages && exam">
+  <AsyncState
+    :loading="loading"
+    :error="error"
+    :empty="!loading && !error && !(averages && exam)"
+    empty-title="考试详情没能加载"
+    :rows="4"
+    @retry="load"
+  >
       <PageHeader
         :title="exam.name"
         :subtitle="`${formatDateRange(exam.exam_date, exam.end_date)} · ${t('exam.attributionNote')}`"
       >
         <template #actions>
-          <button class="btn" @click="startEdit">
+          <button v-if="!editing" class="btn" @click="startEdit">
             <Icon name="pencil" :size="15" /> {{ t("action.edit") }}
-          </button>
-          <button class="btn btn--danger" @click="removeExam">
-            <Icon name="trash" :size="15" /> {{ t("action.delete") }}
           </button>
         </template>
       </PageHeader>
@@ -215,6 +218,17 @@ function pct(score, full) {
             </button>
             <button type="button" class="btn btn--ghost" @click="cancelEdit">
               {{ t("action.cancel") }}
+            </button>
+          </div>
+
+          <div class="form-actions form-actions--danger">
+            <button
+              type="button"
+              class="btn btn--danger"
+              :disabled="editSaving"
+              @click="removeExam"
+            >
+              <Icon name="trash" :size="14" /> {{ t("action.delete") }}
             </button>
           </div>
         </form>
@@ -290,6 +304,5 @@ function pct(score, full) {
           </table>
         </div>
       </div>
-    </template>
   </AsyncState>
 </template>

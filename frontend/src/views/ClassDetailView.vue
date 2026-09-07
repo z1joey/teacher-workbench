@@ -176,8 +176,14 @@ function fmtPct(score, full) {
 </script>
 
 <template>
-  <AsyncState :loading="loading" :error="error" :rows="4" @retry="load">
-    <template v-if="detail">
+  <AsyncState
+    :loading="loading"
+    :error="error"
+    :empty="!loading && !error && !detail"
+    empty-title="班级详情没能加载"
+    :rows="4"
+    @retry="load"
+  >
       <PageHeader
         :title="detail.class.name"
         :subtitle="detail.class.academic_year"
@@ -188,11 +194,8 @@ function fmtPct(score, full) {
           </button>
         </template>
         <template #actions>
-          <button class="btn" @click="startEdit">
+          <button v-if="!editing" class="btn" @click="startEdit">
             <Icon name="pencil" :size="15" /> {{ t("action.edit") }}
-          </button>
-          <button class="btn btn--danger" @click="removeClass">
-            <Icon name="trash" :size="15" /> {{ t("action.delete") }}
           </button>
         </template>
       </PageHeader>
@@ -223,6 +226,17 @@ function fmtPct(score, full) {
             </button>
             <button type="button" class="btn btn--ghost" @click="cancelEdit">
               {{ t("action.cancel") }}
+            </button>
+          </div>
+
+          <div class="form-actions form-actions--danger">
+            <button
+              type="button"
+              class="btn btn--danger"
+              :disabled="editSaving"
+              @click="removeClass"
+            >
+              <Icon name="trash" :size="14" /> {{ t("action.delete") }}
             </button>
           </div>
         </form>
@@ -350,6 +364,5 @@ function fmtPct(score, full) {
           </div>
         </div>
       </div>
-    </template>
   </AsyncState>
 </template>

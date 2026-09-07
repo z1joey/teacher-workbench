@@ -162,7 +162,7 @@ router.beforeEach(async (to) => {
     return me.value?.role === "admin" ? "/admin" : "/"
   }
   if (!me.value) await loadMe()
-  if (!me.value) return // auth failed, api layer will bounce to /login
+  if (!me.value) return "/login"
 
   // Admin gate #1 — teacher-role users who guess /admin get bounced.
   if (to.path.startsWith("/admin") && me.value.role !== "admin") return "/"

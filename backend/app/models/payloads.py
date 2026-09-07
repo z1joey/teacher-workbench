@@ -90,7 +90,6 @@ class CommentPayload(_Strict):
 class HomeVisitPayload(_Strict):
     summary: str | None = None
     purpose: str | None = None
-    follow_up: str | None = None
     done: bool | None = None
     # guardian of record at visit time (snapshots the student payload;
     # guardians are student attributes, not accounts)

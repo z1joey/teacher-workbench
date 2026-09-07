@@ -1,18 +1,17 @@
 <script setup>
 // 班级列表：班均摘要 + 最近事件，点卡片进详情看完整名单。
 import { computed, onMounted, ref, watch } from "vue"
-import { useRoute, useRouter } from "vue-router"
+import { useRoute } from "vue-router"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
+import FeedEventItem from "../components/FeedEventItem.vue"
 import api from "../api"
 import { notify } from "../feedback"
-import { eventTypeLabel, friendlyError, subject, COMMON_SUBJECT_KEYS, t } from "../strings"
-import { openEvent } from "../eventNav"
+import { friendlyError, subject, COMMON_SUBJECT_KEYS, t } from "../strings"
 
 const route = useRoute()
-const router = useRouter()
 
 const classes = ref([])
 const unassigned = ref([])
@@ -105,10 +104,6 @@ function avgSummary(c) {
 
 function visitedCount(c) {
   return (c.students || []).filter((s) => s.home_visited).length
-}
-
-function shortDate(ts) {
-  return new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
 }
 
 function visibleEvents(c) {
@@ -227,20 +222,16 @@ const hasContent = computed(() => classes.value.length > 0 || unassigned.value.l
           <div
             v-if="(c.recent_events || []).length"
             class="stack"
-            style="gap: 4px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line)"
+            style="gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line)"
           >
             <span class="field__hint">{{ t("classes.recentEvents") }}</span>
-            <div
-              v-for="ev in visibleEvents(c)"
-              :key="`e${ev.id}`"
-              class="row muted feed__item--inline"
-              style="font-size: 13px; cursor: pointer"
-              @click.stop.prevent="openEvent(router, ev)"
-            >
-              <span class="stat__sub nowrap">{{ shortDate(ev.occurred_at) }}</span>
-              <span>{{ ev.student_name }}</span>
-              <span>· {{ eventTypeLabel(ev.event_type) }}</span>
-              <span v-if="ev.recurrence === 'yearly'" class="pill pill--muted">↻ 每年</span>
+            <div class="feed" @click.stop>
+              <FeedEventItem
+                v-for="ev in visibleEvents(c)"
+                :key="`e${ev.id}`"
+                :event="ev"
+                student-first
+              />
             </div>
             <button
               v-if="(c.recent_events || []).length > EVENTS_VISIBLE || expandedEvents[c.id]"

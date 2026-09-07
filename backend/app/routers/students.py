@@ -82,14 +82,12 @@ def _record_title(event_type: str) -> str:
 
 
 def _record_payload(event_type: str, summary: str, purpose: str | None,
-                    follow_up_needed: bool, follow_up_note: str | None,
                     old_payload: dict | None = None,
                     *, done: bool | None = None) -> dict:
-    """Map the old record body onto the per-type payload schemas.
+    """Map the record body onto the per-type payload schemas.
 
     talk/tutoring/parent_call/note_added carry {"notes"}; home_visited carries
-    {"summary","follow_up","done"} (follow_up needed+note collapse into follow_up);
-    a patched-to-birthday event keeps its birth_date.
+    {"summary","purpose","done"}; a patched-to-birthday event keeps birth_date.
     """
     if event_type == "home_visited":
         old = old_payload or {}
@@ -101,7 +99,6 @@ def _record_payload(event_type: str, summary: str, purpose: str | None,
         out: dict = {
             "purpose": purpose_text,
             "summary": summary.strip() or None,
-            "follow_up": follow_up_note if follow_up_needed else None,
         }
         if old.get("guardian"):
             out["guardian"] = old["guardian"]
@@ -756,8 +753,6 @@ class EventRecordIn(BaseModel):
     event_type: str = Field(min_length=1, max_length=40)
     summary: str = Field(default="", max_length=2000)
     purpose: str | None = None
-    follow_up_needed: bool = False
-    follow_up_note: str | None = None
     occurred_at: datetime | None = None
     done: bool | None = None  # home_visited: mark the visit completed
     # home visits: the guardian persons who attended. Absent (old clients)
@@ -783,10 +778,7 @@ def create_event_record(
     done = body.done if body.event_type == "home_visited" else None
     payload = validate_event_payload(
         body.event_type,
-        _record_payload(
-            body.event_type, body.summary, body.purpose,
-            body.follow_up_needed, body.follow_up_note, done=done,
-        ),
+        _record_payload(body.event_type, body.summary, body.purpose, done=done),
     )
     guardian_people: list[Person] = []
     if body.event_type == "home_visited":
@@ -1284,7 +1276,6 @@ def update_event(
         body.event_type,
         _record_payload(
             body.event_type, body.summary, body.purpose,
-            body.follow_up_needed, body.follow_up_note,
             old_payload, done=done,
         ),
     )

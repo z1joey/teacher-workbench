@@ -49,6 +49,7 @@ async function load() {
   try {
     profile.value = await api.get("/profile")
   } catch (e) {
+    profile.value = null
     error.value = friendlyError(e)
   } finally {
     loading.value = false
@@ -127,9 +128,16 @@ const activity = computed(() => {
 <template>
   <PageHeader :title="t('profile.title')" :subtitle="t('profile.subtitle')" />
 
-  <AsyncState :loading="loading" :error="error" :rows="4" @retry="load">
-    <template v-if="profile">
-      <div class="split">
+  <AsyncState
+    :loading="loading"
+    :error="error"
+    :empty="!loading && !error && !profile"
+    empty-title="个人资料没能加载"
+    empty-desc="请检查网络连接后重试。"
+    :rows="4"
+    @retry="load"
+  >
+    <div class="split">
       <div>
         <!-- 资料 -->
         <div class="card">
@@ -246,6 +254,5 @@ const activity = computed(() => {
           <Icon name="logout" :size="15" /> {{ t("auth.logout") }}
         </button>
       </div>
-    </template>
   </AsyncState>
 </template>

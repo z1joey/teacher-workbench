@@ -995,6 +995,11 @@ code {
 .form-actions__spacer {
   margin-left: auto;
 }
+.form-actions--danger {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
 
 /* 分段选择（替代多选/下拉的可见控件） */
 .segmented {
@@ -2140,7 +2145,7 @@ a.chip:hover {
 }
 .feed__item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-3) 0;
   border-bottom: 1px solid var(--line);
@@ -2168,6 +2173,7 @@ a.chip:hover {
   width: 26px;
   height: 26px;
   flex: 0 0 auto;
+  align-self: center;
   border-radius: 50%;
   color: #fff;
 }
@@ -2192,6 +2198,9 @@ a.chip:hover {
   font-size: var(--fs-sm);
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+.feed__done {
+  margin-left: 8px;
 }
 
 /* ==========================================================================
@@ -2313,10 +2322,6 @@ a.chip:hover {
   font-size: var(--fs-sm);
   font-weight: 600;
 }
-.cal-notify__when {
-  color: var(--muted);
-  white-space: nowrap;
-}
 .cal-notify__list {
   display: flex;
   flex-direction: column;
@@ -2324,10 +2329,11 @@ a.chip:hover {
 }
 .cal-notify__item {
   display: flex;
-  align-items: flex-start;
-  gap: var(--sp-2);
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 8px 10px;
+  min-height: 44px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--surface-sunken);
@@ -2345,18 +2351,41 @@ a.chip:hover {
   cursor: default;
 }
 .cal-notify__dot {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
-  margin-top: 1px;
+  margin: 0;
 }
 .cal-notify__text {
   flex: 1;
   min-width: 0;
-  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.cal-notify__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  line-height: 1.35;
+}
+.cal-notify__when {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cal-notify__sep {
+  color: var(--muted);
 }
 .cal-notify__sub {
   color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ==========================================================================
