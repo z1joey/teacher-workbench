@@ -231,7 +231,8 @@ const xLabels = computed(() => {
 <template>
   <div>
     <div class="chart__viewport">
-      <div class="chart" :style="{ minWidth: `${layout.W}px` }">
+      <!-- 宽度锁定为绘制宽度：SVG 若跟随容器拉伸，高度会等比膨胀（考试少时尤甚） -->
+      <div class="chart" :style="{ width: `${layout.W}px` }">
         <svg
           :viewBox="`0 0 ${layout.W} ${layout.H}`"
           class="chart__svg"
