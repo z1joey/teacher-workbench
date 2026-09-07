@@ -32,6 +32,7 @@ from ..payloads import validate_person_payload
 from ..security import hash_password
 from ..seed import seed
 from ..unassigned import class_for_api, ensure_unassigned_class, is_unassigned_class
+from ..workspace import tag_student_workspace
 
 router = APIRouter(
     tags=["data"],
@@ -90,11 +91,14 @@ def _locate_header(rows) -> tuple[int, dict[str, int]]:
     raise HTTPException(status_code=400, detail="未找到表头行（需同时包含“学号”和“姓名”列）")
 
 
-def _resolve_target_class(db: Session, class_id: uuid_mod.UUID | None) -> Class:
+def _resolve_target_class(db: Session, class_id: uuid_mod.UUID | None, user: Person) -> Class:
     if class_id is None:
         return ensure_unassigned_class(db)
     cls = db.get(Class, class_id)
+    # 工作区班级只允许归属教师导入；无主班级（历史数据/夹具）保持兼容。
     if cls is None or is_unassigned_class(cls):
+        raise HTTPException(status_code=404, detail="class not found")
+    if cls.teacher_id is not None and cls.teacher_id != user.id:
         raise HTTPException(status_code=404, detail="class not found")
     return cls
 
@@ -249,7 +253,7 @@ async def import_roster(
     )
 
     assign_class = class_id is not None
-    target_cls = _resolve_target_class(db, class_id)
+    target_cls = _resolve_target_class(db, class_id, user)
     today = dt.date.today()
     report: list[dict] = []
     seen_in_file: set[str] = set()
@@ -310,6 +314,7 @@ async def import_roster(
                 )
                 db.add(person_row)
                 db.flush()
+                tag_student_workspace(person_row, user)
                 _move_student(db, person_row, target_cls, reason="admitted", today=today)
                 create_event(
                     db,
