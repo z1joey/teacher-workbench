@@ -19,9 +19,10 @@ import {
   genderLabel,
   GENDER_OPTIONS,
   studentStatusLabel,
-  studentStatusTone,
   subject,
   subjectColor,
+  COMMON_SUBJECT_KEYS,
+  tagStyle,
   t,
 } from "../strings"
 
@@ -40,9 +41,8 @@ const editingId = ref(null)
 const editValue = ref(null)
 const editError = ref("")
 
-// the score table collapses to the most recent entries once exams pile up
-const SCORE_ROWS_VISIBLE = 9 // one full exam (all subjects)
-const SUBJECT_ORDER = ["chinese", "math", "english", "politics", "history", "geography", "biology", "physics", "chemistry"]
+// the score list collapses to the most recent exams once history piles up
+const SCORE_EXAMS_VISIBLE = 3
 const showAllScores = ref(false)
 
 // tag editor
@@ -92,36 +92,62 @@ watch(() => props.id, load)
 // ------------------------------------------------------------------ 成绩
 
 const hiddenScoreCount = computed(() =>
-  Math.max(0, (student.value?.scores.length ?? 0) - SCORE_ROWS_VISIBLE)
+  Math.max(0, allExamScoreGroups.value.length - SCORE_EXAMS_VISIBLE)
 )
-const visibleScores = computed(() => {
-  if (!student.value || showAllScores.value || hiddenScoreCount.value === 0) {
-    return student.value?.scores ?? []
-  }
-  return student.value.scores.slice(-SCORE_ROWS_VISIBLE) // newest exams
-})
 
-// one row per exam: subjects in 语/数/英 order, scores aligned to that order
-const examScoreGroups = computed(() => {
+function buildExamScoreGroups(rows) {
   const groups = []
   const byExam = new Map()
-  for (const row of visibleScores.value) {
-    let g = byExam.get(row.exam_id)
+  for (const row of rows) {
+    const key = row.exam_id || `${row.exam_date}|${row.exam_name}`
+    let g = byExam.get(key)
     if (!g) {
       g = { exam_id: row.exam_id, exam_name: row.exam_name, exam_date: row.exam_date, results: [] }
-      byExam.set(row.exam_id, g)
+      byExam.set(key, g)
       groups.push(g)
     }
     g.results.push(row)
   }
   for (const g of groups) {
     g.results.sort((a, b) => {
-      const ia = SUBJECT_ORDER.indexOf(a.subject)
-      const ib = SUBJECT_ORDER.indexOf(b.subject)
+      const ia = COMMON_SUBJECT_KEYS.indexOf(a.subject)
+      const ib = COMMON_SUBJECT_KEYS.indexOf(b.subject)
       return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
     })
   }
   return groups
+}
+
+const allExamScoreGroups = computed(() => {
+  if (!student.value?.scores.length) return []
+  return buildExamScoreGroups(student.value.scores)
+})
+
+// one section per exam sitting
+const examScoreGroups = computed(() => {
+  const all = allExamScoreGroups.value
+  if (showAllScores.value || all.length <= SCORE_EXAMS_VISIBLE) return all
+  return all.slice(-SCORE_EXAMS_VISIBLE)
+})
+
+// per-subject delta vs the student's previous entered score (chronological)
+const scoreDeltas = computed(() => {
+  const deltas = new Map()
+  if (!student.value) return deltas
+  const prev = {}
+  for (const row of student.value.scores) {
+    if (row.status === "entered" && row.score != null) {
+      const last = prev[row.subject]
+      deltas.set(
+        row.result_id,
+        last != null ? Math.round((row.score - last) * 10) / 10 : null,
+      )
+      prev[row.subject] = row.score
+    } else {
+      deltas.set(row.result_id, null)
+    }
+  }
+  return deltas
 })
 
 // multi-subject score trend: one line per subject across exams (chronological)
@@ -130,8 +156,12 @@ const scoreTrend = computed(() => {
   if (!student.value || !student.value.scores.length) return null
   const byExam = new Map()
   const fullBySubject = {}
+  const colorBySubject = {}
   for (const row of student.value.scores) {
     fullBySubject[row.subject] = row.full_score
+    if (row.subject_color && !colorBySubject[row.subject]) {
+      colorBySubject[row.subject] = row.subject_color
+    }
     const key = `${row.exam_date}|${row.exam_id}`
     if (!byExam.has(key)) {
       byExam.set(key, { label: row.exam_name, date: row.exam_date, perSubject: {} })
@@ -145,7 +175,7 @@ const scoreTrend = computed(() => {
     return {
       key: sub,
       label: subject(sub),
-      color: subjectColor(sub),
+      color: subjectColor(sub, colorBySubject[sub]),
       values: exams.map((e) => {
         const v = e.perSubject[sub]
         return v == null ? null : Math.round((v / full) * 1000) / 10
@@ -154,6 +184,7 @@ const scoreTrend = computed(() => {
   })
   return {
     labels: exams.map((e) => e.label),
+    dates: exams.map((e) => e.date),
     series,
     yMax: 100,
     formatTip: (s, pct, i) => {
@@ -164,8 +195,27 @@ const scoreTrend = computed(() => {
   }
 })
 
-function subjectInitial(sub) {
-  return subject(sub).charAt(0)
+function rowColor(row) {
+  return subjectColor(row.subject, row.subject_color)
+}
+
+function fmtScore(row) {
+  if (row.status !== "entered" || row.score == null) return "—"
+  return Number(row.score).toFixed(1)
+}
+
+function fmtDelta(delta) {
+  if (delta == null) return ""
+  return `${delta > 0 ? "↑" : "↓"}${Math.abs(delta).toFixed(1)}`
+}
+
+function scoreDelta(resultId) {
+  return scoreDeltas.value.get(resultId) ?? null
+}
+
+function deltaStyle(delta) {
+  if (delta == null) return {}
+  return { color: delta >= 0 ? "var(--ok)" : "var(--warn)" }
 }
 
 function startEdit(row) {
@@ -204,14 +254,6 @@ async function saveEdit(row) {
   } catch (e) {
     editError.value = friendlyError(e)
   }
-}
-
-function scoreClass(row) {
-  // color by percentage of full score, not absolute value — a 90/150 exam
-  // warns just like a 54/100 one
-  if (row.status !== "entered" || row.score == null) return "pill pill--muted"
-  const ratio = row.score / row.full_score
-  return ratio < 0.6 ? "pill pill--warn" : "pill pill--ok"
 }
 
 // ------------------------------------------------------------------ 标签
@@ -354,6 +396,8 @@ function cancelProfileEdit() {
   profileEditing.value = false
   profileForm.value = {}
   profileError.value = ""
+  guardianFormOpen.value = false
+  guardianError.value = ""
 }
 
 async function saveProfileEdit() {
@@ -408,6 +452,10 @@ function addEvent() {
   router.push(`/students/${props.id}/events/new`)
 }
 
+function addComment() {
+  router.push(`/students/${props.id}/comments/new`)
+}
+
 function fmtDate(d) {
   return d
     ? new Date(d).toLocaleDateString(dateLocale(), { year: "numeric", month: "short", day: "numeric" })
@@ -428,11 +476,11 @@ function fmtDate(d) {
         ]"
       >
         <template #actions>
+          <button class="btn" @click="addComment">
+            <Icon name="note" :size="15" /> {{ t("students.addComment") }}
+          </button>
           <button class="btn" @click="addEvent">
             <Icon name="plus" :size="15" /> {{ t("detail.recordEvent") }}
-          </button>
-          <button class="btn btn--danger" @click="removeStudent">
-            <Icon name="trash" :size="15" /> {{ t("action.delete") }}
           </button>
         </template>
       </PageHeader>
@@ -453,63 +501,60 @@ function fmtDate(d) {
               <template v-if="student.scores.length">
                 <LineChart
                   :labels="scoreTrend.labels"
+                  :dates="scoreTrend.dates"
                   :series="scoreTrend.series"
                   :y-max="scoreTrend.yMax"
+                  :format-tip="scoreTrend.formatTip"
                 />
 
-                <div class="table-wrap" style="margin-top: 16px">
-                  <table class="table table--stack">
-                    <thead>
-                      <tr>
-                        <th>{{ t("th.exam") }}</th>
-                        <th>{{ t("th.score") }}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="g in examScoreGroups" :key="g.exam_id">
-                        <td data-label="考试">
-                          <div>{{ g.exam_name }}</div>
-                          <div class="stat__sub">{{ fmtDate(g.exam_date) }}</div>
-                        </td>
-                        <td data-label="分数">
-                          <span class="row-wrap">
-                            <template v-for="row in g.results" :key="row.result_id">
-                              <span v-if="editingId === row.result_id" class="row" style="gap: 6px">
-                                <input
-                                  v-model="editValue"
-                                  class="input input--sm"
-                                  type="number"
-                                  step="0.1"
-                                  :min="0"
-                                  :max="row.full_score"
-                                  style="width: 78px"
-                                  autofocus
-                                  :aria-label="`${subject(row.subject)} 分数`"
-                                  @keydown.enter.prevent="saveEdit(row)"
-                                  @keydown.esc="cancelEdit"
-                                />
-                                <button class="btn btn--sm btn--primary" @click="saveEdit(row)">
-                                  {{ t("action.save") }}
-                                </button>
-                                <button class="btn btn--sm btn--quiet" @click="cancelEdit">
-                                  {{ t("action.cancel") }}
-                                </button>
-                              </span>
-                              <button
-                                v-else
-                                class="score-pill"
-                                :title="`${subject(row.subject)} ${row.score}/${row.full_score} · 点击更正`"
-                                @click="startEdit(row)"
-                              >
-                                <b>{{ subjectInitial(row.subject) }}</b>
-                                <span :class="scoreClass(row)">{{ row.score ?? t("common.none") }}</span>
-                              </button>
-                            </template>
-                          </span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                <div class="score-exams">
+                  <section v-for="g in examScoreGroups" :key="g.exam_id" class="score-exam">
+                    <header class="score-exam__head">
+                      <h3 class="score-exam__title">{{ g.exam_name }}</h3>
+                      <time class="score-exam__date">{{ fmtDate(g.exam_date) }}</time>
+                    </header>
+                    <div class="score-pill-row">
+                      <template v-for="row in g.results" :key="row.result_id">
+                        <span v-if="editingId === row.result_id" class="row" style="gap: 6px">
+                          <input
+                            v-model="editValue"
+                            class="input input--sm"
+                            type="number"
+                            step="0.1"
+                            :min="0"
+                            :max="row.full_score"
+                            style="width: 78px"
+                            autofocus
+                            :aria-label="`${subject(row.subject)} 分数`"
+                            @keydown.enter.prevent="saveEdit(row)"
+                            @keydown.esc="cancelEdit"
+                          />
+                          <button class="btn btn--sm btn--primary" @click="saveEdit(row)">
+                            {{ t("action.save") }}
+                          </button>
+                          <button class="btn btn--sm btn--quiet" @click="cancelEdit">
+                            {{ t("action.cancel") }}
+                          </button>
+                        </span>
+                        <button
+                          v-else
+                          type="button"
+                          class="score-pill"
+                          :title="`${subject(row.subject)} ${fmtScore(row)}/${Number(row.full_score).toFixed(1)} · 点击更正`"
+                          @click="startEdit(row)"
+                        >
+                          <span class="chart__dot" :style="{ background: rowColor(row) }" />
+                          <span>{{ subject(row.subject) }}</span>
+                          <b class="tnum score-pill__value">{{ fmtScore(row) }}</b>
+                          <span
+                            v-if="scoreDelta(row.result_id) != null"
+                            class="tnum score-pill__delta"
+                            :style="deltaStyle(scoreDelta(row.result_id))"
+                          >{{ fmtDelta(scoreDelta(row.result_id)) }}</span>
+                        </button>
+                      </template>
+                    </div>
+                  </section>
                 </div>
 
                 <button
@@ -564,127 +609,87 @@ function fmtDate(d) {
             </button>
           </div>
 
-          <div v-if="!profileEditing" class="card__body">
-            <div class="row" style="gap: 14px; align-items: flex-start">
-              <span class="avatar avatar--lg">{{ student.name.charAt(0) }}</span>
-              <div class="grow">
-                <div class="row-wrap">
-                  <span class="pill" :class="`pill--${studentStatusTone(student.status)}`">
-                    {{ studentStatusLabel(student.status) }}
-                  </span>
-                  <span v-if="student.class" class="pill pill--outline">{{ student.class.name }}</span>
-                </div>
-                <div class="stat__sub" style="margin-top: 8px">
-                  {{ t("detail.guardian") }}：
-                  <span v-if="!student.guardians.length">{{ t("common.none") }}</span>
-                  <span v-for="(g, i) in student.guardians" :key="g.id">
-                    <router-link :to="`/guardians/${g.id}`" class="">{{ g.name }}</router-link><template v-if="g.relationship">（{{ g.relationship }}）</template>
-                    <button
-                      class="tag__x"
-                      :aria-label="`解除关联 ${g.name}`"
-                      style="margin: 0 2px"
-                      @click="removeGuardian(g)"
-                    >
-                      <Icon name="close" :size="9" />
-                    </button><template v-if="i < student.guardians.length - 1">、</template>
-                  </span>
-                  <button class="btn btn--sm btn--ghost" style="margin-left: 6px" @click="openGuardianForm">
-                    <Icon name="plus" :size="11" /> {{ t("detail.addGuardian") }}
-                  </button>
-                </div>
-                <div v-if="guardianFormOpen" class="card card--nested" style="margin-top: 12px">
-                  <div class="card__body card__body--tight">
-                    <div class="form-grid">
-                      <FormField :label="t('new.guardianName')" required>
-                        <input v-model="guardianForm.name" class="input input--sm" type="text" maxlength="100" />
-                      </FormField>
-                      <FormField :label="t('new.guardianPhone')" optional hint="相同手机号视为同一监护人">
-                        <input v-model="guardianForm.phone" class="input input--sm" type="tel" maxlength="40" />
-                      </FormField>
-                    </div>
-                    <div class="form-grid">
-                      <FormField label="关系" optional>
-                        <input v-model="guardianForm.relationship" class="input input--sm" type="text" maxlength="50" placeholder="如：母亲 / 祖父" />
-                      </FormField>
-                      <FormField label="地址" optional>
-                        <input v-model="guardianForm.address" class="input input--sm" type="text" maxlength="200" />
-                      </FormField>
-                    </div>
-                    <p v-if="guardianError" class="field__error" style="margin: 8px 0">
-                      <Icon name="alert-circle" :size="12" /> {{ guardianError }}
-                    </p>
-                    <div class="row" style="gap: 8px; margin-top: 8px">
-                      <button type="button" class="btn btn--sm btn--primary" :disabled="guardianSaving" @click="addGuardian">
-                        <span v-if="guardianSaving" class="spinner" />
-                        {{ t("action.save") }}
-                      </button>
-                      <button type="button" class="btn btn--sm btn--ghost" @click="guardianFormOpen = false">
-                        {{ t("action.cancel") }}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <p v-if="student.address" class="stat__sub">{{ student.address }}</p>
-              </div>
-            </div>
+          <div v-if="!profileEditing" class="card__body profile-panel">
+            <section class="profile-section">
+              <h3 class="profile-section__title">{{ t("detail.guardian") }}</h3>
+              <ul v-if="student.guardians.length" class="profile-list">
+                <li v-for="g in student.guardians" :key="g.id" class="profile-list__item">
+                  <router-link :to="`/guardians/${g.id}`">{{ g.name }}</router-link>
+                  <span v-if="g.relationship" class="muted"> · {{ g.relationship }}</span>
+                  <span v-if="g.phone" class="muted tnum"> · {{ g.phone }}</span>
+                </li>
+              </ul>
+              <p v-else class="profile-empty">{{ t("common.none") }}</p>
+            </section>
 
-            <!-- 标签 -->
-            <div class="row-wrap" style="margin-top: 16px">
-              <span
-                v-for="tag in student.tags"
-                :key="tag.id"
-                class="tag"
-                :style="{ background: tag.color }"
-              >
-                {{ tag.name }}
-                <button class="tag__x" :aria-label="`移除标签 ${tag.name}`" @click="removeTag(tag)">
-                  <Icon name="close" :size="10" />
+            <section v-if="student.address" class="profile-section">
+              <h3 class="profile-section__title">{{ t("new.address") }}</h3>
+              <p class="profile-text">{{ student.address }}</p>
+            </section>
+
+            <section class="profile-section">
+              <div class="profile-section__head">
+                <h3 class="profile-section__title">{{ t("th.tags") }}</h3>
+                <button class="btn btn--sm btn--ghost" @click="toggleTagForm">
+                  <Icon name="tag" :size="11" /> {{ t("detail.addTag") }}
                 </button>
-              </span>
-              <button class="btn btn--sm btn--ghost" @click="toggleTagForm">
-                <Icon name="tag" :size="13" /> {{ t("detail.addTag") }}
-              </button>
-            </div>
-
-            <div v-if="tagFormOpen" class="card card--nested" style="margin-top: 12px">
-              <div class="card__body card__body--tight">
-                <div v-if="tagSuggestions.length" class="row-wrap" style="margin-bottom: 10px">
-                  <span class="field__hint">{{ t("detail.tagInUse") }}</span>
-                  <button
-                    v-for="s in tagSuggestions"
-                    :key="s.id"
-                    class="chip"
-                    :style="{ borderColor: s.color, color: s.color }"
-                    @click="attachExisting(s)"
-                  >
-                    <Icon name="plus" :size="11" /> {{ s.name }}
-                  </button>
-                </div>
-                <div class="row">
-                  <input
-                    v-model="tagForm.name"
-                    class="input input--sm grow"
-                    type="text"
-                    :placeholder="t('detail.tagName')"
-                    maxlength="40"
-                    :aria-invalid="!!tagError"
-                    @keydown.enter.prevent="addTag"
-                  />
-                  <input
-                    v-model="tagForm.color"
-                    class="input input--color"
-                    type="color"
-                    aria-label="标签颜色"
-                  />
-                  <button class="btn btn--sm btn--primary" :disabled="tagSaving" @click="addTag">
-                    {{ t("action.save") }}
-                  </button>
-                </div>
-                <p v-if="tagError" class="field__error" style="margin-top: 8px">
-                  <Icon name="alert-circle" :size="12" /> {{ tagError }}
-                </p>
               </div>
-            </div>
+
+              <div v-if="student.tags.length" class="chips">
+                <span
+                  v-for="tag in student.tags"
+                  :key="tag.id"
+                  class="tag"
+                  :style="tagStyle(tag.color)"
+                >
+                  {{ tag.name }}
+                  <button class="tag__x" :aria-label="`移除标签 ${tag.name}`" @click="removeTag(tag)">
+                    <Icon name="close" :size="10" />
+                  </button>
+                </span>
+              </div>
+              <p v-else class="profile-empty">{{ t("common.none") }}</p>
+
+              <div v-if="tagFormOpen" class="card card--nested" style="margin-top: var(--sp-3)">
+                <div class="card__body card__body--tight">
+                  <div v-if="tagSuggestions.length" class="row-wrap" style="margin-bottom: 10px">
+                    <span class="field__hint">{{ t("detail.tagInUse") }}</span>
+                    <button
+                      v-for="s in tagSuggestions"
+                      :key="s.id"
+                      class="chip"
+                      :style="{ borderColor: s.color, color: s.color }"
+                      @click="attachExisting(s)"
+                    >
+                      <Icon name="plus" :size="11" /> {{ s.name }}
+                    </button>
+                  </div>
+                  <div class="row">
+                    <input
+                      v-model="tagForm.name"
+                      class="input input--sm grow"
+                      type="text"
+                      :placeholder="t('detail.tagName')"
+                      maxlength="40"
+                      :aria-invalid="!!tagError"
+                      @keydown.enter.prevent="addTag"
+                    />
+                    <input
+                      v-model="tagForm.color"
+                      class="input input--color"
+                      type="color"
+                      aria-label="标签颜色"
+                    />
+                    <button class="btn btn--sm btn--primary" :disabled="tagSaving" @click="addTag">
+                      {{ t("action.save") }}
+                    </button>
+                  </div>
+                  <p v-if="tagError" class="field__error" style="margin-top: 8px">
+                    <Icon name="alert-circle" :size="12" /> {{ tagError }}
+                  </p>
+                </div>
+              </div>
+            </section>
           </div>
 
           <!-- 就地编辑资料 -->
@@ -722,6 +727,67 @@ function fmtDate(d) {
               </FormField>
             </div>
 
+            <div class="profile-section profile-section--inset">
+              <div class="profile-section__head">
+                <h3 class="profile-section__title">{{ t("detail.guardian") }}</h3>
+                <button type="button" class="btn btn--sm btn--ghost" @click="openGuardianForm">
+                  <Icon name="plus" :size="11" /> {{ t("detail.addGuardian") }}
+                </button>
+              </div>
+
+              <ul v-if="student.guardians.length" class="profile-list">
+                <li v-for="g in student.guardians" :key="g.id" class="profile-list__item profile-list__item--row">
+                  <span class="grow">
+                    <router-link :to="`/guardians/${g.id}`">{{ g.name }}</router-link>
+                    <span v-if="g.relationship" class="muted"> · {{ g.relationship }}</span>
+                    <span v-if="g.phone" class="muted tnum"> · {{ g.phone }}</span>
+                  </span>
+                  <button
+                    type="button"
+                    class="btn btn--sm btn--quiet"
+                    :aria-label="`解除关联 ${g.name}`"
+                    @click="removeGuardian(g)"
+                  >
+                    <Icon name="close" :size="12" />
+                  </button>
+                </li>
+              </ul>
+              <p v-else class="profile-empty">{{ t("common.none") }}</p>
+
+              <div v-if="guardianFormOpen" class="card card--nested" style="margin-top: var(--sp-3)">
+                <div class="card__body card__body--tight">
+                  <div class="form-grid">
+                    <FormField :label="t('new.guardianName')" required>
+                      <input v-model="guardianForm.name" class="input input--sm" type="text" maxlength="100" />
+                    </FormField>
+                    <FormField :label="t('new.guardianPhone')" optional hint="相同手机号视为同一监护人">
+                      <input v-model="guardianForm.phone" class="input input--sm" type="tel" maxlength="40" />
+                    </FormField>
+                  </div>
+                  <div class="form-grid">
+                    <FormField label="关系" optional>
+                      <input v-model="guardianForm.relationship" class="input input--sm" type="text" maxlength="50" placeholder="如：母亲 / 祖父" />
+                    </FormField>
+                    <FormField label="地址" optional>
+                      <input v-model="guardianForm.address" class="input input--sm" type="text" maxlength="200" />
+                    </FormField>
+                  </div>
+                  <p v-if="guardianError" class="field__error" style="margin: 8px 0">
+                    <Icon name="alert-circle" :size="12" /> {{ guardianError }}
+                  </p>
+                  <div class="row" style="gap: 8px; margin-top: 8px">
+                    <button type="button" class="btn btn--sm btn--primary" :disabled="guardianSaving" @click="addGuardian">
+                      <span v-if="guardianSaving" class="spinner" />
+                      {{ t("action.save") }}
+                    </button>
+                    <button type="button" class="btn btn--sm btn--ghost" @click="guardianFormOpen = false">
+                      {{ t("action.cancel") }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <p v-if="profileError" class="field__error" style="margin-bottom: 12px">
               <Icon name="alert-circle" :size="13" /> {{ profileError }}
             </p>
@@ -733,6 +799,15 @@ function fmtDate(d) {
               </button>
               <button type="button" class="btn btn--ghost" @click="cancelProfileEdit">
                 {{ t("action.cancel") }}
+              </button>
+              <span class="form-actions__spacer" />
+              <button
+                type="button"
+                class="btn btn--danger"
+                :disabled="profileSaving"
+                @click="removeStudent"
+              >
+                <Icon name="trash" :size="14" /> {{ t("action.delete") }}
               </button>
             </div>
           </form>

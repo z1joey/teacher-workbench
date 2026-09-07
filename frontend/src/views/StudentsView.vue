@@ -8,7 +8,7 @@ import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
 import { searchQuery, searchStudents } from "../search"
-import { friendlyError, t } from "../strings"
+import { friendlyError, tagStyle, t } from "../strings"
 
 const router = useRouter()
 const students = ref([])
@@ -34,11 +34,13 @@ onMounted(load)
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (!q) return students.value
+  const ungrouped = t("students.ungrouped").toLowerCase()
   return students.value.filter(
     (s) =>
       s.name.toLowerCase().includes(q) ||
       s.admission_no.toLowerCase().includes(q) ||
-      (s.class && s.class.name.toLowerCase().includes(q))
+      (s.class && s.class.name.toLowerCase().includes(q)) ||
+      (!s.class && ungrouped.includes(q))
   )
 })
 
@@ -106,29 +108,37 @@ function toggleGroup(group) {
       </router-link>
     </template>
 
-    <div class="stack">
-      <section v-for="g in groups" :key="g.name" class="card">
-        <div class="card__head card__head--plain" :class="{ 'is-collapsed': isCollapsed(g) }">
-          <button
-            :id="`group-head-${g.name}`"
-            class="card__title"
-            type="button"
-            style="background: none; border: 0; cursor: pointer; padding: 0; font: inherit; font-weight: 600"
-            :aria-expanded="!isCollapsed(g)"
-            :aria-controls="`group-body-${g.name}`"
-            @click="toggleGroup(g)"
-          >
-            <Icon
-              :name="isCollapsed(g) ? 'chevron-right' : 'chevron-down'"
-              :size="16"
-              style="color: var(--muted)"
-            />
-            {{ g.name }}
-            <span class="pill pill--muted pill--count">{{ g.list.length }}</span>
-          </button>
-        </div>
+    <div class="stack stack--flush">
+      <section
+        v-for="g in groups"
+        :key="g.name"
+        class="card student-group"
+        :class="{ 'is-collapsed': isCollapsed(g) }"
+      >
+        <button
+          :id="`group-head-${g.name}`"
+          class="student-group__toggle"
+          type="button"
+          :aria-expanded="!isCollapsed(g)"
+          :aria-controls="`group-body-${g.name}`"
+          @click="toggleGroup(g)"
+        >
+          <Icon
+            :name="isCollapsed(g) ? 'chevron-right' : 'chevron-down'"
+            :size="16"
+            class="student-group__chevron"
+          />
+          <span class="student-group__name">{{ g.name }}</span>
+          <span class="pill pill--muted pill--count">{{ g.list.length }}</span>
+        </button>
 
-        <div v-show="!isCollapsed(g)" :id="`group-body-${g.name}`" role="region" :aria-labelledby="`group-head-${g.name}`">
+        <div
+          v-show="!isCollapsed(g)"
+          :id="`group-body-${g.name}`"
+          class="student-group__body"
+          role="region"
+          :aria-labelledby="`group-head-${g.name}`"
+        >
           <div class="table-wrap">
             <table class="table table--stack">
               <thead>
@@ -151,21 +161,14 @@ function toggleGroup(group) {
                   <td data-label="学号">
                     <span class="muted tnum">{{ s.admission_no }}</span>
                   </td>
-                  <td data-label="姓名" class="cell-main">
-                    <span class="row">
-                      <span class="avatar avatar--onpaper" style="width: 26px; height: 26px; font-size: 12px">
-                        {{ s.name.charAt(0) }}
-                      </span>
-                      {{ s.name }}
-                    </span>
-                  </td>
+                  <td data-label="姓名" class="cell-main">{{ s.name }}</td>
                   <td data-label="标签">
                     <span v-if="s.tags && s.tags.length" class="chips">
                       <span
                         v-for="tag in s.tags"
                         :key="tag.id"
                         class="tag"
-                        :style="{ background: tag.color }"
+                        :style="tagStyle(tag.color)"
                       >{{ tag.name }}</span>
                     </span>
                     <span v-else class="muted">{{ t("common.none") }}</span>

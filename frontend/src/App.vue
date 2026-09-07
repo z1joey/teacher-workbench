@@ -96,6 +96,7 @@ const paletteActions = computed(() => {
     { id: "new-exam", label: "新建考试", icon: "clipboard", hint: "新建", run: () => router.push("/exams/new") },
     { id: "new-class", label: "新建班级", icon: "building", hint: "新建", run: () => router.push("/classes?create=1") },
     { id: "events", label: "查看事件", icon: "checklist", run: () => router.push("/events") },
+    { id: "data", label: "数据导入导出", icon: "database", run: () => router.push("/data") },
     { id: "profile", label: "个人中心", icon: "user", run: () => router.push("/profile") },
     { id: "help", label: "帮助与快捷键", icon: "help", hint: "?", run: () => openHelp() },
     { id: "logout", label: "退出登录", icon: "logout", run: onLogout },
@@ -150,13 +151,13 @@ function onKeydown(e) {
     return
   }
 
-  // g 之后接 h / s / c / e / v / r / p —— 高手不用摸鼠标
+  // g 之后接 h / s / c / e / v / r / d / p —— 高手不用摸鼠标
   if (e.key.toLowerCase() === "g") {
     lastG = Date.now()
     return
   }
   if (lastG && Date.now() - lastG < 1400) {
-    const to = { h: "/", s: "/students", c: "/classes", e: "/exams", v: "/visits", r: "/events", p: "/profile" }[
+    const to = { h: "/", s: "/students", c: "/classes", e: "/exams", v: "/visits", r: "/events", d: "/data", p: "/profile" }[
       e.key.toLowerCase()
     ]
     lastG = 0

@@ -1,5 +1,5 @@
 <script setup>
-// 首页 = 今天该做什么：日历、考试倒计时、待跟进、最新动态。
+// 首页 = 今天该做什么：日历、待跟进、最新动态。
 // 加载给骨架屏、失败给重试，不留空白也不甩一句「出错了」。
 import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
@@ -14,10 +14,10 @@ import {
   eventTypeColor,
   eventTypeIcon,
   eventTypeLabel,
-  formatDateRange,
   friendlyError,
   t,
 } from "../strings"
+import { isEventClickable, openEvent } from "../eventNav"
 
 const router = useRouter()
 
@@ -54,20 +54,6 @@ function fmtDate(ts) {
     day: "numeric",
   })
 }
-
-function daysUntil(d) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const target = new Date(`${d}T00:00:00`)
-  return Math.round((target - today) / 86400000)
-}
-
-function countdownLabel(d) {
-  const n = daysUntil(d)
-  if (n <= 0) return t("home.examToday")
-  if (n === 1) return t("home.examTomorrow")
-  return t("home.inDays", { n })
-}
 </script>
 
 <template>
@@ -101,7 +87,13 @@ function countdownLabel(d) {
             <p v-if="!data.follow_ups.length" class="state__desc" style="padding: 12px 8px; text-align: center">
               {{ t("home.noFollowUps") }}
             </p>
-            <div v-for="f in data.follow_ups" :key="`${f.student_id}-${f.occurred_at}`" class="feed__item">
+            <div
+              v-for="f in data.follow_ups"
+              :key="`${f.student_id}-${f.occurred_at}`"
+              class="feed__item"
+              :class="{ 'feed__item--clickable': !!f.id }"
+              @click="f.id && openEvent(router, { id: f.id, event_type: f.event_type, student_id: f.student_id, payload: { summary: f.summary, follow_up: f.follow_up_note } })"
+            >
               <span class="feed__dot" :style="{ background: eventTypeColor(f.event_type) }">
                 <Icon :name="eventTypeIcon(f.event_type)" :size="13" />
               </span>
@@ -137,8 +129,8 @@ function countdownLabel(d) {
                 v-for="e in data.recent_events"
                 :key="e.id"
                 class="feed__item"
-                :style="e.event_type === 'activity' ? 'cursor: pointer' : ''"
-                @click="e.event_type === 'activity' && router.push(`/events/${e.id}`)"
+                :class="{ 'feed__item--clickable': isEventClickable(e) }"
+                @click="openEvent(router, e)"
               >
                 <span class="feed__dot" :style="{ background: eventTypeColor(e.event_type) }">
                   <Icon :name="eventTypeIcon(e.event_type)" :size="13" />
@@ -166,33 +158,6 @@ function countdownLabel(d) {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 考试倒计时 -->
-      <div class="card">
-        <div class="card__head">
-          <div>
-            <h2 class="card__title"><Icon name="clock" :size="16" /> {{ t("home.countdown") }}</h2>
-          </div>
-        </div>
-        <div class="card__body card__body--tight">
-          <p v-if="!data.upcoming_exams.length" class="state__desc" style="padding: 12px 8px; text-align: center">
-            {{ t("home.noCountdown") }}
-          </p>
-          <div class="grid grid--3">
-            <router-link
-              v-for="e in data.upcoming_exams"
-              :key="e.id"
-              :to="`/exams/${e.id}`"
-              class="stat stat--link"
-              style="margin: 0"
-            >
-              <div class="stat__label">{{ countdownLabel(e.exam_date) }}</div>
-              <div class="stat__value" style="font-size: 18px">{{ e.name }}</div>
-              <div class="stat__sub">{{ formatDateRange(e.exam_date, e.end_date) }}</div>
-            </router-link>
           </div>
         </div>
       </div>

@@ -30,6 +30,9 @@ const PATHS = {
   tag: `<path d="M3.6 11.3V4.6a1 1 0 0 1 1-1h6.7a1 1 0 0 1 .7.3l8 8a1 1 0 0 1 0 1.4l-6.7 6.7a1 1 0 0 1-1.4 0l-8-8a1 1 0 0 1-.3-.7z"/><circle cx="7.7" cy="7.7" r="1.3"/>`,
   phone: `<path d="M6.5 3.5h3l1.5 4-2 1.5a11 11 0 0 0 5 5l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.5 5.7a2 2 0 0 1 2-2.2z"/>`,
   keyboard: `<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 9.5h.01"/><path d="M9.5 9.5h.01"/><path d="M13 9.5h.01"/><path d="M16.5 9.5h.01"/><path d="M7.5 14.5h9"/>`,
+  database: `<ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>`,
+  download: `<path d="M12 4v11"/><path d="m7 10.5 5 5 5-5"/><path d="M4 19.5h16"/>`,
+  upload: `<path d="M12 19V8"/><path d="m7 12.5 5-5 5 5"/><path d="M4 4.5h16"/>`,
 
   /* --- 操作 --- */
   plus: `<path d="M12 5v14"/><path d="M5 12h14"/>`,

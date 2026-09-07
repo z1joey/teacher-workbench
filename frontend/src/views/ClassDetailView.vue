@@ -120,6 +120,7 @@ const trendChart = computed(() => {
   })
   return {
     labels: detail.value.trend.exams.map((e) => e.name),
+    dates: detail.value.trend.exams.map((e) => e.exam_date),
     series,
     yMax: 100,
     formatTip: (s, pct, i) => {
@@ -215,6 +216,7 @@ function fmtPct(score, full) {
               <LineChart
                 v-else
                 :labels="trendChart.labels"
+                :dates="trendChart.dates"
                 :series="trendChart.series"
                 :y-max="trendChart.yMax"
                 :format-tip="trendChart.formatTip"

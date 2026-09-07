@@ -17,7 +17,7 @@ SYSTEM_EVENT_TYPES = {
 
 # event types that teachers write by hand
 MANUAL_EVENT_TYPES = {
-    "home_visited", "talk", "tutoring", "parent_call", "note_added",
+    "home_visited", "talk", "tutoring", "parent_call", "note_added", "comment",
 }
 
 # auto-generated at student creation, but surfaced as a yearly event

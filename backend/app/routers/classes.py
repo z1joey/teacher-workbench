@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import RECORD_EVENT_TYPES
+from ..unassigned import is_unassigned_class
 from ..models import Class, Enrollment, Event, Person, person_events
 from .exams import exam_events, find_exam_event, subject_averages
 
@@ -89,16 +90,23 @@ def _recent_events(db: Session, person_ids: list[uuid.UUID], limit: int = 50) ->
         .limit(limit)
         .all()
     )
-    return [
-        {
-            "id": str(ev.id),
-            "student_id": str(person.id),
-            "student_name": person.name,
-            "event_type": ev.type,
-            "occurred_at": ev.start_time.isoformat(),
-        }
-        for ev, person in rows
-    ]
+    out = []
+    for ev, person in rows:
+        if ev.type == "comment":
+            about = (ev.payload or {}).get("about") or {}
+            if about.get("id") and str(person.id) != str(about["id"]):
+                continue
+        out.append(
+            {
+                "id": str(ev.id),
+                "student_id": str(person.id),
+                "student_name": person.name,
+                "event_type": ev.type,
+                "occurred_at": ev.start_time.isoformat(),
+                "payload": ev.payload or {},
+            }
+        )
+    return out
 
 
 def _roster_at(db: Session, class_id: uuid.UUID, day: date) -> list[uuid.UUID]:
@@ -193,6 +201,8 @@ def _check_duplicate(db: Session, name: str, academic_year: str,
 def list_classes(db: Session = Depends(get_db)):
     out = []
     for c in db.query(Class).order_by(Class.grade_level, Class.name).all():
+        if is_unassigned_class(c):
+            continue
         teacher = db.get(Person, c.homeroom_person_id) if c.homeroom_person_id else None
         students = current_students(db, c.id)
         ids = [s.id for s in students]
@@ -227,7 +237,7 @@ def create_class(
 @router.get("/classes/{class_id}")
 def get_class(class_id: uuid.UUID, db: Session = Depends(get_db)):
     c = db.get(Class, class_id)
-    if c is None:
+    if c is None or is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
     teacher = db.get(Person, c.homeroom_person_id) if c.homeroom_person_id else None
 
@@ -308,7 +318,7 @@ def update_class(
     current: Person = Depends(get_current_person),
 ):
     c = db.get(Class, class_id)
-    if c is None:
+    if c is None or is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
     _validate_homeroom(db, body.homeroom_teacher_id)
     _check_duplicate(db, body.name.strip(), body.academic_year.strip(), exclude_id=class_id)
@@ -328,7 +338,7 @@ def delete_class(
     current: Person = Depends(get_current_person),
 ):
     c = db.get(Class, class_id)
-    if c is None:
+    if c is None or is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
     if db.query(Enrollment).filter(Enrollment.class_id == class_id).first() is not None:
         raise HTTPException(status_code=409, detail="班级内仍有学生或历史记录，无法删除")

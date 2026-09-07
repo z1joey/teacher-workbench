@@ -72,7 +72,7 @@ def test_already_migrated_db_is_noop(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(alembic.command, "upgrade", lambda cfg, rev: calls.append("upgrade"))
     monkeypatch.setattr(alembic.command, "stamp", lambda cfg, rev: calls.append("stamp"))
-    bootstrap_db.main()  # must not raise and must call neither command
+    bootstrap_db.main()
 
     assert calls == []
     engine.dispose()

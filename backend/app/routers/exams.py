@@ -6,7 +6,8 @@ end_time. An optional class_id scopes its attendees to that class's
 enrolled students (otherwise the whole active student body attends). There
 are no ExamSubject rows: the per-subject full_score config posted to
 POST/PATCH /exams lives in the sitting Event's registry-validated payload as
-payload["full_scores"] ({subject: full score}) — that is where the
+payload["full_scores"] ({subject: full score}) and optional
+payload["subject_colors"] ({subject: "#rrggbb"}) — that is where the
 score-entry flow reads each subject's max_score from before writing
 per-student score Events. description stays plain free text.
 
@@ -147,25 +148,49 @@ def exam_events(db: Session) -> list[Event]:
 
 def subjects_config(exam: Event) -> list[dict]:
     """The sitting's subjects from the registry-validated payload
-    ({"full_scores": {subject: full score}}), serialized to the old response
-    shape [{id, subject, full_score}] sorted by subject — [] on missing or
-    malformed config. Entry ids are deterministic per (exam, subject) so they
-    are stable across reads (the old ExamSubject ids died with the table)."""
+    ({"full_scores": {subject: full score}, optional "subject_colors"}),
+    serialized as [{id, subject, full_score, color?}] sorted by subject —
+    [] on missing or malformed config. Color is omitted when unset so older
+    clients and tests keep seeing the original three-field shape. Entry ids
+    are deterministic per (exam, subject) so they are stable across reads.
+    """
     full_scores = (exam.payload or {}).get("full_scores")
     if not isinstance(full_scores, dict):
         return []
-    return [
-        {
+    colors = (exam.payload or {}).get("subject_colors")
+    if not isinstance(colors, dict):
+        colors = {}
+    out = []
+    for subject, full in sorted(full_scores.items()):
+        item = {
             "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{exam.id}:{subject}")),
             "subject": subject,
             "full_score": full,
         }
-        for subject, full in sorted(full_scores.items())
-    ]
+        color = colors.get(subject)
+        if isinstance(color, str) and color:
+            item["color"] = color
+        out.append(item)
+    return out
 
 
-def full_scores_of(subjects: list["SubjectIn"]) -> dict[str, float]:
-    return {s.subject.strip(): s.full_score for s in subjects}
+def exam_config_payload(subjects: list["SubjectIn"], term: str | None = None) -> dict:
+    """Build the exam Event payload from the posted subject list. Duplicate
+    names are rejected; colors are stored only when at least one is set."""
+    names = [s.subject.strip() for s in subjects]
+    if len(names) != len(set(names)):
+        raise HTTPException(status_code=400, detail="科目不能重复")
+    payload: dict = {"full_scores": {s.subject.strip(): s.full_score for s in subjects}}
+    if term:
+        payload["term"] = term
+    colors = {
+        s.subject.strip(): s.color.lower()
+        for s in subjects
+        if s.color
+    }
+    if colors:
+        payload["subject_colors"] = colors
+    return payload
 
 
 def exam_out(exam: Event) -> dict:
@@ -174,13 +199,7 @@ def exam_out(exam: Event) -> dict:
         "name": exam.title,
         "exam_date": exam.start_time.date().isoformat(),
         "end_date": exam.end_time.date().isoformat() if exam.end_time else None,
-        "subjects": sorted(
-            (
-                {"id": c["id"], "subject": c["subject"], "full_score": c["full_score"]}
-                for c in subjects_config(exam)
-            ),
-            key=lambda s: s["subject"],
-        ),
+        "subjects": subjects_config(exam),
     }
 
 
@@ -208,6 +227,7 @@ def _attendee_ids(db: Session, class_id: uuid.UUID | None) -> list[uuid.UUID]:
 class SubjectIn(BaseModel):
     subject: str = Field(min_length=1, max_length=50)
     full_score: float = Field(gt=0, le=1000)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
 
 
 class ExamIn(BaseModel):
@@ -250,7 +270,7 @@ def create_exam(
         title=name,
         start_time=datetime.combine(body.exam_date, EXAM_HOUR),
         end_time=datetime.combine(body.end_date, time.max) if body.end_date else None,
-        payload={"term": body.term, "full_scores": full_scores_of(body.subjects)},
+        payload=exam_config_payload(body.subjects, body.term),
         # the sitting involves the teacher arranging it plus its students
         attendee_ids=[user.id, *_attendee_ids(db, body.class_id)],
     )
@@ -422,7 +442,9 @@ def update_exam(
         # copy-modify-reassign + re-validate: JSON columns don't see in-place
         # mutation, and the config must stay registry-shaped
         payload = dict(e.payload or {})
-        payload["full_scores"] = full_scores_of(body.subjects)
+        payload.pop("full_scores", None)
+        payload.pop("subject_colors", None)
+        payload.update(exam_config_payload(body.subjects, payload.get("term")))
         e.payload = validate_event_payload("exam", payload)
 
     if body.name is not None:

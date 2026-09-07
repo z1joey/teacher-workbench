@@ -1,6 +1,7 @@
 <script setup>
 import { useRouter } from "vue-router"
 import Icon from "./Icon.vue"
+import { openEvent, isEventClickable } from "../eventNav"
 import { describeEvent, eventTypeColor, eventTypeIcon, eventTypeLabel } from "../strings"
 
 const props = defineProps({
@@ -19,14 +20,12 @@ function fmt(ts) {
   })
 }
 
-// 系统自动生成的记录（入学、转班、考试、生日）不可编辑 —— 只能看
-function isEditable(e) {
-  return e.is_system !== true && props.studentId != null
+function row(e) {
+  return { ...e, student_id: props.studentId }
 }
 
 function open(e) {
-  if (!isEditable(e)) return
-  router.push(`/students/${props.studentId}/events/${e.id}`)
+  openEvent(router, row(e))
 }
 </script>
 
@@ -36,10 +35,10 @@ function open(e) {
       v-for="e in events"
       :key="e.id"
       class="timeline__item"
-      :class="{ 'is-clickable': isEditable(e) }"
-      :tabindex="isEditable(e) ? 0 : undefined"
-      :role="isEditable(e) ? 'button' : undefined"
-      :aria-label="isEditable(e) ? `编辑这条${eventTypeLabel(e.event_type)}记录` : undefined"
+      :class="{ 'is-clickable': isEventClickable(row(e)) }"
+      :tabindex="isEventClickable(row(e)) ? 0 : undefined"
+      :role="isEventClickable(row(e)) ? 'button' : undefined"
+      :aria-label="isEventClickable(row(e)) ? `查看这条${eventTypeLabel(e.event_type)}记录` : undefined"
       @click="open(e)"
       @keydown.enter.prevent="open(e)"
       @keydown.space.prevent="open(e)"
