@@ -7,7 +7,7 @@ import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import FormField from "../components/FormField.vue"
 import api from "../api"
-import { friendlyError, t } from "../strings"
+import { friendlyError, t, todayStr } from "../strings"
 
 const router = useRouter()
 
@@ -17,7 +17,8 @@ const props = defineProps({
 })
 const isEdit = computed(() => !!props.eventId)
 
-const today = new Date().toISOString().slice(0, 10)
+// 本地时区的今天；toISOString 会用 UTC，凌晨 0-8 点会错成昨天
+const today = todayStr()
 const form = ref({
   title: "",
   date: today,
