@@ -15,9 +15,10 @@ from pathlib import Path
 import alembic.command
 import alembic.config
 from sqlalchemy import inspect, text
+from sqlalchemy.orm import Session
 
 from . import models  # noqa: F401  (registers the tables on Base.metadata)
-from .database import Base, SessionLocal, engine
+from .database import Base, engine
 from .unassigned import ensure_unassigned_class
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -74,12 +75,9 @@ def ensure_schema() -> None:
     """Idempotent setup used on app startup and in Docker CMD."""
     Base.metadata.create_all(engine)
     _drop_event_type_check()
-    db = SessionLocal()
-    try:
+    with Session(engine, autoflush=False, expire_on_commit=False) as db:
         ensure_unassigned_class(db)
         db.commit()
-    finally:
-        db.close()
     if not inspect(engine).has_table("alembic_version"):
         alembic.command.stamp(_alembic_config(), "head")
 

@@ -54,6 +54,7 @@ def test_fresh_db_creates_tables_and_stamps_head(tmp_path, monkeypatch):
 
     insp = inspect(engine)
     assert insp.has_table("person")
+    assert insp.has_table("class")
     assert insp.has_table("event")
     assert insp.has_table("alembic_version")
     with engine.connect() as conn:
