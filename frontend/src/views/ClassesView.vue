@@ -134,6 +134,37 @@ const hasContent = computed(() => classes.value.length > 0 || unassigned.value.l
     </template>
   </PageHeader>
 
+  <!-- 创建表单放在状态容器之外：空列表时也要能随页头按钮展开 -->
+  <div v-if="showCreate" class="card" style="max-width: 620px; margin-bottom: var(--sp-5)">
+    <div class="card__head">
+      <h2 class="card__title"><Icon name="building" :size="16" /> {{ t("classes.create") }}</h2>
+    </div>
+    <form class="card__body" @submit.prevent="createClass">
+      <div class="form-grid">
+        <FormField :label="t('classes.name')" required>
+          <input v-model="createForm.name" class="input" type="text" maxlength="60" />
+        </FormField>
+        <FormField :label="t('classes.year')" hint="跨年的学年，比如 2025/2026">
+          <input v-model="createForm.academic_year" class="input" type="text" />
+        </FormField>
+      </div>
+
+      <p v-if="createError" class="field__error" style="margin-bottom: 12px">
+        <Icon name="alert-circle" :size="13" /> {{ createError }}
+      </p>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary" :disabled="creating">
+          <span v-if="creating" class="spinner" />
+          {{ creating ? t("classes.creating") : t("classes.create") }}
+        </button>
+        <button type="button" class="btn btn--ghost" @click="showCreate = false">
+          {{ t("action.cancel") }}
+        </button>
+      </div>
+    </form>
+  </div>
+
   <AsyncState
     :loading="loading"
     :error="error"
@@ -143,42 +174,6 @@ const hasContent = computed(() => classes.value.length > 0 || unassigned.value.l
     empty-icon="building"
     @retry="load"
   >
-    <template #emptyAction>
-      <button class="btn btn--primary" @click="showCreate = true">
-        <Icon name="plus" :size="15" /> {{ t("classes.create") }}
-      </button>
-    </template>
-
-    <div v-if="showCreate" class="card" style="max-width: 620px">
-      <div class="card__head">
-        <h2 class="card__title"><Icon name="building" :size="16" /> {{ t("classes.create") }}</h2>
-      </div>
-      <form class="card__body" @submit.prevent="createClass">
-        <div class="form-grid">
-          <FormField :label="t('classes.name')" required>
-            <input v-model="createForm.name" class="input" type="text" maxlength="60" />
-          </FormField>
-          <FormField :label="t('classes.year')" hint="跨年的学年，比如 2025/2026">
-            <input v-model="createForm.academic_year" class="input" type="text" />
-          </FormField>
-        </div>
-
-        <p v-if="createError" class="field__error" style="margin-bottom: 12px">
-          <Icon name="alert-circle" :size="13" /> {{ createError }}
-        </p>
-
-        <div class="form-actions">
-          <button type="submit" class="btn btn--primary" :disabled="creating">
-            <span v-if="creating" class="spinner" />
-            {{ creating ? t("classes.creating") : t("classes.create") }}
-          </button>
-          <button type="button" class="btn btn--ghost" @click="showCreate = false">
-            {{ t("action.cancel") }}
-          </button>
-        </div>
-      </form>
-    </div>
-
     <div class="grid grid--2">
       <router-link
         v-for="c in classes"
