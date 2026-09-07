@@ -3,6 +3,7 @@
 // 单教师应用：账号来自初始化数据，不提供自助注册。
 import { ref } from "vue"
 import { useRouter } from "vue-router"
+import AppMeta from "../components/AppMeta.vue"
 import Icon from "../components/Icon.vue"
 import FormField from "../components/FormField.vue"
 import api, { setToken } from "../api"
@@ -44,6 +45,7 @@ function fillDemo() {
     <div class="card auth-card">
       <div class="auth-mark"><Icon name="board" :size="24" /></div>
       <h1 class="auth-title">{{ t("app.title") }}</h1>
+      <AppMeta layout="login" />
       <p class="auth-sub">{{ t("login.subtitle") }}</p>
 
       <form @submit.prevent="submit" novalidate>
