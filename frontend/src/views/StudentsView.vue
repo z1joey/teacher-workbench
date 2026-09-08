@@ -6,7 +6,8 @@ import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
-import { searchQuery, searchStudents } from "../search"
+import { searchQuery, searchStudents, studentMatchesQuery, matchedGuardiansOf } from "../search"
+import Highlight from "../components/Highlight.vue"
 import { friendlyError, tagStyle, t, eventTypeLabel, describeEvent, dateLocale } from "../strings"
 
 const router = useRouter()
@@ -33,14 +34,7 @@ onMounted(load)
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (!q) return students.value
-  const ungrouped = t("students.ungrouped").toLowerCase()
-  return students.value.filter(
-    (s) =>
-      s.name.toLowerCase().includes(q) ||
-      s.admission_no.toLowerCase().includes(q) ||
-      (s.class && s.class.name.toLowerCase().includes(q)) ||
-      (!s.class && ungrouped.includes(q))
-  )
+  return students.value.filter((s) => studentMatchesQuery(s, q))
 })
 
 // First-appearance order (admission_no order); students without a class go last.
@@ -78,6 +72,12 @@ function fmtDate(ts) {
 function lastEventText(ev) {
   if (!ev) return ""
   return describeEvent(ev.event_type, ev.payload)
+}
+
+// 搜索时该学生被监护人命中的记录；卡片上单独一行展示（否则看不到匹配依据）
+function guardianHits(s) {
+  const q = query.value.trim().toLowerCase()
+  return q ? matchedGuardiansOf(s, q) : []
 }
 </script>
 
@@ -167,6 +167,10 @@ function lastEventText(ev) {
                 </div>
                 <Icon name="chevron-right" :size="15" class="student-card__chevron" />
               </header>
+
+              <p v-if="guardianHits(s).length" class="student-card__guardians muted">
+                监护人：<template v-for="(g, gi) in guardianHits(s)" :key="g.id"><template v-if="gi">、</template><Highlight :text="g.name" :query="query" /></template>
+              </p>
 
               <div v-if="s.tags?.length" class="chips student-card__tags">
                 <span

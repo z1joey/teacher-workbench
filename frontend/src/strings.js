@@ -182,7 +182,8 @@ const messages = {
   "data.demoSeedDone": "演示数据已加载",
   "data.demoSeedFail": "加载演示数据失败",
   "data.demoReset": "清空业务数据",
-  "data.demoResetWarn": "这会删除全部学生、班级、考试、成绩和跟进记录，回到空白工作台。",
+  "data.demoResetHint": "注意：「清空业务数据」删除的不只是演示数据——所有真实数据（学生、班级、考试、成绩、跟进记录）都会一并删除，且无法恢复。",
+  "data.demoResetWarn": "这会删除全部数据——不只是演示数据：你真实录入的所有学生、班级、考试、成绩和跟进记录都会被永久删除，回到空白工作台。",
   "data.demoResetConfirm": "清空数据",
   "data.demoResetDone": "业务数据已清空",
   "data.demoResetFail": "清空失败",
@@ -339,7 +340,7 @@ const messages = {
   // --- 学生 ---
   "students.title": "学生",
   "students.subtitle": "共 {count} 名学生 · 点击任意一行打开档案",
-  "students.search": "搜索姓名、学号或班级",
+  "students.search": "搜索姓名、学号、班级或监护人",
   "students.ungrouped": "未分班",
   "students.emptyTitle": "还没有学生",
   "students.emptyDesc": "先把学生加进班级，才能开始记成绩和跟进。",

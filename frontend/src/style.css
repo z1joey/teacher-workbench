@@ -571,6 +571,19 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 搜索命中片段：柔黄底、不抢正文颜色 */
+mark.hl {
+  background: var(--warn-soft);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+/* 下拉结果里的监护人行：允许多个监护人时换行，不省略 */
+.search-results__guardians {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
 .search-results__foot {
   padding: var(--sp-2) var(--sp-3) var(--sp-1);
   border-top: 1px solid var(--line);
@@ -1221,6 +1234,11 @@ code {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--sp-2);
+}
+/* 搜索时展示的监护人行：紧贴姓名/学号下方 */
+.student-card__guardians {
+  margin: 0;
+  font-size: var(--fs-xs);
 }
 .student-card__identity {
   min-width: 0;

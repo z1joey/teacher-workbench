@@ -4,7 +4,8 @@
 import { computed, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "./Icon.vue"
-import { ensureSearchStudents, searchQuery, searchStudents } from "../search"
+import Highlight from "./Highlight.vue"
+import { ensureSearchStudents, matchedGuardiansOf, searchQuery, searchStudents, studentMatchesQuery } from "../search"
 import { t } from "../strings"
 
 const router = useRouter()
@@ -12,19 +13,17 @@ const inputEl = ref(null)
 const open = ref(false)
 const cursor = ref(-1)
 
+// 每项带上命中的监护人，供 meta 行标注「监护人：…」（按姓名/学号/班级命中时为空）
 const matches = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
   if (!q) return []
-  const ungrouped = t("students.ungrouped").toLowerCase()
-  return searchStudents.value
-    .filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.admission_no.toLowerCase().includes(q) ||
-        (s.class && s.class.name.toLowerCase().includes(q)) ||
-        (!s.class && ungrouped.includes(q))
-    )
-    .slice(0, 7)
+  const out = []
+  for (const s of searchStudents.value) {
+    if (!studentMatchesQuery(s, q)) continue
+    out.push({ student: s, guardians: matchedGuardiansOf(s, q) })
+    if (out.length >= 7) break
+  }
+  return out
 })
 
 watch(searchQuery, (q) => {
@@ -38,11 +37,11 @@ function focus() {
 }
 defineExpose({ focus })
 
-function openStudent(s) {
+function openStudent(m) {
   searchQuery.value = ""
   open.value = false
   inputEl.value?.blur()
-  router.push(`/students/${s.id}`)
+  router.push(`/students/${m.student.id}`)
 }
 
 function goList() {
@@ -117,22 +116,32 @@ function clear() {
       aria-label="搜索结果"
     >
       <button
-        v-for="(s, i) in matches"
-        :key="s.id"
+        v-for="(m, i) in matches"
+        :key="m.student.id"
         class="search-results__item"
         :class="{ 'is-cursor': cursor === i }"
         role="option"
         :aria-selected="cursor === i"
         type="button"
-        @mousedown.prevent="openStudent(s)"
+        @mousedown.prevent="openStudent(m)"
       >
         <span class="avatar avatar--onpaper" style="width: 26px; height: 26px; font-size: 12px">
-          {{ s.name.charAt(0) }}
+          {{ m.student.name.charAt(0) }}
         </span>
         <span class="search-results__text">
-          <span class="search-results__name">{{ s.name }}</span>
+          <span class="search-results__name">
+            <Highlight :text="m.student.name" :query="searchQuery" />
+          </span>
           <span class="search-results__meta">
-            {{ s.admission_no }} · {{ s.class ? s.class.name : t("students.ungrouped") }}
+            <Highlight :text="m.student.admission_no" :query="searchQuery" /> ·
+            <template v-if="m.student.class">
+              <Highlight :text="m.student.class.name" :query="searchQuery" />
+            </template>
+            <template v-else>{{ t("students.ungrouped") }}</template>
+          </span>
+          <!-- 监护人单独一行：meta 行太窄会被省略号截掉 -->
+          <span v-if="m.guardians.length" class="search-results__meta search-results__guardians">
+            监护人：<template v-for="(g, gi) in m.guardians" :key="g.id"><template v-if="gi">、</template><Highlight :text="g.name" :query="searchQuery" /></template>
           </span>
         </span>
       </button>

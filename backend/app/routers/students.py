@@ -517,6 +517,24 @@ def list_students(
         .order_by(Person.payload["admission_no"].as_string())
         .all()
     )
+    # 监护人一次取全（避免逐生查询），供顶栏搜索按监护人姓名/电话命中
+    guardians_by_student: dict = {}
+    if students:
+        for sid, g, rel in (
+            db.query(student_guardians.c.student_id, Person, student_guardians.c.relationship)
+            .join(Person, Person.id == student_guardians.c.guardian_id)
+            .filter(student_guardians.c.student_id.in_([s.id for s in students]))
+            .order_by(Person.created_at)
+            .all()
+        ):
+            guardians_by_student.setdefault(sid, []).append(
+                {
+                    "id": str(g.id),
+                    "name": g.name,
+                    "phone": (g.payload or {}).get("phone"),
+                    "relationship": rel,
+                }
+            )
     out = []
     for s in students:
         cls = current_class(db, s.id)
@@ -528,6 +546,7 @@ def list_students(
                 "gender": (s.payload or {}).get("gender"),
                 "status": _status_of(s),
                 "class": class_for_api(cls),
+                "guardians": guardians_by_student.get(s.id, []),
                 "last_exam": last_exam_summary(db, s.id),
                 "last_event": last_event_summary(db, s.id),
                 "tags": _tags_for_student(db, s.id),

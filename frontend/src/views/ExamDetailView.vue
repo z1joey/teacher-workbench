@@ -275,7 +275,7 @@ function pct(score, full) {
           <h2 class="card__title"><Icon name="building" :size="16" /> {{ t("exam.perClass") }}</h2>
         </div>
         <div class="table-wrap">
-          <p v-if="!classRows.length" class="muted" style="padding: 4px 0">
+          <p v-if="!classRows.length" class="muted" style="padding: var(--sp-2) var(--sp-5)">
             {{ t("exam.perClassEmpty") }}
           </p>
           <table v-else class="table table--stack">

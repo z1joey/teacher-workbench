@@ -130,8 +130,8 @@ async function resetApp() {
     title: t("data.demoReset"),
     message: t("data.demoResetWarn"),
     consequences: [
-      "所有学生、班级、考试、成绩、跟进记录都会被清空。",
-      "你当前登录的教师账号会保留，无需重新登录。",
+      "删除范围是全部数据，包括你真实录入的学生、成绩和跟进记录，不只是演示数据。",
+      "删除后无法恢复；你当前登录的教师账号会保留，无需重新登录。",
     ],
     confirmLabel: t("data.demoReset"),
     confirmWord: t("data.demoResetConfirm"),
@@ -285,6 +285,9 @@ async function resetApp() {
         <div class="card__body stack" style="gap: 16px">
           <p class="muted" style="margin: 0">
             {{ t("data.demoBody") }}
+          </p>
+          <p style="margin: 0; color: var(--danger); font-size: 13px; font-weight: 500">
+            {{ t("data.demoResetHint") }}
           </p>
           <div class="row-wrap">
             <button class="btn btn--primary" :disabled="seeding || resetting" @click="loadDemoData">
