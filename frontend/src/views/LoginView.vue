@@ -65,7 +65,6 @@ async function bootstrap() {
       <div class="auth-mark"><Icon name="board" :size="24" /></div>
       <h1 class="auth-title">{{ t("app.title") }}</h1>
       <AppMeta layout="login" />
-      <p class="auth-sub">{{ t("login.subtitle") }}</p>
 
       <form @submit.prevent="submit" novalidate>
         <FormField :label="t('login.phone')" required :error="''">

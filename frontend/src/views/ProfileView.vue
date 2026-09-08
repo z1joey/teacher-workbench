@@ -34,7 +34,6 @@ async function saveSettings() {
       name: profile.value.user.name,
       email: profile.value.user.email || null,
       auto_tags: profile.value.settings.auto_tags,
-      name_display: profile.value.settings.name_display,
       calendar_birthdays: profile.value.settings.calendar_birthdays,
     })
     profile.value.settings = updated.settings
@@ -208,32 +207,6 @@ const activity = computed(() => {
             <h2 class="card__title"><Icon name="sliders" :size="16" /> {{ t("profile.settings") }}</h2>
           </div>
           <div class="card__body profile-panel">
-            <div class="profile-section">
-              <p class="field__label" style="margin-bottom: 8px">{{ t("profile.nameDisplay") }}</p>
-              <div class="choice-list">
-                <label class="choice">
-                  <input
-                    v-model="profile.settings.name_display"
-                    type="radio"
-                    value="full"
-                    :disabled="settingsSaving"
-                    @change="saveSettings"
-                  />
-                  <span>{{ t("profile.nameDisplayFull") }}</span>
-                </label>
-                <label class="choice">
-                  <input
-                    v-model="profile.settings.name_display"
-                    type="radio"
-                    value="teacher"
-                    :disabled="settingsSaving"
-                    @change="saveSettings"
-                  />
-                  <span>{{ t("profile.nameDisplayTeacher") }}</span>
-                </label>
-              </div>
-              <p class="field__hint" style="margin-top: 8px">{{ t("profile.nameDisplayHint") }}</p>
-            </div>
             <div class="profile-section">
               <label class="check">
                 <input

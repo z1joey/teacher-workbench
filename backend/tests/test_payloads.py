@@ -21,11 +21,17 @@ def test_teacher_payload_carries_no_subject():
     out = validate_person_payload("teacher", {})
     assert out == {
         "role": "teacher",
+        "workspace_id": None,
         "is_active": True,
         "auto_tags": True,
-        "name_display": "full",
         "calendar_birthdays": True,
     }
+
+
+def test_teacher_payload_strips_legacy_name_display():
+    """「首页称呼」偏好已下线：老账号 payload 里的 name_display 一律清除。"""
+    out = validate_person_payload("teacher", {"name_display": "teacher"})
+    assert "name_display" not in out
 
 
 def test_teacher_payload_strips_legacy_semesters():

@@ -24,7 +24,7 @@ from ..deps import get_current_person
 from ..eventing import RECORD_EVENT_TYPES
 from ..unassigned import is_unassigned_class
 from ..workspace import classes_query, require_class_in_workspace
-from ..models import Class, Enrollment, Event, Person, person_events
+from ..models import Class, ClassSeating, Enrollment, Event, Person, person_events
 from .exams import exam_events, find_exam_event, subject_averages
 
 router = APIRouter(
@@ -290,6 +290,62 @@ def get_class(
             for subject, rec in sorted(overall.items())
         ],
     }
+
+
+class SeatingIn(BaseModel):
+    rows: int = Field(ge=1, le=20)
+    cols: int = Field(ge=1, le=12)
+    # {座位序号(行优先从0起): 学生 id}
+    seats: dict[str, uuid.UUID] = Field(default_factory=dict)
+
+
+@router.get("/classes/{class_id}/seating")
+def get_seating(
+    class_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    require_class_in_workspace(db, user, class_id)
+    row = db.get(ClassSeating, class_id)
+    if row is None:
+        return {"rows": 0, "cols": 0, "seats": {}}
+    return {"rows": row.rows, "cols": row.cols, "seats": row.seats or {}}
+
+
+@router.put("/classes/{class_id}/seating")
+def save_seating(
+    class_id: uuid.UUID,
+    body: SeatingIn,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """保存座位表。只校验「座位属于本班、一人一座、位置在格内」；学生转班后
+    旧座位保留原序号，由前端在名单变化时清掉失效座位。"""
+    require_class_in_workspace(db, user, class_id)
+    member_ids = {str(s.id) for s in current_students(db, class_id)}
+    seen: set[str] = set()
+    for pos, sid in body.seats.items():
+        if not pos.isdigit() or int(pos) < 0 or int(pos) >= body.rows * body.cols:
+            raise HTTPException(status_code=400, detail="座位位置超出表格范围")
+        if str(sid) not in member_ids:
+            raise HTTPException(status_code=400, detail="有学生不属于这个班级，不能安排座位")
+        if str(sid) in seen:
+            raise HTTPException(status_code=400, detail="一个学生只能有一个座位")
+        seen.add(str(sid))
+
+    row = db.get(ClassSeating, class_id)
+    seats = {pos: str(sid) for pos, sid in body.seats.items()}
+    if row is None:
+        row = ClassSeating(
+            class_id=class_id, rows=body.rows, cols=body.cols, seats=seats
+        )
+        db.add(row)
+    else:
+        row.rows = body.rows
+        row.cols = body.cols
+        row.seats = seats
+    db.commit()
+    return {"rows": row.rows, "cols": row.cols, "seats": row.seats or {}}
 
 
 @router.patch("/classes/{class_id}")

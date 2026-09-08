@@ -90,6 +90,7 @@ const messages = {
   // --- 班级 ---
   "classes.title": "班级",
   "classes.subtitle": "班均与最近动态，点进班级查看完整名单",
+  "classes.seating": "座位表",
   "classes.homeroom": "班主任",
   "classes.noStudents": "这个班级还没有学生",
   "classes.avgLabel": "最近一次班均",
@@ -131,7 +132,6 @@ const messages = {
   "login.password": "密码",
   "login.submit": "登录",
   "login.submitting": "正在登录…",
-  "login.subtitle": "学校教学管理，从这里开始",
   "login.needHelp": "忘记密码请联系管理员重置。",
   "login.noAccount": "还没有账号？",
   "login.goSignup": "注册",
@@ -141,6 +141,10 @@ const messages = {
   // --- 注册 ---
   "signup.subtitle": "创建教师账号",
   "signup.nameRequired": "请填写姓名",
+  "signup.phoneHint": "6-15 位数字，可用空格或短横线分隔",
+  "signup.phoneRequired": "请输入手机号",
+  "signup.phoneInvalid": "手机号格式不正确，请输入 6-15 位数字",
+  "signup.passwordShort": "密码至少 6 位",
   "signup.password2": "确认密码",
   "signup.passwordMismatch": "两次输入的密码不一致",
   "signup.submit": "注册",
@@ -273,10 +277,6 @@ const messages = {
   "profile.autoTagsHint": "关闭后，标记家访完成时不会自动给学生打标签",
   "profile.calendarBirthdays": "在日历中显示学生生日",
   "profile.calendarBirthdaysHint": "关闭后，首页月历不再显示根据出生日期推算的生日",
-  "profile.nameDisplay": "首页称呼",
-  "profile.nameDisplayHint": "控制在首页问候语和侧边栏中如何显示你的名字",
-  "profile.nameDisplayFull": "全名（如「张毅」）",
-  "profile.nameDisplayTeacher": "姓氏 + 老师（如「张老师」）",
   "profile.settingsSaved": "偏好已保存",
 
   // --- 考试 ---
@@ -294,6 +294,9 @@ const messages = {
   "examnew.selectAllSubjects": "全选",
   "examnew.addSubject": "添加科目",
   "examnew.customSubject": "自定义科目",
+  "examnew.classes": "参加班级",
+  "examnew.classesSelected": "已选 {n} 班",
+  "examnew.classesHint": "以班级为单位选择参加考试的学生，选中的班级学生会带上这次考试；不选则全校在读学生参加。",
   "examnew.subjectName": "科目名称",
   "examnew.subjectColor": "颜色",
   "examnew.subjectDup": "科目名称不能重复",
@@ -352,7 +355,7 @@ const messages = {
   "students.subtitle": "共 {count} 名学生 · 点击任意一行打开档案",
   "students.search": "搜索姓名、学号、班级或监护人",
   "students.ungrouped": "未分班",
-  "students.noRecentEvent": "暂无评语、家访或生日",
+  "students.noRecentEvent": "这位同学最近很低调，暂无动态",
   "students.emptyTitle": "还没有学生",
   "students.emptyDesc": "先把学生加进班级，才能开始记成绩和跟进。",
   "students.groupCollapsed": "已折叠",
@@ -393,6 +396,8 @@ const messages = {
   "detail.guardian": "监护人",
   "detail.scores": "考试成绩",
   "detail.scoresHint": "点任意一个分数即可就地更正，每次修改都会留下痕迹",
+  "detail.addScore": "添加成绩",
+  "detail.scoreAdded": "成绩已添加",
   "detail.events": "事件记录",
   "detail.timeline": "时间线",
   "detail.timelineSub": "由你添加的记录可以点开编辑；系统自动生成的不可编辑",
@@ -696,6 +701,9 @@ export function recordableEventOptions() {
 
 // 把后端/网络错误翻译成能指导下一步动作的话（错误可识别、可诊断、可恢复）
 const ERROR_HINTS = [
+  [/手机号已(注册|存在)|already registered/i, "该手机号已注册，可直接登录，或联系管理员重置密码"],
+  [/at least 6 characters/i, "密码至少 6 位"],
+  [/internal server error|proxy|bad gateway|service unavailable/i, "服务器暂时出了问题，请稍后重试"],
   [/登录已过期|not authenticated|未登录/i, "登录已过期，请重新登录"],
   [/failed to fetch|networkerror|网络/i, "连接不上服务器，请检查网络后重试"],
   [/not found/i, "找不到这条数据，它可能已经被删除"],

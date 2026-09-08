@@ -47,7 +47,7 @@ def user_out(u: Person) -> dict:
         "role": role,
     }
     if role == "teacher":
-        out["display_name"] = teacher_display_name(name, payload.get("name_display", "full"))
+        out["display_name"] = teacher_display_name(name)
     else:
         out["display_name"] = name or ""
     return out

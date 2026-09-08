@@ -209,12 +209,13 @@ def exam_out(exam: Event) -> dict:
     }
 
 
-def _attendee_ids(db: Session, class_id: uuid.UUID | None) -> list[uuid.UUID]:
-    if class_id is not None:
+def _attendee_ids(db: Session, class_ids: list[uuid.UUID] | None) -> list[uuid.UUID]:
+    """给了班级列表就取这些班的在读学生并集；空列表 = 全校在读学生参加。"""
+    if class_ids:
         return [
             row[0]
             for row in db.query(Enrollment.person_id)
-            .filter(Enrollment.class_id == class_id, Enrollment.valid_to.is_(None))
+            .filter(Enrollment.class_id.in_(class_ids), Enrollment.valid_to.is_(None))
             .all()
         ]
     # school-wide sitting: the active student body attends
@@ -241,7 +242,7 @@ class ExamIn(BaseModel):
     exam_date: date
     end_date: date | None = None  # last day of a multi-day sitting
     subjects: list[SubjectIn] = Field(min_length=1)
-    class_id: uuid.UUID | None = None  # scope attendees to one class
+    class_ids: list[uuid.UUID] = Field(default_factory=list)  # 按班级圈定参加者；空 = 全校
     term: str | None = None
 
 
@@ -268,8 +269,11 @@ def create_exam(
     )
     if overlap is not None:
         raise HTTPException(status_code=409, detail="该日期已存在同名考试")
-    if body.class_id is not None and db.get(Class, body.class_id) is None:
-        raise HTTPException(status_code=400, detail="class not found")
+    # 按班级圈定参加者：去重、校验班级存在；名单取各班当前在读学生并集
+    class_ids = list(dict.fromkeys(body.class_ids))
+    for cid in class_ids:
+        if db.get(Class, cid) is None:
+            raise HTTPException(status_code=400, detail="class not found")
     exam = create_event(
         db,
         event_type="exam",
@@ -278,7 +282,7 @@ def create_exam(
         end_time=datetime.combine(body.end_date, time.max) if body.end_date else None,
         payload=exam_config_payload(body.subjects, body.term),
         # the sitting involves the teacher arranging it plus its students
-        attendee_ids=[user.id, *_attendee_ids(db, body.class_id)],
+        attendee_ids=[user.id, *_attendee_ids(db, class_ids)],
     )
     db.commit()
     return {"id": str(exam.id), "name": exam.title,
@@ -724,6 +728,77 @@ def _upsert_exam_taken(
         payload=payload,
         attendee_ids=[student.id],
     )
+
+
+class StudentScoreIn(BaseModel):
+    subject: str = Field(min_length=1, max_length=50)
+    score: float | None = Field(default=None, ge=0, le=1000)
+    absent: bool = False
+
+
+class StudentScoresIn(BaseModel):
+    student_id: uuid.UUID
+    scores: list[StudentScoreIn] = Field(min_length=1)
+
+
+@router.post("/exams/{exam_id}/scores", status_code=201)
+def add_student_scores(
+    exam_id: uuid.UUID,
+    body: StudentScoresIn,
+    db: Session = Depends(get_db),
+):
+    """Manually record one student's scores for a sitting (the student page's
+    添加成绩 dialog) — same upsert path as the Excel import."""
+    exam = db.get(Event, exam_id)
+    if exam is None or exam.type != "exam":
+        raise HTTPException(status_code=404, detail="exam not found")
+    full_by_subject = {s["subject"]: s["full_score"] for s in subjects_config(exam)}
+    if not full_by_subject:
+        raise HTTPException(status_code=400, detail="该考试没有科目配置，无法录入成绩")
+    student = db.get(Person, body.student_id)
+    if student is None or (student.payload or {}).get("role") != "student":
+        raise HTTPException(status_code=404, detail="student not found")
+
+    seen: set[str] = set()
+    scores: dict[str, float] = {}
+    absent_subjects: list[str] = []
+    for item in body.scores:
+        if item.subject not in full_by_subject:
+            raise HTTPException(status_code=400, detail=f"「{item.subject}」不是这次考试的科目")
+        if item.subject in seen:
+            raise HTTPException(status_code=400, detail=f"科目「{item.subject}」重复")
+        seen.add(item.subject)
+        if item.absent:
+            absent_subjects.append(item.subject)
+            _upsert_score_event(
+                db, exam, item.subject, full_by_subject[item.subject], student, None, True
+            )
+            continue
+        if item.score is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"「{item.subject}」没有分数：请填写分数，或勾选缺考",
+            )
+        if item.score > full_by_subject[item.subject]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"「{item.subject}」成绩需在 0–{_full_label(full_by_subject[item.subject])} 之间",
+            )
+        scores[item.subject] = item.score
+        _upsert_score_event(
+            db, exam, item.subject, full_by_subject[item.subject], student, item.score, False
+        )
+    if not scores and not absent_subjects:
+        raise HTTPException(status_code=400, detail="没有可录入的成绩")
+
+    _upsert_exam_taken(db, exam, student, scores, absent_subjects)
+    db.commit()
+    return {
+        "ok": True,
+        "entered": len(scores) + len(absent_subjects),
+        "scores": scores,
+        "absent_subjects": absent_subjects,
+    }
 
 
 @router.post("/exams/{exam_id}/scores/import")

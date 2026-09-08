@@ -318,9 +318,7 @@ function pct(score, full) {
             <button type="button" class="btn btn--ghost" @click="cancelEdit">
               {{ t("action.cancel") }}
             </button>
-          </div>
-
-          <div class="form-actions form-actions--danger">
+            <span class="form-actions__spacer" />
             <button
               type="button"
               class="btn btn--danger"

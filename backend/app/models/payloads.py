@@ -43,7 +43,6 @@ class TeacherPayload(_Strict):
     workspace_id: str | None = None
     is_active: bool = True
     auto_tags: bool = True
-    name_display: Literal["full", "teacher"] = "full"
     calendar_birthdays: bool = True
 
 
@@ -164,7 +163,7 @@ EVENT_PAYLOAD_SCHEMAS = {
 def validate_person_payload(role: str, data: dict) -> dict:
     data = dict(data)
     if role == "teacher":
-        for key in ("semesters", "name", "subject"):
+        for key in ("semesters", "name", "subject", "name_display"):
             data.pop(key, None)
     elif role == "admin":
         data.pop("name", None)

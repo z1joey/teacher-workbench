@@ -1,10 +1,8 @@
-"""How a teacher's name appears in greetings and the sidebar."""
+"""How a teacher's name appears in greetings and the sidebar.
+
+一律展示全名；曾经的「姓氏+老师」偏好已下线。
+"""
 
 
-def teacher_display_name(name: str | None, mode: str | None = None) -> str:
-    name = (name or "").strip()
-    if not name:
-        return ""
-    if mode == "teacher":
-        return f"{name[0]}老师"
-    return name
+def teacher_display_name(name: str | None) -> str:
+    return (name or "").strip()

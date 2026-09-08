@@ -9,7 +9,7 @@ import FormField from "../components/FormField.vue"
 import FeedEventItem from "../components/FeedEventItem.vue"
 import api from "../api"
 import { notify } from "../feedback"
-import { friendlyError, subject, COMMON_SUBJECT_KEYS, t } from "../strings"
+import { friendlyError, genderLabel, subject, COMMON_SUBJECT_KEYS, t } from "../strings"
 
 const route = useRoute()
 
@@ -115,6 +115,171 @@ const totalStudents = computed(() =>
   classes.value.reduce((n, c) => n + (c.student_count || 0), 0) + unassigned.value.length
 )
 const hasContent = computed(() => classes.value.length > 0 || unassigned.value.length > 0)
+
+// ------------------------------------------------------------------ 拖拽转班
+
+// 正在拖拽的学生 { id, name, from }；from 为班级 id，未分班是 null
+const dragStudent = ref(null)
+// 当前高亮的投放目标；未分班用 null，和 from 对齐
+const dropTargetId = ref(null)
+const dropTargetActive = computed(() => dragStudent.value !== null)
+
+function onDragStart(student, fromClassId, ev) {
+  dragStudent.value = { id: student.id, name: student.name, from: fromClassId }
+  // Firefox 只有 set 了 data 才会真正开始拖拽
+  ev.dataTransfer.setData("text/plain", student.name)
+  ev.dataTransfer.effectAllowed = "move"
+}
+
+function onDragEnd() {
+  dragStudent.value = null
+  dropTargetId.value = null
+}
+
+function onDragLeave(targetId, ev) {
+  // 在卡片子元素间移动也会触发 dragleave，只有真正离开卡片才熄灭高亮
+  if (!ev.currentTarget.contains(ev.relatedTarget)) {
+    if (dropTargetId.value === targetId) dropTargetId.value = null
+  }
+}
+
+function onDropTo(targetClassId) {
+  const s = dragStudent.value
+  dropTargetId.value = null
+  if (!s || s.from === targetClassId) return // 放回原班级 = 什么都不做
+  moveStudent(s, targetClassId)
+}
+
+async function moveStudent(s, targetClassId) {
+  const target = classes.value.find((c) => c.id === targetClassId)
+  const targetName = target ? target.name : t("students.ungrouped")
+  try {
+    await api.patch(`/students/${s.id}`, { class_id: targetClassId })
+    await load()
+    notify({
+      tone: "ok",
+      title: target ? `已把 ${s.name} 移到 ${targetName}` : `已把 ${s.name} 移到未分班`,
+      timeout: 3000,
+    })
+  } catch (e) {
+    notify({ tone: "danger", title: "转班失败", detail: friendlyError(e) })
+  }
+}
+
+// ------------------------------------------------------------------ 座位表
+
+const seatingClass = ref(null) // 正在编辑座位表的班级
+const seating = ref(null) // { rows, cols, cells: Array(学生id|null)，行优先
+const seatingSaving = ref(false)
+const seatingError = ref("")
+const seatDrag = ref(null) // { studentId, from: "seat"|"pool", index? }
+
+const studentById = computed(() => {
+  const map = new Map()
+  for (const s of seatingClass.value?.students || []) map.set(s.id, s)
+  return map
+})
+
+const poolStudents = computed(() => {
+  const seated = new Set((seating.value?.cells ?? []).filter(Boolean))
+  return (seatingClass.value?.students || []).filter((s) => !seated.has(s.id))
+})
+
+async function openSeating(c) {
+  seatingClass.value = c
+  seatingError.value = ""
+  seatDrag.value = null
+  seating.value = null
+  try {
+    const res = await api.get(`/classes/${c.id}/seating`)
+    const rows = res.rows > 0 ? res.rows : Math.max(1, Math.ceil((c.students || []).length / 8))
+    const cols = res.cols > 0 ? res.cols : 8
+    const cells = Array(rows * cols).fill(null)
+    for (const [pos, sid] of Object.entries(res.seats || {})) {
+      const i = Number(pos)
+      // 转走的学生不再占座
+      if (i >= 0 && i < cells.length && studentById.value.has(sid)) cells[i] = sid
+    }
+    seating.value = { rows, cols, cells }
+  } catch (e) {
+    seatingError.value = friendlyError(e)
+    seating.value = { rows: 4, cols: 8, cells: Array(32).fill(null) }
+  }
+}
+
+function closeSeating() {
+  seatingClass.value = null
+  seating.value = null
+  seatDrag.value = null
+}
+
+function resizeSeating() {
+  const s = seating.value
+  if (!s) return
+  s.rows = Math.min(20, Math.max(1, Math.round(Number(s.rows) || 1)))
+  s.cols = Math.min(12, Math.max(1, Math.round(Number(s.cols) || 1)))
+  const cells = s.cells.slice(0, s.rows * s.cols)
+  while (cells.length < s.rows * s.cols) cells.push(null)
+  s.cells = cells
+}
+
+function onSeatDragStart(studentId, index, ev) {
+  seatDrag.value = { studentId, from: "seat", index }
+  ev.dataTransfer.setData("text/plain", studentId)
+  ev.dataTransfer.effectAllowed = "move"
+}
+
+function onPoolDragStart(studentId, ev) {
+  seatDrag.value = { studentId, from: "pool" }
+  ev.dataTransfer.setData("text/plain", studentId)
+  ev.dataTransfer.effectAllowed = "move"
+}
+
+function onDropSeat(index) {
+  const d = seatDrag.value
+  if (!d) return
+  const cells = seating.value.cells
+  if (d.from === "seat") {
+    if (d.index !== index) {
+      // 座位互换：目标座位上的人换到拖拽起点
+      ;[cells[index], cells[d.index]] = [cells[d.index], cells[index]]
+    }
+  } else {
+    // 从未安排池入座；目标座位原来的人回到池里
+    cells[index] = d.studentId
+  }
+  seatDrag.value = null
+}
+
+function onDropPool() {
+  const d = seatDrag.value
+  if (!d) return
+  if (d.from === "seat") seating.value.cells[d.index] = null
+  seatDrag.value = null
+}
+
+async function saveSeating() {
+  const s = seating.value
+  const seats = {}
+  s.cells.forEach((sid, i) => {
+    if (sid) seats[i] = sid
+  })
+  seatingSaving.value = true
+  seatingError.value = ""
+  try {
+    await api.put(`/classes/${seatingClass.value.id}/seating`, {
+      rows: s.rows,
+      cols: s.cols,
+      seats,
+    })
+    notify({ tone: "ok", title: "座位表已保存", timeout: 2600 })
+    closeSeating()
+  } catch (e) {
+    seatingError.value = friendlyError(e)
+  } finally {
+    seatingSaving.value = false
+  }
+}
 </script>
 
 <template>
@@ -180,6 +345,10 @@ const hasContent = computed(() => classes.value.length > 0 || unassigned.value.l
         :key="c.id"
         :to="`/classes/${c.id}`"
         class="card card--link"
+        :class="{ 'card--drop': dropTargetActive && dropTargetId === c.id && dragStudent.from !== c.id }"
+        @dragover.prevent="dropTargetId = c.id"
+        @dragleave="onDragLeave(c.id, $event)"
+        @drop.prevent="onDropTo(c.id)"
       >
         <div class="card__head">
           <div class="grow">
@@ -192,10 +361,29 @@ const hasContent = computed(() => classes.value.length > 0 || unassigned.value.l
               </template>
             </p>
           </div>
+          <button class="btn btn--sm" @click.stop.prevent="openSeating(c)">
+            <Icon name="board" :size="14" /> {{ t("classes.seating") }}
+          </button>
           <Icon name="chevron-right" :size="16" style="color: var(--muted); flex-shrink: 0" />
         </div>
 
         <div class="card__body">
+          <div v-if="(c.students || []).length" class="chips" style="margin-bottom: 14px">
+            <router-link
+              v-for="s in c.students"
+              :key="s.id"
+              :to="`/students/${s.id}`"
+              class="chip"
+              draggable="true"
+              @dragstart="onDragStart(s, c.id, $event)"
+              @dragend="onDragEnd"
+              @click.stop
+            >
+              {{ s.name }}
+              <span class="muted tnum" style="font-size: 12px">{{ s.admission_no }}</span>
+            </router-link>
+          </div>
+
           <div v-if="avgSummary(c).length" class="stack" style="gap: 8px">
             <span class="field__hint">{{ t("classes.avgLabel") }}</span>
             <div class="row-wrap">
@@ -242,7 +430,15 @@ const hasContent = computed(() => classes.value.length > 0 || unassigned.value.l
       </router-link>
     </div>
 
-    <section v-if="unassigned.length" class="card class-unassigned" style="margin-top: var(--sp-5)">
+    <section
+      v-if="unassigned.length"
+      class="card class-unassigned"
+      :class="{ 'card--drop': dropTargetActive && dragStudent.from !== null }"
+      style="margin-top: var(--sp-5)"
+      @dragover.prevent="dropTargetId = null"
+      @dragleave="onDragLeave(null, $event)"
+      @drop.prevent="onDropTo(null)"
+    >
       <div class="card__head">
         <div class="grow">
           <h2 class="card__title" style="font-size: 16px">{{ t("students.ungrouped") }}</h2>
@@ -262,6 +458,10 @@ const hasContent = computed(() => classes.value.length > 0 || unassigned.value.l
             :key="s.id"
             :to="`/students/${s.id}`"
             class="chip"
+            draggable="true"
+            @dragstart="onDragStart(s, null, $event)"
+            @dragend="onDragEnd"
+            @click.stop
           >
             {{ s.name }}
             <span class="muted tnum" style="font-size: 12px">{{ s.admission_no }}</span>
@@ -270,4 +470,110 @@ const hasContent = computed(() => classes.value.length > 0 || unassigned.value.l
       </div>
     </section>
   </AsyncState>
+
+  <!-- 座位表编辑弹窗 -->
+  <div
+    v-if="seatingClass && seating"
+    class="overlay"
+    role="dialog"
+    aria-modal="true"
+    :aria-label="`${t('classes.seating')} · ${seatingClass.name}`"
+    @click.self="closeSeating"
+  >
+    <div class="modal" style="width: min(760px, 94vw)">
+      <div class="modal__head">
+        <div class="grow">
+          <h2 class="modal__title">{{ t("classes.seating") }} · {{ seatingClass.name }}</h2>
+        </div>
+        <label class="row" style="gap: 4px; align-items: center; font-size: 13px">
+          行
+          <input
+            v-model.number="seating.rows"
+            class="input input--sm tnum"
+            type="number"
+            min="1"
+            max="20"
+            style="width: 60px"
+            @change="resizeSeating"
+            @input="resizeSeating"
+          />
+        </label>
+        <label class="row" style="gap: 4px; align-items: center; font-size: 13px">
+          列
+          <input
+            v-model.number="seating.cols"
+            class="input input--sm tnum"
+            type="number"
+            min="1"
+            max="12"
+            style="width: 60px"
+            @change="resizeSeating"
+            @input="resizeSeating"
+          />
+        </label>
+        <button class="icon-btn" aria-label="关闭" @click="closeSeating">
+          <Icon name="close" :size="16" />
+        </button>
+      </div>
+      <div class="modal__body">
+        <div
+          class="seating-grid"
+          :style="{ gridTemplateColumns: `repeat(${seating.cols}, minmax(0, 1fr))` }"
+        >
+          <div
+            v-for="(sid, i) in seating.cells"
+            :key="i"
+            class="seat"
+            :class="{ 'seat--filled': sid }"
+            @dragover.prevent
+            @drop.prevent="onDropSeat(i)"
+          >
+            <div
+              v-if="sid"
+              class="seat__chip"
+              draggable="true"
+              @dragstart="onSeatDragStart(sid, i, $event)"
+            >
+              <b>{{ studentById.get(sid)?.name ?? "—" }}</b>
+              <span class="seat__gender">{{ genderLabel(studentById.get(sid)?.gender) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px">
+          <p class="field__hint" style="margin-bottom: 6px">
+            未安排的学生（拖到座位入座，座位间拖动互换，拖回这里移除）
+          </p>
+          <div class="chips" @dragover.prevent @drop.prevent="onDropPool">
+            <div
+              v-for="s in poolStudents"
+              :key="s.id"
+              class="chip"
+              draggable="true"
+              @dragstart="onPoolDragStart(s.id, $event)"
+            >
+              {{ s.name }}
+              <span class="muted">{{ genderLabel(s.gender) }}</span>
+            </div>
+            <span v-if="!poolStudents.length" class="muted" style="font-size: 13px">
+              全部学生都已安排座位
+            </span>
+          </div>
+        </div>
+
+        <p v-if="seatingError" class="field__error" style="margin-top: 10px">
+          <Icon name="alert-circle" :size="12" /> {{ seatingError }}
+        </p>
+      </div>
+      <div class="modal__foot">
+        <button type="button" class="btn btn--ghost" @click="closeSeating">
+          {{ t("action.cancel") }}
+        </button>
+        <button type="button" class="btn btn--primary" :disabled="seatingSaving" @click="saveSeating">
+          <span v-if="seatingSaving" class="spinner" />
+          {{ seatingSaving ? t("action.saving") : t("action.save") }}
+        </button>
+      </div>
+    </div>
+  </div>
 </template>

@@ -222,3 +222,74 @@ def test_import_requires_header_and_existing_exam(ctx):
         headers=ctx["headers"],
     )
     assert missing.status_code == 404
+
+
+def _add(ctx, student, scores, exam_id=None):
+    return ctx["client"].post(
+        f"/api/exams/{exam_id or ctx['exam']['id']}/scores",
+        json={"student_id": str(student.id), "scores": scores},
+        headers=ctx["headers"],
+    )
+
+
+def test_manual_scores_create_then_upsert(ctx, db):
+    """学生页「添加成绩」：录分 + 缺考 → 与导入共用 upsert，不产生重复记录。"""
+    lin = ctx["students"]["lin"]
+    r = _add(ctx, lin, [
+        {"subject": "math", "score": 90},
+        {"subject": "english", "absent": True},
+    ])
+    assert r.status_code == 201, r.text
+    assert r.json()["scores"] == {"math": 90}
+    assert r.json()["absent_subjects"] == ["english"]
+    assert len(_scores_of(db, lin)) == 2
+    absent_event = next(e for e in _scores_of(db, lin) if e.payload.get("absent"))
+    assert absent_event.title == "九月月考·english"
+
+    # 再录一次同科目：覆盖而非新建；缺考改成有分
+    r = _add(ctx, lin, [
+        {"subject": "math", "score": 95},
+        {"subject": "english", "score": 100},
+    ])
+    assert r.status_code == 201, r.text
+    db.expire_all()  # 测试会话的 identity map 里是旧 payload，强制重读
+    assert len(_scores_of(db, lin)) == 2
+    by_subject = {e.payload["subject"]: e.payload for e in _scores_of(db, lin)}
+    assert by_subject["math"]["score"] == 95
+    assert by_subject["english"]["score"] == 100
+    # 时间线上的 exam_taken 也只保留一条且同步了最新分数
+    taken = (
+        db.query(Event)
+        .filter(Event.type == "exam_taken", Event.attendees.any(Person.id == lin.id))
+        .all()
+    )
+    assert len(taken) == 1
+    assert taken[0].payload["scores"] == {"math": 95, "english": 100}
+    assert taken[0].payload["absent_subjects"] == []
+
+
+def test_manual_scores_validation(ctx, db):
+    lin = ctx["students"]["lin"]
+    hao = ctx["students"]["hao"]
+
+    unknown = _add(ctx, lin, [{"subject": "体育", "score": 80}])
+    assert unknown.status_code == 400
+    assert "不是这次考试的科目" in unknown.json()["detail"]
+
+    over = _add(ctx, lin, [{"subject": "math", "score": 121}])
+    assert over.status_code == 400
+    assert "0–120" in over.json()["detail"]
+
+    missing = _add(ctx, lin, [{"subject": "math"}])
+    assert missing.status_code == 400
+    assert "缺考" in missing.json()["detail"]
+
+    empty = _add(ctx, lin, [])
+    assert empty.status_code == 422  # scores min_length=1
+
+    nonexistent = _add(ctx, hao, [{"subject": "math", "score": 1}], exam_id=str(uuid.uuid4()))
+    assert nonexistent.status_code == 404
+
+    # 校验失败的请求不留任何成绩
+    assert _scores_of(db, lin) == []
+    assert _scores_of(db, hao) == []

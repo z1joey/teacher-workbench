@@ -226,15 +226,11 @@ def dashboard(
         .limit(3)
         .all()
     )
-    user_payload = user.payload or {}
     return {
         "user": {
             "id": str(user.id),
             "name": user.name,
-            "display_name": teacher_display_name(
-                user.name,
-                user_payload.get("name_display", "full"),
-            ),
+            "display_name": teacher_display_name(user.name),
         },
         "counts": counts,
         "upcoming_exams": [

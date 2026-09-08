@@ -1,6 +1,6 @@
 <script setup>
 // 数据管理：花名册导入导出（Excel）。只导入学生，不创建班级。
-import { onMounted, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
@@ -32,6 +32,10 @@ const rosterFileInput = ref(null)
 const rosterFile = ref(null)
 const importing = ref(false)
 const rosterResult = ref(null)
+// 「更新」里真正改动了资料的学生（姓名/性别/出生日期），供明细展示
+const changedRows = computed(() =>
+  (rosterResult.value?.rows ?? []).filter((r) => r.status === "updated" && r.changes)
+)
 
 function onRosterFile(e) {
   rosterFile.value = e.target.files[0] || null
@@ -49,11 +53,16 @@ async function importRoster() {
   try {
     rosterResult.value = await uploadFile("/data/import/roster", rosterFile.value, fields)
     const r = rosterResult.value
-    notify({
-      tone: r.errors.length ? "warn" : "ok",
-      title: `导入完成：新建 ${r.created} 人，更新 ${r.updated} 人` +
-        (r.errors.length ? `，${r.errors.length} 行未导入` : ""),
-    })
+    if (!r.created && !r.updated && !r.errors.length) {
+      notify({ tone: "warn", title: "没有可导入的数据行", detail: "文件里没有同时含学号和姓名的行" })
+    } else {
+      notify({
+        tone: r.errors.length ? "warn" : "ok",
+        title: `导入完成：新建 ${r.created} 人` +
+          (r.updated ? `，更新 ${r.updated} 人（按学号匹配已有学生）` : "") +
+          (r.errors.length ? `，${r.errors.length} 行未导入` : ""),
+      })
+    }
     await load()
   } catch (e) {
     notify({ tone: "danger", title: "导入失败", detail: friendlyError(e) })
@@ -225,6 +234,23 @@ async function resetApp() {
               <span v-if="rosterResult.errors.length" class="pill pill--outline">
                 未导入 <b class="tnum">{{ rosterResult.errors.length }}</b>
               </span>
+            </div>
+            <p class="muted" style="margin: 0">
+              「更新」指文件里的学号已经存在，会覆盖对应学生的资料，不会产生新学生。
+            </p>
+            <div v-if="changedRows.length" class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr><th>更新明细</th><th>学号</th><th>改动</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in changedRows" :key="r.row">
+                    <td>{{ r.name }}</td>
+                    <td class="tnum">{{ r.admission_no }}</td>
+                    <td>{{ r.changes }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
             <p v-if="rosterResult.ignored_columns.length" class="muted" style="margin: 0">
               已忽略无法识别的列：{{ rosterResult.ignored_columns.join("、") }}

@@ -133,6 +133,8 @@ def test_roster_import_updates_existing_without_moving_class(client, db):
     body = res.json()
     assert body["created"] == 2
     assert body["updated"] == 1
+    updated_row = next(r for r in body["rows"] if r["status"] == "updated")
+    assert "性别" in updated_row["changes"]
     enrollment = db.query(Enrollment).filter_by(person_id=existing.id).one()
     assert enrollment.class_id == old.id and enrollment.valid_to is None
     db.refresh(existing)
@@ -167,6 +169,8 @@ def test_roster_reimport_updates_without_duplicates(client, db):
     body = second.json()
     assert body["created"] == 0
     assert body["updated"] == 3
+    # 资料没有任何变化时，更新行不携带 changes（前端据此省略明细表）
+    assert all("changes" not in r for r in body["rows"])
     assert db.query(Person).count() == 4  # teacher + 3 students
 
 
@@ -297,7 +301,23 @@ def test_demo_reset_clears_database(client, db):
     assert len(_students(db)) == 0
     assert db.query(Event).count() == 0
     assert db.query(Class).filter(Class.name == "七年级1班").count() == 0
+
+
+def test_roster_import_rejects_score_sheet(client, db):
+    """成绩模板混进花名册导入会静默覆盖真实学生资料，必须在入口拒收。"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "成绩导入"
+    ws.append(["九月月考成绩导入（2026-09-08）"])
+    ws.append(["学号", "姓名", "英语(满分120)", "数学(满分120)"])
+    ws.append(["2025070701", "张三", 90, 88])
+    ws.append(["2025070702", "李四", 95, 91])
+    res = _upload(client, _xlsx_bytes(wb))
+    assert res.status_code == 400
+    assert "成绩表格" in res.json()["detail"]
+    assert "满分120" in res.json()["detail"]
+    # 拒收不能有任何副作用：不建学生、不动账号
     assert db.query(Person).filter(
-        Person.payload["role"].as_string() == "teacher"
-    ).count() == 1
+        Person.payload["role"].as_string() == "student"
+    ).count() == 0
     assert db.query(AuthSession).filter(AuthSession.token == TEACHER_TOKEN).count() == 1

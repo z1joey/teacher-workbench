@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import io
+import re
 import uuid as uuid_mod
 from urllib.parse import quote
 
@@ -49,6 +50,8 @@ _HEADER_ALIASES = {
 }
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _ROSTER_HEADERS = ["学号", "姓名", "性别"]
+# 成绩表（如「英语(满分120)」）混进花名册导入会静默改掉真实学生资料，直接拒收
+_SCORE_COLUMN_HINT = re.compile(r"满分|成绩|分数|得分|绩点")
 
 
 def _cell_str(value) -> str:
@@ -251,6 +254,13 @@ async def import_roster(
         {_cell_str(c) for row in rows[header_idx : header_idx + 1] for c in row if _cell_str(c)}
         - set().union(*_HEADER_ALIASES.values())
     )
+    score_columns = [c for c in ignored if _SCORE_COLUMN_HINT.search(c)]
+    if score_columns:
+        shown = "、".join(f"「{c}」" for c in score_columns[:3])
+        raise HTTPException(
+            status_code=400,
+            detail=f"这像是成绩表格而不是花名册（检测到列：{shown}）。请选择花名册文件（学号/姓名/性别）导入",
+        )
 
     assign_class = class_id is not None
     target_cls = _resolve_target_class(db, class_id, user)
@@ -330,8 +340,18 @@ async def import_roster(
                 created += 1
                 item["status"] = "created"
             else:
+                # 更新 = 按学号匹配已有学生并覆盖资料；把改了什么写进报告，
+                # 否则「更新 N 人」对老师来说等于黑箱
+                changes: list[str] = []
+                old_payload = dict(person_row.payload or {})
+                if person_row.name != name:
+                    changes.append(f"姓名 {person_row.name} → {name}")
                 person_row.name = name
-                payload = dict(person_row.payload or {})
+                if gender is not None and old_payload.get("gender") != gender:
+                    changes.append("性别")
+                if birth_date and old_payload.get("birth_date") != birth_date.isoformat():
+                    changes.append("出生日期")
+                payload = old_payload
                 if gender is not None:
                     payload["gender"] = gender
                 if birth_date:
@@ -341,6 +361,8 @@ async def import_roster(
                     _move_student(db, person_row, target_cls, reason="moved", today=today)
                 updated += 1
                 item["status"] = "updated"
+                if changes:
+                    item["changes"] = "；".join(changes)
         except ValueError as exc:
             item["status"] = "error"
             item["message"] = str(exc)

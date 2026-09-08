@@ -165,7 +165,7 @@ def test_create_exam_creates_event_with_class_attendees(make_client, db, headers
 
     body = client.post(
         "/api/exams",
-        json={"name": "期中考试", "exam_date": "2026-05-20", "class_id": str(cls.id),
+        json={"name": "期中考试", "exam_date": "2026-05-20", "class_ids": [str(cls.id)],
               "subjects": [{"subject": "语文", "full_score": 120},
                             {"subject": "数学", "full_score": 100}]},
         headers=headers,

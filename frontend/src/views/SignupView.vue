@@ -11,24 +11,50 @@ import { friendlyError, t } from "../strings"
 
 const router = useRouter()
 const form = ref({ name: "", phone: "", password: "", password2: "" })
+const errors = ref({ name: "", phone: "", password: "", password2: "" })
 const error = ref("")
 const busy = ref(false)
 
+// 与后端 /auth/register 同规则：去掉空格/短横线后须为 6-15 位数字
+function normalizePhone(phone) {
+  return phone.replace(/[\s-]/g, "")
+}
+
+// 就地校验：错误出现在各自的输入框下，而不是提交后才弹一条笼统提示
+function validate() {
+  errors.value = { name: "", phone: "", password: "", password2: "" }
+  let ok = true
+  if (!form.value.name.trim()) {
+    errors.value.name = t("signup.nameRequired")
+    ok = false
+  }
+  const phone = normalizePhone(form.value.phone.trim())
+  if (!phone) {
+    errors.value.phone = t("signup.phoneRequired")
+    ok = false
+  } else if (!/^\d{6,15}$/.test(phone)) {
+    errors.value.phone = t("signup.phoneInvalid")
+    ok = false
+  }
+  if (form.value.password.length < 6) {
+    errors.value.password = t("signup.passwordShort")
+    ok = false
+  }
+  if (form.value.password2 !== form.value.password) {
+    errors.value.password2 = t("signup.passwordMismatch")
+    ok = false
+  }
+  return ok
+}
+
 async function submit() {
   error.value = ""
-  if (!form.value.name.trim()) {
-    error.value = t("signup.nameRequired")
-    return
-  }
-  if (form.value.password !== form.value.password2) {
-    error.value = t("signup.passwordMismatch")
-    return
-  }
+  if (!validate()) return
   busy.value = true
   try {
     const res = await api.post("/auth/register", {
       name: form.value.name.trim(),
-      phone: form.value.phone,
+      phone: normalizePhone(form.value.phone.trim()),
       password: form.value.password,
     })
     setToken(res.token)
@@ -51,17 +77,23 @@ async function submit() {
       <p class="auth-sub">{{ t("signup.subtitle") }}</p>
 
       <form @submit.prevent="submit" novalidate>
-        <FormField :label="t('login.name')" :error="''">
+        <FormField :label="t('login.name')" required :error="errors.name || ''">
           <input
             v-model="form.name"
             class="input"
             type="text"
             autocomplete="name"
             required
+            :aria-invalid="!!errors.name"
           />
         </FormField>
 
-        <FormField :label="t('login.phone')" :error="''">
+        <FormField
+          :label="t('login.phone')"
+          required
+          :error="errors.phone || ''"
+          :hint="t('signup.phoneHint')"
+        >
           <input
             v-model="form.phone"
             class="input"
@@ -69,24 +101,27 @@ async function submit() {
             inputmode="numeric"
             autocomplete="username"
             required
+            :aria-invalid="!!errors.phone"
           />
         </FormField>
 
-        <FormField :label="t('login.password')" :error="''">
+        <FormField :label="t('login.password')" required :error="errors.password || ''">
           <PasswordInput
             v-model="form.password"
             autocomplete="new-password"
             minlength="6"
             required
+            :invalid="!!errors.password"
           />
         </FormField>
 
-        <FormField :label="t('signup.password2')" :error="''">
+        <FormField :label="t('signup.password2')" required :error="errors.password2 || ''">
           <PasswordInput
             v-model="form.password2"
             autocomplete="new-password"
             minlength="6"
             required
+            :invalid="!!errors.password2"
           />
         </FormField>
 

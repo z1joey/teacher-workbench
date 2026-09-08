@@ -1,5 +1,3 @@
-from typing import Literal
-
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -28,7 +26,7 @@ def user_out(u: Person) -> dict:
         "role": role,
     }
     if role == "teacher":
-        out["display_name"] = teacher_display_name(name, payload.get("name_display", "full"))
+        out["display_name"] = teacher_display_name(name)
     else:
         out["display_name"] = name or ""
     return out
@@ -37,7 +35,6 @@ def user_out(u: Person) -> dict:
 def settings_out(payload: dict) -> dict:
     return {
         "auto_tags": payload.get("auto_tags", True),
-        "name_display": payload.get("name_display", "full"),
         "calendar_birthdays": payload.get("calendar_birthdays", True),
     }
 
@@ -46,7 +43,6 @@ class ProfileIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     email: str | None = None
     auto_tags: bool | None = None
-    name_display: Literal["full", "teacher"] | None = None
     calendar_birthdays: bool | None = None
 
 
@@ -116,8 +112,6 @@ def update_profile(
     person.email = (body.email or "").strip() or None
     if "auto_tags" in body.model_fields_set and body.auto_tags is not None:
         payload["auto_tags"] = body.auto_tags
-    if "name_display" in body.model_fields_set and body.name_display is not None:
-        payload["name_display"] = body.name_display
     if "calendar_birthdays" in body.model_fields_set and body.calendar_birthdays is not None:
         payload["calendar_birthdays"] = body.calendar_birthdays
     person.payload = validate_person_payload("teacher", payload)

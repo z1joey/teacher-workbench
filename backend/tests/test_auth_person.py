@@ -140,7 +140,6 @@ def test_profile_patch_get_round_trips_name(make_client, db):
     assert set(r.json()) == {"id", "name", "phone", "email", "role", "settings", "display_name"}
     assert r.json()["settings"] == {
         "auto_tags": True,
-        "name_display": "full",
         "calendar_birthdays": True,
     }
     assert r.json()["name"] == "陈老师"
@@ -150,17 +149,24 @@ def test_profile_patch_get_round_trips_name(make_client, db):
     assert set(r.json()) == {"user", "classes", "stats", "settings"}
     assert r.json()["settings"] == {
         "auto_tags": True,
-        "name_display": "full",
         "calendar_birthdays": True,
     }
     assert r.json()["user"]["name"] == "陈老师"
 
 
 def test_profile_name_display_setting(make_client, db):
+    """「首页称呼」偏好已下线：一律展示全名，老 payload 里的 name_display 被忽略并清除。"""
     client = make_client(profile.router)
     person = seed_person(db, "13800000022", name="张毅")
+    person.payload = {**(person.payload or {}), "name_display": "teacher"}
+    db.commit()
     token = seed_token(db, person, "g" * 64)
     headers = {"Authorization": f"Bearer {token}"}
+
+    r = client.get("/api/profile", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["display_name"] == "张毅"
+    assert "name_display" not in r.json()["settings"]
 
     r = client.patch(
         "/api/profile",
@@ -168,14 +174,10 @@ def test_profile_name_display_setting(make_client, db):
         headers=headers,
     )
     assert r.status_code == 200, r.text
-    assert r.json()["display_name"] == "张老师"
-    assert r.json()["settings"] == {
-        "auto_tags": True,
-        "name_display": "teacher",
-        "calendar_birthdays": True,
-    }
+    assert r.json()["display_name"] == "张毅"
+    assert "name_display" not in r.json()["settings"]
     db.refresh(person)
-    assert person.payload["name_display"] == "teacher"
+    assert "name_display" not in person.payload
 
 
 def test_profile_calendar_birthdays_setting(make_client, db):
@@ -192,7 +194,6 @@ def test_profile_calendar_birthdays_setting(make_client, db):
     assert r.status_code == 200, r.text
     assert r.json()["settings"] == {
         "auto_tags": True,
-        "name_display": "full",
         "calendar_birthdays": False,
     }
     db.refresh(person)
@@ -213,7 +214,6 @@ def test_profile_auto_tags_setting(make_client, db):
     assert r.status_code == 200, r.text
     assert r.json()["settings"] == {
         "auto_tags": False,
-        "name_display": "full",
         "calendar_birthdays": True,
     }
     db.refresh(person)
