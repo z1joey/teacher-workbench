@@ -3,7 +3,7 @@ import { computed } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "./Icon.vue"
 import { openEvent, isEventClickable } from "../eventNav"
-import { describeEvent, eventTypeColor, eventTypeIcon, eventTypeLabel, t } from "../strings"
+import { describeEvent, eventTitle, eventTypeColor, eventTypeIcon, eventTypeLabel, t } from "../strings"
 
 const props = defineProps({
   events: { type: Array, default: () => [] },
@@ -112,11 +112,11 @@ function open(e) {
           <div class="timeline__card">
             <div class="timeline__head">
               <span class="timeline__title">{{
-                eventTypeLabel(rowItem.event.event_type, rowItem.event.payload)
+                eventTitle(rowItem.event.event_type, rowItem.event.payload)
               }}</span>
               <span v-if="rowItem.event.actor" class="timeline__actor">{{ rowItem.event.actor }}</span>
             </div>
-            <p class="timeline__desc">
+            <p v-if="describeEvent(rowItem.event.event_type, rowItem.event.payload)" class="timeline__desc">
               {{ describeEvent(rowItem.event.event_type, rowItem.event.payload) }}
             </p>
             <time class="timeline__time">{{ fmt(rowItem.event.occurred_at) }}</time>

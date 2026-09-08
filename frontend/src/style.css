@@ -1297,7 +1297,13 @@ mark.hl {
   overflow: hidden;
 }
 .student-card__empty {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
   margin: 0;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
   font-size: var(--fs-xs);
 }
 

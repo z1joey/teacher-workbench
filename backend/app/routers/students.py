@@ -452,12 +452,14 @@ def _subject_color_of_exam(
 
 
 def last_event_summary(db: Session, person_id: uuid.UUID) -> dict | None:
-    """Most recent timeline event for list views (scores excluded — same as timeline)."""
+    """Most recent comment (老师评语)、home visit (家访) or birthday for list
+    views. Other event types live in their own cards — the list card only
+    surfaces these."""
     ev = (
         db.query(Event)
         .filter(
             Event.attendees.any(Person.id == person_id),
-            Event.type != "score",
+            Event.type.in_(["comment", "home_visited", "birthday"]),
         )
         .order_by(Event.start_time.desc(), Event.created_at.desc())
         .first()

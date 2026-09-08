@@ -6,9 +6,9 @@ import { isEventClickable, openEvent } from "../eventNav"
 import {
   dateLocale,
   describeEvent,
+  eventTitle,
   eventTypeColor,
   eventTypeIcon,
-  eventTypeLabel,
   t,
 } from "../strings"
 
@@ -100,13 +100,13 @@ function onClick() {
             >{{ event.student_name }}</router-link>
             <template v-else>{{ event.student_name }}</template>
             <template v-if="showType">
-              · {{ eventTypeLabel(event.event_type, event.payload) }}
+              · {{ eventTitle(event.event_type, event.payload) }}
             </template>
           </template>
           <template v-else-if="event.event_type === 'exam'">
             <router-link :to="`/exams/${event.id}`" @click.stop>{{ event.title }}</router-link>
             <template v-if="showType">
-              · {{ eventTypeLabel(event.event_type, event.payload) }}
+              · {{ eventTitle(event.event_type, event.payload) }}
             </template>
           </template>
           <template v-else-if="event.students?.length === 1">
@@ -114,13 +114,13 @@ function onClick() {
               {{ event.students[0].name }}
             </router-link>
             <template v-if="showType">
-              · {{ eventTypeLabel(event.event_type, event.payload) }}
+              · {{ eventTitle(event.event_type, event.payload) }}
             </template>
           </template>
           <template v-else>
             {{ event.title }}
             <template v-if="showType">
-              · {{ eventTypeLabel(event.event_type, event.payload) }}
+              · {{ eventTitle(event.event_type, event.payload) }}
             </template>
             <template v-if="event.actor"> · {{ event.actor }}</template>
           </template>

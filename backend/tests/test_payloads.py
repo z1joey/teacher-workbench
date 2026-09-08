@@ -41,6 +41,36 @@ def test_teacher_payload_strips_legacy_semesters():
     assert "semesters" not in out
 
 
+def test_teacher_payload_strips_legacy_name_and_subject():
+    out = validate_person_payload(
+        "teacher",
+        {"name": "陈老师", "subject": "math", "auto_tags": False},
+    )
+    assert "name" not in out and "subject" not in out
+    assert out["auto_tags"] is False
+
+
+def test_student_payload_strips_legacy_name_and_guardian():
+    out = validate_person_payload(
+        "student",
+        {
+            "admission_no": "S1",
+            "name": "张一",
+            "guardian_name": "张爸",
+            "guardian_phone": "13800000001",
+        },
+    )
+    assert out["admission_no"] == "S1"
+    assert "name" not in out
+    assert "guardian_name" not in out
+    assert "guardian_phone" not in out
+
+
+def test_admin_payload_strips_legacy_name():
+    out = validate_person_payload("admin", {"name": "开发者"})
+    assert out == {"role": "admin", "is_active": True}
+
+
 def test_guardian_payload_recognized():
     out = validate_person_payload("guardian", {"phone": "13900000001",
                                                "address": "解放路100号"})

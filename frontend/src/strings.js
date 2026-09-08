@@ -336,12 +336,23 @@ const messages = {
   "exam.perClassEmpty": "还没有成绩录入，录入后这里会按班级显示平均分。",
   "exam.deleteConfirm": "删除后，这次考试的所有科目成绩都会被清掉。",
   "exam.subjectLockNote": "已经有成绩录入时，科目结构不能修改。要改科目请先删除这次考试。",
+  "exam.scoreImportTitle": "成绩导入（Excel）",
+  "exam.scoreImportDesc": "下载模板后按学号填入各科成绩（可写「缺考」），再上传导入。按学号匹配学生，重复导入会覆盖旧成绩；成功后学生会生成「参加考试」时间线记录。",
+  "exam.scoreTemplate": "下载模板",
+  "exam.scoreImport": "导入成绩",
+  "exam.scoreImportPick": "选择成绩文件（.xlsx）",
+  "exam.scoreImportDone": "成绩导入成功",
+  "exam.scoreImportFail": "成绩导入失败",
+  "exam.scoreImportOk": "导入成功",
+  "exam.scoreImportPartial": "部分成功",
+  "exam.scoreImportError": "失败",
 
   // --- 学生 ---
   "students.title": "学生",
   "students.subtitle": "共 {count} 名学生 · 点击任意一行打开档案",
   "students.search": "搜索姓名、学号、班级或监护人",
   "students.ungrouped": "未分班",
+  "students.noRecentEvent": "暂无评语、家访或生日",
   "students.emptyTitle": "还没有学生",
   "students.emptyDesc": "先把学生加进班级，才能开始记成绩和跟进。",
   "students.groupCollapsed": "已折叠",
@@ -613,6 +624,14 @@ export function eventTypeLabel(type, payload = null) {
   return messages[key] ?? type
 }
 
+// 事件展示标题（卡片、时间线、动态流等标题位全局复用）。
+// 生日带 🎂；注意与 eventTypeLabel 区分——后者还用于
+// 「删除这条生日记录？」这类句子拼接，不能带 emoji。
+export function eventTitle(type, payload = null) {
+  const label = eventTypeLabel(type, payload)
+  return type === "birthday" ? `🎂 ${label}` : label
+}
+
 export function describeEvent(type, p = {}) {
   switch (type) {
     case "enrolled":
@@ -635,10 +654,9 @@ export function describeEvent(type, p = {}) {
     case "result_changed":
       if (p.notes) return p.notes
       return `${p.exam ?? ""} · ${subject(p.subject)}: ${p.old} → ${p.new}${p.reason ? " · " + p.reason : ""}`
-    case "birthday": {
-      const [y, m, d] = (p.birth_date ?? "").split("-")
-      return y ? `出生于 ${y}年${parseInt(m)}月${parseInt(d)}日` : "生日"
-    }
+    case "birthday":
+      // 全局约定：生日只显示标题（见 eventTitle），不渲染描述
+      return ""
     case "activity":
       return p.notes ?? ""
     case "home_visited":

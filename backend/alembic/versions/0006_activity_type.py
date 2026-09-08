@@ -28,13 +28,16 @@ def _check_sql() -> str:
 
 
 def upgrade() -> None:
-    op.drop_constraint("ck_event_type_valid", "event", type_="check")
+    # 0005's create_all path builds event from current metadata, which no
+    # longer carries this CHECK — the constraint may be absent on a legacy
+    # volume jumping straight through 0005.
+    op.execute("ALTER TABLE event DROP CONSTRAINT IF EXISTS ck_event_type_valid")
     op.create_check_constraint("ck_event_type_valid", "event", _check_sql())
 
 
 def downgrade() -> None:
     op.execute("DELETE FROM event WHERE type = 'activity'")
-    op.drop_constraint("ck_event_type_valid", "event", type_="check")
+    op.execute("ALTER TABLE event DROP CONSTRAINT IF EXISTS ck_event_type_valid")
     op.create_check_constraint(
         "ck_event_type_valid", "event",
         "type IN ('birthday', 'exam', 'score', 'parent_meeting', "

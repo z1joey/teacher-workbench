@@ -8,7 +8,7 @@ import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
 import { searchQuery, searchStudents, studentMatchesQuery, matchedGuardiansOf } from "../search"
 import Highlight from "../components/Highlight.vue"
-import { friendlyError, tagStyle, t, eventTypeLabel, describeEvent, dateLocale } from "../strings"
+import { friendlyError, tagStyle, t, eventTitle, describeEvent, dateLocale } from "../strings"
 
 const router = useRouter()
 const students = ref([])
@@ -184,7 +184,7 @@ function guardianHits(s) {
               <footer v-if="s.last_event" class="student-card__event">
                 <div class="student-card__event-head">
                   <span class="student-card__event-type">
-                    {{ eventTypeLabel(s.last_event.event_type, s.last_event.payload) }}
+                    {{ eventTitle(s.last_event.event_type, s.last_event.payload) }}
                   </span>
                   <time class="student-card__event-time muted tnum">
                     {{ fmtDate(s.last_event.occurred_at) }}
@@ -194,7 +194,9 @@ function guardianHits(s) {
                   {{ lastEventText(s.last_event) }}
                 </p>
               </footer>
-              <p v-else class="student-card__empty muted">{{ t("common.none") }}</p>
+              <p v-else class="student-card__empty muted">
+                <Icon name="clock" :size="12" /> {{ t("students.noRecentEvent") }}
+              </p>
             </article>
           </div>
         </div>

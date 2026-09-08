@@ -164,7 +164,13 @@ EVENT_PAYLOAD_SCHEMAS = {
 def validate_person_payload(role: str, data: dict) -> dict:
     data = dict(data)
     if role == "teacher":
-        data.pop("semesters", None)
+        for key in ("semesters", "name", "subject"):
+            data.pop(key, None)
+    elif role == "admin":
+        data.pop("name", None)
+    elif role == "student":
+        for key in ("name", "guardian_name", "guardian_phone"):
+            data.pop(key, None)
     schema = PERSON_PAYLOAD_SCHEMAS.get(role)
     if schema is None:
         raise ValueError(f"unknown person role: {role!r}")
