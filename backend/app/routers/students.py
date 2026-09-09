@@ -63,14 +63,10 @@ AUTO_HOME_VISIT_TAG_NAME = "已家访"
 AUTO_HOME_VISIT_TAG_COLOR = "#2f7d4f"
 DEFAULT_HOME_VISIT_PURPOSE = "例行家访"
 
-# display titles for the events this router writes (Event.title is NOT NULL;
-# the old StudentEvent rows had no title, so these are new-schema labels)
-_RECORD_TITLES = {
+# Fallback titles for system-generated events (Event.title is NOT NULL).
+# Teacher-written home visits and comments use the summary/notes as title.
+_TYPE_LABELS = {
     "home_visited": "家访",
-    "talk": "谈话",
-    "tutoring": "辅导",
-    "parent_call": "电话沟通",
-    "note_added": "随笔",
     "comment": "评语",
     "birthday": "生日",
     "enrolled": "入学",
@@ -81,8 +77,17 @@ _RECORD_TITLES = {
 _RECORDABLE_TYPES = MANUAL_EVENT_TYPES
 
 
-def _record_title(event_type: str) -> str:
-    return _RECORD_TITLES.get(event_type, event_type)
+def _type_label(event_type: str) -> str:
+    return _TYPE_LABELS.get(event_type, event_type)
+
+
+def _event_title(event_type: str, summary: str = "", *, purpose: str | None = None) -> str:
+    text = (summary or "").strip()
+    if not text and event_type == "home_visited":
+        text = (purpose or "").strip()
+    if text and event_type in ("home_visited", "comment"):
+        return text[:100]
+    return _type_label(event_type)
 
 
 def _record_payload(event_type: str, summary: str, purpose: str | None,
@@ -90,8 +95,8 @@ def _record_payload(event_type: str, summary: str, purpose: str | None,
                     *, done: bool | None = None) -> dict:
     """Map the record body onto the per-type payload schemas.
 
-    talk/tutoring/parent_call/note_added carry {"notes"}; home_visited carries
-    {"summary","purpose","done"}; a patched-to-birthday event keeps birth_date.
+    home_visited carries {"summary","purpose","done"}; comment carries notes and
+    mentions; a patched-to-birthday event keeps birth_date.
     """
     if event_type == "home_visited":
         old = old_payload or {}
@@ -123,7 +128,7 @@ def _record_payload(event_type: str, summary: str, purpose: str | None,
             if old_payload.get("about"):
                 out["about"] = old_payload["about"]
         return out
-    return {"notes": summary}
+    raise ValueError(f"unsupported record event type: {event_type}")
 
 
 def _score_title(exam_name: str, subject: str) -> str:
@@ -392,6 +397,29 @@ def get_guardian(
     }
 
 
+def _score_corrections(db: Session, person_id: uuid.UUID) -> dict[tuple[str, str], dict]:
+    """Latest 成绩更正 per (exam name, subject) for score-row badges."""
+    out: dict[tuple[str, str], dict] = {}
+    for ev in (
+        db.query(Event)
+        .filter(
+            Event.type == "result_changed",
+            Event.attendees.any(Person.id == person_id),
+        )
+        .order_by(Event.start_time.desc(), Event.created_at.desc())
+        .all()
+    ):
+        pl = ev.payload or {}
+        exam = pl.get("exam")
+        subj = pl.get("subject")
+        if not exam or not subj:
+            continue
+        key = (exam, subj)
+        if key not in out:
+            out[key] = pl
+    return out
+
+
 def _score_events(db: Session, person_id: uuid.UUID,
                   order_desc: bool = False) -> list[Event]:
     q = (
@@ -451,17 +479,18 @@ def _subject_color_of_exam(
     return color if isinstance(color, str) and color else None
 
 
-def last_event_summary(db: Session, person_id: uuid.UUID) -> dict | None:
-    """Most recent non-exam event for list cards (talk, 家访, 生日, 转班, …).
+# Student list cards surface only personal follow-ups — not exams, scores,
+# class moves, seat changes, activities, or other operational timeline rows.
+_PERSONAL_CARD_EVENT_TYPES = ("comment", "birthday", "home_visited")
 
-    Exam sittings and per-subject score rows are excluded — those surface via
-    last_exam instead.
-    """
+
+def last_event_summary(db: Session, person_id: uuid.UUID) -> dict | None:
+    """Most recent personal event for list cards: 评语, 生日, or 家访."""
     ev = (
         db.query(Event)
         .filter(
             Event.attendees.any(Person.id == person_id),
-            Event.type.notin_(["exam", "score"]),
+            Event.type.in_(_PERSONAL_CARD_EVENT_TYPES),
         )
         .order_by(Event.start_time.desc(), Event.created_at.desc())
         .first()
@@ -697,6 +726,7 @@ def get_student(
     cls = current_class(db, s.id)
     exam_id_cache: dict = {}
     subject_colors_cache: dict[str, dict] = {}
+    corrections = _score_corrections(db, s.id)
     scores = []
     for r in _score_events(db, s.id):
         pl = r.payload or {}
@@ -704,21 +734,27 @@ def get_student(
         exam_date = r.start_time.date().isoformat()
         subj = pl.get("subject")
         exam_id = _exam_event_id(db, exam_name, exam_date, exam_id_cache)
-        scores.append(
-            {
-                "result_id": str(r.id),
-                "exam_id": exam_id,
-                "exam_name": exam_name,
-                "exam_date": exam_date,
-                "subject": subj,
-                "subject_color": _subject_color_of_exam(
-                    db, exam_id, subj, subject_colors_cache
-                ),
-                "score": pl.get("score"),
-                "full_score": pl.get("max_score"),
-                "status": "absent" if pl.get("absent") else "entered",
+        row = {
+            "result_id": str(r.id),
+            "exam_id": exam_id,
+            "exam_name": exam_name,
+            "exam_date": exam_date,
+            "subject": subj,
+            "subject_color": _subject_color_of_exam(
+                db, exam_id, subj, subject_colors_cache
+            ),
+            "score": pl.get("score"),
+            "full_score": pl.get("max_score"),
+            "status": "absent" if pl.get("absent") else "entered",
+        }
+        correction = corrections.get((exam_name, subj))
+        if correction is not None:
+            row["correction"] = {
+                "old": correction.get("old"),
+                "new": correction.get("new"),
+                "reason": correction.get("reason"),
             }
-        )
+        scores.append(row)
     guardians = [
         {
             "id": str(g.id),
@@ -814,7 +850,7 @@ def create_event_record(
     event = create_event(
         db,
         event_type=body.event_type,
-        title=_record_title(body.event_type),
+        title=_event_title(body.event_type, body.summary, purpose=body.purpose),
         start_time=body.occurred_at or utcnow(),
         payload=payload,
         # the record involves its student, the guardians who attended,
@@ -857,7 +893,7 @@ def create_comment(
     event = create_event(
         db,
         event_type="comment",
-        title=_record_title("comment"),
+        title=_event_title("comment", notes),
         start_time=body.occurred_at or utcnow(),
         payload=payload,
         attendee_ids=[primary.id, *[s.id for s in mentioned], user.id],
@@ -899,6 +935,7 @@ def update_comment(
         },
     )
     ev.payload = payload
+    ev.title = _event_title("comment", notes)
     ev.start_time = body.occurred_at or ev.start_time
     teachers = [p for p in ev.attendees if p.role == "teacher"]
     ev.attendees = [primary, *mentioned, *teachers]
@@ -959,11 +996,9 @@ def list_events(
     the creating teacher plus its students, a home visit the teacher, student
     and guardian, a note the teacher and student — so "my events" is
     attendance, not a school-wide listing. `type` narrows the feed to one
-    event type (the 事件 page reads ?type=activity, the 家访 page
-    ?type=home_visited). students lists every student attendee so multi-
-    student activities can render the whole roster; student_id/name stay as
-    the primary-student shortcut (the sole student attendee, null for
-    sittings and multi-student activities).
+    event type (the 家访 page reads ?type=home_visited). students lists every
+    student attendee; student_id/name stay as the primary-student shortcut
+    (the sole student attendee, null for sittings).
     """
     conds = [person_events.c.person_id == user.id]
     if type is not None:
@@ -1048,25 +1083,6 @@ def list_events(
     return out
 
 
-class ActivityIn(BaseModel):
-    """A 普通事件 (competition, activity, ...) — the events-page write path."""
-
-    title: str = Field(min_length=1, max_length=100)
-    occurred_at: datetime | None = None
-    notes: str | None = Field(default=None, max_length=2000)
-    student_ids: list[uuid.UUID] = Field(default_factory=list)
-
-
-class ActivityUpdateIn(BaseModel):
-    """PATCH shape: every field optional; student_ids present-but-null clears
-    the roster (presence in model_fields_set drives the semantics)."""
-
-    title: str | None = Field(default=None, min_length=1, max_length=100)
-    occurred_at: datetime | None = None
-    notes: str | None = Field(default=None, max_length=2000)
-    student_ids: list[uuid.UUID] | None = None
-
-
 def _resolve_roster(db: Session, student_ids: list[uuid.UUID]) -> list[Person]:
     """Deduped, order-preserving student Persons for the given ids; 404 on
     unknown ids, 400 when a non-student sneaks in."""
@@ -1081,14 +1097,6 @@ def _resolve_roster(db: Session, student_ids: list[uuid.UUID]) -> list[Person]:
     if bad:
         raise HTTPException(status_code=400, detail="只有学生可以作为参与者")
     return [by_id[i] for i in ids]
-
-
-def _activity_or_404(db: Session, event_id: uuid.UUID) -> Event:
-    """The events page owns 普通事件 only — visits/exams have their own editors."""
-    e = db.get(Event, event_id)
-    if e is None or e.type != "activity":
-        raise HTTPException(status_code=404, detail="event not found")
-    return e
 
 
 def _event_students(db: Session, event_id: uuid.UUID) -> list[Person]:
@@ -1146,91 +1154,6 @@ def get_comment(
     return _comment_out(db, ev)
 
 
-def _activity_out(db: Session, e: Event) -> dict:
-    return {
-        "id": str(e.id),
-        "title": e.title,
-        "event_type": e.type,
-        "occurred_at": e.start_time.isoformat(),
-        "notes": (e.payload or {}).get("notes"),
-        "students": [{"id": str(s.id), "name": s.name} for s in _event_students(db, e.id)],
-    }
-
-
-@router.get("/events/{event_id}")
-def get_event(
-    event_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    user: Person = Depends(get_current_person),
-):
-    e = _activity_or_404(db, event_id)
-    return _activity_out(db, e)
-
-
-@router.patch("/events/{event_id}")
-def update_event(
-    event_id: uuid.UUID,
-    body: ActivityUpdateIn,
-    db: Session = Depends(get_db),
-    user: Person = Depends(get_current_person),
-):
-    e = _activity_or_404(db, event_id)
-    if "title" in body.model_fields_set:
-        title = (body.title or "").strip()
-        if not title:
-            raise HTTPException(status_code=400, detail="事件名称不能为空")
-        e.title = title
-    if "occurred_at" in body.model_fields_set and body.occurred_at is not None:
-        e.start_time = body.occurred_at
-    if "notes" in body.model_fields_set:
-        e.payload = validate_event_payload("activity", {"notes": body.notes})
-    if "student_ids" in body.model_fields_set:
-        roster = _resolve_roster(db, body.student_ids or [])
-        # the recording teacher stays a participant; the student roster is
-        # replaced wholesale (copy-assign, relationship sees the change)
-        teachers = [p for p in e.attendees if p.role != "student"]
-        e.attendees = [*teachers, *roster]
-    db.commit()
-    db.refresh(e)
-    return _activity_out(db, e)
-
-
-@router.delete("/events/{event_id}")
-def delete_event(
-    event_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    user: Person = Depends(get_current_person),
-):
-    """Deletes the activity Event; person_events rows cascade with it."""
-    e = _activity_or_404(db, event_id)
-    db.delete(e)
-    db.commit()
-    return {"ok": True}
-
-
-@router.post("/events", status_code=201)
-def create_activity(
-    body: ActivityIn,
-    db: Session = Depends(get_db),
-    user: Person = Depends(get_current_person),
-):
-    title = body.title.strip()
-    if not title:
-        raise HTTPException(status_code=400, detail="事件名称不能为空")
-    roster = _resolve_roster(db, body.student_ids)
-    event = create_event(
-        db,
-        event_type="activity",
-        title=title,
-        start_time=body.occurred_at or utcnow(),
-        payload=validate_event_payload("activity", {"notes": body.notes}),
-        # the event involves the teacher recording it plus its students
-        attendee_ids=[user.id, *[p.id for p in roster]],
-    )
-    db.commit()
-    return {"id": str(event.id), "status": "created"}
-
-
 @router.get("/teachers/me/event-types")
 def my_event_types(db: Session = Depends(get_db)):
     """The manual record types (the old recently-used-custom-types list died
@@ -1252,6 +1175,7 @@ def _event_to_dict(e: Event) -> dict:
             )
     return {
         "id": str(e.id),
+        "title": e.title,
         "event_type": e.type,
         "occurred_at": occurred_at.isoformat(),
         "actor": None,
@@ -1328,7 +1252,7 @@ def update_event(
     was_done = old_payload.get("done") is True
     done = body.done if ev.type == "home_visited" and "done" in body.model_fields_set else None
     ev.type = body.event_type
-    ev.title = _record_title(body.event_type)
+    ev.title = _event_title(body.event_type, body.summary, purpose=body.purpose)
     ev.start_time = body.occurred_at or ev.start_time
     # copy-modify-reassign: JSON columns don't see in-place mutation
     ev.payload = validate_event_payload(
@@ -1536,7 +1460,7 @@ def delete_student(
     # Only allow hard delete when the student has no written evidence so the
     # data integrity stays intact. Otherwise move to inactive.
     # Remaining evidence: score Events and any teacher-written record (the
-    # generic 跟进记录 — home visits, talks, calls, tutoring, notes).
+    # generic 跟进记录 — home visits and comments).
     has_results = (
         db.query(Event)
         .filter(Event.type == "score", Event.attendees.any(Person.id == student_id))
@@ -1561,8 +1485,17 @@ def delete_student(
             .all()
         ):
             e.valid_to = date.today()
-        create_event(db, event_type="note_added", title="随笔", start_time=utcnow(),
-                     payload={"notes": "账号停用"}, attendee_ids=[s.id])
+        create_event(
+            db,
+            event_type="comment",
+            title="账号停用",
+            start_time=utcnow(),
+            payload={
+                "notes": "账号停用",
+                "about": {"id": str(s.id), "name": s.name},
+            },
+            attendee_ids=[s.id],
+        )
         sync_birthday_event(db, s)
         db.commit()
         return {"ok": True, "action": "deactivated"}

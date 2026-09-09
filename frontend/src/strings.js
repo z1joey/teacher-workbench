@@ -272,7 +272,7 @@ const messages = {
   "profile.activity": "教学足迹",
   "profile.recordsLogged": "跟进记录",
   "profile.resultsEntered": "录入成绩",
-  "profile.notesAdded": "添加备注",
+  "profile.commentsWritten": "撰写评语",
   "profile.editInfo": "编辑资料",
   "profile.saved": "已保存",
   "profile.studentsCount": "{n} 人",
@@ -400,7 +400,8 @@ const messages = {
   "detail.born": "出生日期",
   "detail.guardian": "监护人",
   "detail.scores": "考试成绩",
-  "detail.scoresHint": "点任意一个分数即可就地更正，每次修改都会留下痕迹",
+  "detail.scoresHint": "折线图展示历次考试；下方默认最近一场，可展开查看全部。点分数可就地更正，↑↓ 为较上一场，更正显示调整幅度",
+  "detail.scoreCorrected": "更正{n}",
   "detail.addScore": "添加成绩",
   "detail.scoreAdded": "成绩已添加",
   "detail.events": "事件记录",
@@ -471,11 +472,6 @@ const messages = {
   "tl.seat_changed": "换座位",
   "tl.birthday": "生日",
   "tl.home_visited": "家访",
-  "tl.parent_call": "家长沟通",
-  "tl.activity": "活动",
-  "tl.talk": "谈心",
-  "tl.tutoring": "辅导",
-  "tl.note_added": "教师备注",
   "tl.comment": "评语",
   "tl.joined": "加入 {class}",
 
@@ -582,6 +578,17 @@ export function genderLabel(g) {
   return t(`gender.${g}`) === `gender.${g}` ? g : t(`gender.${g}`)
 }
 
+/** 班级页顶栏面包屑：七年级 1 班 • 2025/2026 */
+export function classBreadcrumbLabel(name, academicYear) {
+  const spaced = String(name || "")
+    .replace(/(\D)(\d)/g, "$1 $2")
+    .replace(/(\d)(?=\D)/g, "$1 ")
+    .replace(/\s+/g, " ")
+    .trim()
+  const year = String(academicYear || "").trim()
+  return year ? `${spaced} • ${year}` : spaced
+}
+
 // ------------------------------------------------------------------ 状态
 
 const STUDENT_STATUS = { active: "在读", inactive: "已停用" }
@@ -606,13 +613,8 @@ const EVENT_TYPES = {
   exam_taken: { icon: "clipboard", color: "#2E6BA8" },
   result_changed: { icon: "pencil", color: "#B45309" },
   home_visited: { icon: "home", color: "#2F7D4F" },
-  parent_call: { icon: "phone", color: "#367C6B" },
-  talk: { icon: "note", color: "#4F6EAD" },
-  tutoring: { icon: "board", color: "#854D0E" },
-  note_added: { icon: "note", color: "#5C6B63" },
   comment: { icon: "note", color: "#7C5BA8" },
   birthday: { icon: "cake", color: "#9A5B07" },
-  activity: { icon: "flag", color: "#0E7490" },
   seat_changed: { icon: "swap", color: "#2B8A8A" },
   exam: { icon: "clipboard", color: "#2E6BA8" },
   score: { icon: "clipboard", color: "#1D4ED8" },
@@ -642,6 +644,20 @@ export function eventTypeLabel(type, payload = null) {
 export function eventTitle(type, payload = null) {
   const label = eventTypeLabel(type, payload)
   return type === "birthday" ? `🎂 ${label}` : label
+}
+
+// 时间线/卡片展示名：优先 Event.title，再回退类型标签。
+export function eventDisplayName(event) {
+  const type = event.event_type
+  const payload = event.payload || {}
+  const name = (event.title || "").trim()
+
+  if (type === "birthday") return eventTitle(type, payload)
+  if (type === "result_changed" && payload.exam) {
+    return `${payload.exam} · ${subject(payload.subject)}`
+  }
+  if (name) return name
+  return eventTitle(type, payload)
 }
 
 export function describeEvent(type, p = {}) {
@@ -675,14 +691,8 @@ export function describeEvent(type, p = {}) {
     case "birthday":
       // 全局约定：生日只显示标题（见 eventTitle），不渲染描述
       return ""
-    case "activity":
-      return p.notes ?? ""
     case "home_visited":
-    case "parent_call":
       return `${p.guardian ? `与${p.guardian} · ` : ""}${p.purpose ? p.purpose + " — " : ""}${p.summary || ""}`
-    case "talk":
-    case "tutoring":
-    case "note_added":
     case "comment": {
       const base = p.notes ?? p.summary ?? p.note ?? ""
       const names = (p.mentioned || []).map((m) => m.name).filter(Boolean)
@@ -704,8 +714,7 @@ export function describeEvent(type, p = {}) {
 export const RECORDABLE_EVENT_TYPES = [
   { value: "home_visited", label: "tl.home_visited" },
 ]
-// 手动记录暂时只开放家访；其余类型（家长沟通/谈心/辅导/教师备注）的历史
-// 记录仍可编辑。录入成绩走考试详情页和学生档案的成绩卡，不在这个表单里。
+// 手动记录暂时只开放家访；评语走独立入口。录入成绩走考试详情页和学生档案的成绩卡。
 export function recordableEventOptions() {
   return RECORDABLE_EVENT_TYPES.map((o) => ({ value: o.value, label: t(o.label) }))
 }

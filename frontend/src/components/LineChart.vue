@@ -6,7 +6,7 @@ import { computed, ref, watch } from "vue"
 const props = defineProps({
   // x categories, one per exam, already localized by the caller
   labels: { type: Array, default: () => [] },
-  // optional ISO dates — shown under the label when exam names repeat
+  // optional ISO dates — one per label, shown under the exam name
   dates: { type: Array, default: () => [] },
   // [{ key, label, color, values: [number | null] }] — null renders a gap
   series: { type: Array, default: () => [] },
@@ -211,18 +211,21 @@ function fmtShortDate(d) {
 }
 
 const axisLabels = computed(() => {
-  const counts = {}
-  props.labels.forEach((l) => {
-    counts[l] = (counts[l] || 0) + 1
-  })
+  const showDates = props.dates.length === props.labels.length
   return props.labels.map((label, i) => {
-    const dup = counts[label] > 1
-    const sub = dup && props.dates[i] ? fmtShortDate(props.dates[i]) : null
+    const sub = showDates && props.dates[i] ? fmtShortDate(props.dates[i]) : null
     const main = shortLabel(label)
     const w = Math.max(main.length * 11 + 10, sub ? sub.length * 9 + 10 : 0, 52)
     return { i, main, sub, w }
   })
 })
+
+function labelX(i) {
+  const { W } = layout.value
+  const x = xFor(i)
+  const margin = 6
+  return Math.max(margin, Math.min(W - margin, x))
+}
 
 // X 轴标签：字多放不下时自动跳着显示，而不是挤成一团。
 // 首尾与“当前这次考试”的标签始终保留，其余在放得下的前提下尽量多放。
@@ -349,17 +352,17 @@ const xLabels = computed(() => {
 
           <g v-for="xl in xLabels" :key="`xl-${xl.i}`">
             <text
-              :x="xFor(xl.i) + (xl.i === 0 ? 2 : xl.i === labels.length - 1 ? -2 : 0)"
+              :x="labelX(xl.i)"
               :y="layout.H - (xl.sub ? 28 : 14)"
               class="chart__tick"
-              :text-anchor="xl.i === 0 ? 'start' : xl.i === labels.length - 1 ? 'end' : 'middle'"
+              text-anchor="middle"
             >{{ xl.main }}</text>
             <text
               v-if="xl.sub"
-              :x="xFor(xl.i) + (xl.i === 0 ? 2 : xl.i === labels.length - 1 ? -2 : 0)"
+              :x="labelX(xl.i)"
               :y="layout.H - 10"
               class="chart__tick chart__tick-sub"
-              :text-anchor="xl.i === 0 ? 'start' : xl.i === labels.length - 1 ? 'end' : 'middle'"
+              text-anchor="middle"
             >{{ xl.sub }}</text>
           </g>
         </svg>

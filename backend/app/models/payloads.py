@@ -76,11 +76,6 @@ class ScorePayload(_Strict):
     absent: bool = False
 
 
-class NotesPayload(_Strict):
-    # talk / tutoring / parent_call / note_added
-    notes: str | None = None
-
-
 class MentionedStudent(_Strict):
     id: str = Field(max_length=40)
     name: str = Field(max_length=100)
@@ -126,12 +121,6 @@ class ExamPayload(_Strict):
         return out
 
 
-class ActivityPayload(_Strict):
-    # 普通事件 (competitions, activities, ...) created from the events page —
-    # the title carries what happened, notes the optional write-up
-    notes: str | None = None
-
-
 class EnrolledPayload(_Strict):
     class_name: str | None = None
     notes: str | None = None
@@ -147,16 +136,11 @@ class ClassMovedPayload(_Strict):
 EVENT_PAYLOAD_SCHEMAS = {
     "score": ScorePayload,
     "home_visited": HomeVisitPayload,
-    "talk": NotesPayload,
-    "tutoring": NotesPayload,
-    "parent_call": NotesPayload,
-    "note_added": NotesPayload,
     "comment": CommentPayload,
     "exam": ExamPayload,
-    "activity": ActivityPayload,
     "enrolled": EnrolledPayload,
     "class_moved": ClassMovedPayload,
-    # birthday / exam_taken / result_changed / parent_meeting: free-form
+    # birthday / exam_taken / result_changed: free-form
 }
 
 

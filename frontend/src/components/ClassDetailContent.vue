@@ -14,7 +14,14 @@ import SeatingBoard from "./SeatingBoard.vue"
 import { ask } from "../confirm"
 import { notify, runUndoable } from "../feedback"
 import { setPageTitle } from "../title"
-import { friendlyError, genderLabel, subject, subjectColor, t } from "../strings"
+import {
+  classBreadcrumbLabel,
+  friendlyError,
+  genderLabel,
+  subject,
+  subjectColor,
+  t,
+} from "../strings"
 
 const props = defineProps({ classId: { type: String, required: true } })
 const emit = defineEmits(["switch", "create", "changed"])
@@ -44,7 +51,7 @@ async function load() {
   error.value = ""
   try {
     detail.value = await api.get(`/classes/${props.classId}`)
-    setPageTitle(detail.value.class.name)
+    setPageTitle(classBreadcrumbLabel(detail.value.class.name, detail.value.class.academic_year))
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -303,10 +310,7 @@ function fmtPct(score, full) {
     :rows="4"
     @retry="load"
   >
-      <PageHeader
-        :title="detail.class.name"
-        :subtitle="detail.class.academic_year"
-      >
+      <PageHeader :title="detail.class.name">
         <template v-if="allClasses.length > 1" #title>
           <label class="class-switcher">
             <select
@@ -319,11 +323,6 @@ function fmtPct(score, full) {
             </select>
             <Icon name="chevron-down" :size="18" class="class-switcher__chevron" />
           </label>
-        </template>
-        <template #meta>
-          <button type="button" class="pill pill--outline" @click="openAddStudent">
-            {{ t("students.title") }} <b class="tnum">{{ detail.students.length }}</b>
-          </button>
         </template>
         <template #actions>
           <button class="btn btn--ghost" @click="emit('create')">

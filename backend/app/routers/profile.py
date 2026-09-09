@@ -90,8 +90,8 @@ def get_profile(
         "results_entered": (
             db.query(Event).filter(Event.type == "score", attended).count()
         ),
-        "notes_added": (
-            db.query(Event).filter(Event.type == "note_added", attended).count()
+        "comments_written": (
+            db.query(Event).filter(Event.type == "comment", attended).count()
         ),
     }
     return {

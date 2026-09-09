@@ -165,9 +165,15 @@ def test_delete_event_attending_student_rejected(client, db):
     tc, _ = client
     s2 = seed_person(db, None, role="student", name="王小一", admission_no="S99")
     db.flush()
-    create_event(db, event_type="note_added", title="随笔",
-                 start_time=datetime(2026, 5, 1, 10, 0),
-                 payload={"notes": "课堂表现活跃"}, attendee_ids=[s2.id])
+    create_event(
+        db, event_type="comment", title="课堂表现活跃",
+        start_time=datetime(2026, 5, 1, 10, 0),
+        payload={
+            "notes": "课堂表现活跃",
+            "about": {"id": str(s2.id), "name": s2.name},
+        },
+        attendee_ids=[s2.id],
+    )
     db.commit()
 
     r = tc.delete(f"/api/admin/users/{s2.id}")

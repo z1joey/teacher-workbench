@@ -123,16 +123,17 @@ def test_delete_student_with_evidence_soft_deactivates(client, db):
     st = db.get(Person, student.id)
     assert st is not None, "student was hard-deleted despite having evidence"
     assert (st.payload or {}).get("is_active") is False
-    # +1 note_added ("账号停用") on the timeline; enrollments closed
+    # +1 comment ("账号停用") on the timeline; enrollments closed
     after = db.query(Event).filter(Event.attendees.any(Person.id == student.id)).count()
     assert after == before + 1
     note = (
         db.query(Event)
-        .filter(Event.type == "note_added", Event.attendees.any(Person.id == student.id))
+        .filter(Event.type == "comment", Event.attendees.any(Person.id == student.id))
         .order_by(Event.start_time.desc())
         .first()
     )
-    assert note.payload == {"notes": "账号停用"}
+    assert note.title == "账号停用"
+    assert note.payload["notes"] == "账号停用"
     assert all(e.valid_to is not None for e in db.query(Enrollment)
                .filter(Enrollment.person_id == student.id).all())
 

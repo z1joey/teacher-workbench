@@ -146,7 +146,7 @@ const activity = computed(() => {
   return [
     { label: t("profile.recordsLogged"), value: s.interactions, icon: "checklist" },
     { label: t("profile.resultsEntered"), value: s.results_entered, icon: "clipboard" },
-    { label: t("profile.notesAdded"), value: s.notes_added, icon: "note" },
+    { label: t("profile.commentsWritten"), value: s.comments_written, icon: "note" },
   ]
 })
 </script>

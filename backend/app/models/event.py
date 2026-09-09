@@ -23,11 +23,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ._common import Base, JSONType, utcnow
 
 EVENT_TYPES = (
-    # new vocabulary
-    "birthday", "exam", "score", "parent_meeting", "activity", "comment",
-    # legacy timeline vocabulary — migrated rows + frontend strings keep working
-    "enrolled", "class_moved", "exam_taken", "result_changed",
-    "home_visited", "talk", "tutoring", "parent_call", "note_added",
+    "birthday", "exam", "score", "comment",
+    "enrolled", "class_moved", "exam_taken", "result_changed", "seat_changed",
+    "home_visited",
 )
 
 

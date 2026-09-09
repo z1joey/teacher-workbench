@@ -58,21 +58,16 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         # events by type: 6 graded sittings + 1 upcoming exam, every
         # student-subject of the graded sittings scored, 3 correction stories,
         # 王浩's class move, 5 visits (one planned), 2 notes, teacher-written
-        # records (评语/谈话/辅导/电话沟通), 比赛/活动, plus yearly birthdays.
+        # records (评语/家访), plus yearly birthdays.
         types = dict(db.query(Event.type, func.count(Event.id)).group_by(Event.type).all())
         assert types == {
             "exam": 7,
             "score": 6 * 9 * 24,
             "enrolled": 24,
             "class_moved": 1,
-            "home_visited": 5,
-            "note_added": 2,
+            "home_visited": 12,
             "result_changed": 3,
-            "comment": 3,
-            "talk": 2,
-            "tutoring": 3,
-            "parent_call": 2,
-            "activity": 4,
+            "comment": 20,
             "seat_changed": 24,
             "birthday": 24,
         }

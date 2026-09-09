@@ -73,6 +73,65 @@ def clamp(v: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, v))
 
 
+# Personal events for list-card previews (评语 / 家访 only — birthdays come
+# from sync_all_birthday_events). Dated after birthday sync so cards are not
+# all 🎂 when a student has no other personal follow-up.
+_CARD_COMMENT_NOTES = [
+    "乐于助人，值日认真负责，是班级的稳定力量。",
+    "思维活跃，课堂提问有深度，期待更多分享。",
+    "做事踏实，作业完成质量稳步提升。",
+    "与同学相处融洽，团队项目里配合默契。",
+]
+_CARD_VISIT_SUMMARIES = [
+    ("学业沟通", "与家长沟通近期课堂表现，家庭配合良好。"),
+    ("行为习惯", "反馈作业完成情况，约定每日自查清单。"),
+    ("作业习惯", "沟通晚间作息，家长表示会控制电子产品使用。"),
+    ("期末回访", "了解假期安排，鼓励学生保持阅读习惯。"),
+]
+
+
+def _seed_list_card_events(db: Session, students: list[Person], teacher: Person) -> None:
+    """Give students without a story visit a recent 评语 or 家访 for list cards."""
+    story_names = {
+        "林晓雨", "王浩", "徐曼怡", "郭浩然", "邓晓彤", "周子涵", "韩如冰",
+        "冯俊豪", "宋雅轩", "乔安琪", "唐美琳", "罗蔚一", "高子辰",
+    }
+    for i, student in enumerate(students):
+        if student.name in story_names:
+            continue
+        when = dt(date(2026, 10, 1 + (i % 20)), time(9 + (i % 6), 15 + (i % 45)))
+        if i % 2 == 0:
+            notes = _CARD_COMMENT_NOTES[i % len(_CARD_COMMENT_NOTES)]
+            create_event(
+                db,
+                event_type="comment",
+                title=notes[:100],
+                start_time=when,
+                payload={
+                    "notes": notes,
+                    "about": {"id": str(student.id), "name": student.name},
+                    "mentioned": [],
+                },
+                attendee_ids=[student.id, teacher.id],
+            )
+        else:
+            purpose, summary = _CARD_VISIT_SUMMARIES[i % len(_CARD_VISIT_SUMMARIES)]
+            guardians = _guardians_of(db, student.id)
+            create_event(
+                db,
+                event_type="home_visited",
+                title=summary[:100],
+                start_time=when,
+                payload={
+                    "summary": summary,
+                    "purpose": purpose,
+                    "done": True,
+                    "guardian": guardians[0][0].name if guardians else None,
+                },
+                attendee_ids=[student.id, teacher.id],
+            )
+
+
 def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = True) -> Person:
     """Load demo school data.
 
@@ -330,7 +389,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                          payload={"to": f"第{i // cols + 1}排第{i % cols + 1}列"},
                          attendee_ids=[student.id])
 
-    # --- home visits + notes + 谈心/辅导/家长沟通/评语/活动 -------------------
+    # --- home visits + 评语 -------------------------------------------------
     # Visits involve 陈老师 (the visiting teacher), the student and the
     # guardian of record (snapshotted from the linked guardian Person); notes
     # involve her and the student. Home-visit purpose folds into the summary
@@ -350,62 +409,24 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     ]
     for student, when, purpose, done, summary in visits:
         guardians = _guardians_of(db, student.id)
-        create_event(db, event_type="home_visited", title="家访", start_time=when,
+        create_event(db, event_type="home_visited", title=summary[:100], start_time=when,
                      payload={"summary": summary,
                               "purpose": purpose,
                               "done": done,
                               "guardian": guardians[0][0].name if guardians else None},
                      attendee_ids=[student.id, teacher.id])
 
-    create_event(db, event_type="note_added", title="随笔",
-                 start_time=datetime(2026, 4, 20, 15, 0),
-                 payload={"notes": "对多步骤分数应用题掌握不牢，建议用画图法辅助理解。"},
-                 attendee_ids=[lin.id, teacher.id])
-    create_event(db, event_type="note_added", title="随笔",
-                 start_time=datetime(2026, 3, 22, 15, 0),
-                 payload={"notes": "家庭约定后，出勤情况明显改善。"},
-                 attendee_ids=[hao.id, teacher.id])
-
-    # --- 谈心 / 辅导 / 家长沟通 ----------------------------------------------
-    zhou = by_name["周子涵"]
-    han = by_name["韩如冰"]
-    feng = by_name["冯俊豪"]
-    talk_items = [
-        (hao, datetime(2026, 3, 4, 16, 0),
-         "转班第一天，聊聊新班级的节奏，安排同桌互相认识。"),
-        (zhou, datetime(2026, 3, 12, 16, 20),
-         "课间与同学起争执，谈心后互相道歉，约定值日分工轮流来。"),
-    ]
-    for student, when, notes in talk_items:
-        create_event(db, event_type="talk", title="谈话", start_time=when,
-                     payload={"notes": notes}, attendee_ids=[student.id, teacher.id])
-
-    tutor_items = [
-        (lin, datetime(2026, 4, 8, 16, 30), "数学辅导：分数应用题画图法专项练习。"),
-        (lin, datetime(2026, 4, 15, 16, 30), "数学辅导：画图法巩固，正确率明显提升。"),
-        (hao, datetime(2026, 3, 11, 16, 30), "数学辅导：一元一次方程去括号易错点。"),
-    ]
-    for student, when, notes in tutor_items:
-        create_event(db, event_type="tutoring", title="辅导", start_time=when,
-                     payload={"notes": notes}, attendee_ids=[student.id, teacher.id])
-
-    call_items = [
-        (han, datetime(2026, 5, 6, 19, 30),
-         "反映近期上课走神，家长表示会调整晚间作息，控制电子产品使用。"),
-        (feng, datetime(2026, 6, 20, 18, 0),
-         "电话表扬期末进步明显，家长很受鼓舞，表示暑假坚持阅读打卡。"),
-    ]
-    for student, when, notes in call_items:
-        create_event(db, event_type="parent_call", title="电话沟通", start_time=when,
-                     payload={"notes": notes}, attendee_ids=[student.id, teacher.id])
-
-    # --- 评语 ---------------------------------------------------------------
     song = by_name["宋雅轩"]
     qiao = by_name["乔安琪"]
     tang = by_name["唐美琳"]
+    zhou = by_name["周子涵"]
+    han = by_name["韩如冰"]
+    feng = by_name["冯俊豪"]
+    luo = by_name["罗蔚一"]
+    gaozc = by_name["高子辰"]
 
-    def comment(about, when, notes, mentioned=()):
-        create_event(db, event_type="comment", title="评语", start_time=when,
+    def comment(about, when, notes, mentioned=(), title=None):
+        create_event(db, event_type="comment", title=title or notes[:100], start_time=when,
                      payload={"notes": notes,
                               "about": {"id": str(about.id), "name": about.name},
                               "mentioned": [{"id": str(m.id), "name": m.name}
@@ -419,23 +440,36 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
             mentioned=[tang, qiao])
     comment(hao, datetime(2026, 3, 27, 16, 30),
             "转班后适应得不错，数学方程部分仍需巩固，已安排每周一次辅导。")
-
-    # --- 比赛 / 班级活动（title 记发生了什么，notes 记结果）-------------------
-    luo = by_name["罗蔚一"]
-    gaozc = by_name["高子辰"]
-    activities = [
-        ("校运会女子800米决赛", datetime(2026, 4, 28, 10, 0),
-         [song, teacher], "宋雅轩以3分12秒夺得第一名，为班级积8分。"),
-        ("校运会男子跳远", datetime(2026, 4, 28, 15, 0),
-         [luo, teacher], "罗蔚一以4米35获得第三名。"),
-        ("语文课文朗诵比赛", datetime(2026, 5, 16, 14, 0),
-         [qiao, tang, han, teacher], "三人组队参赛，乔安琪获最佳朗诵奖。"),
-        ("数学趣味竞赛", datetime(2026, 5, 22, 15, 30),
-         [gaozc, hao, teacher], "高子辰获二等奖，王浩坚持完成全部赛题。"),
-    ]
-    for title, when, attendees, notes in activities:
-        create_event(db, event_type="activity", title=title, start_time=when,
-                     payload={"notes": notes}, attendee_ids=[a.id for a in attendees])
+    comment(lin, datetime(2026, 4, 20, 15, 0),
+            "对多步骤分数应用题掌握不牢，建议用画图法辅助理解。")
+    comment(hao, datetime(2026, 3, 22, 15, 0),
+            "家庭约定后，出勤情况明显改善。")
+    comment(hao, datetime(2026, 3, 4, 16, 0),
+            "转班第一天，聊聊新班级的节奏，安排同桌互相认识。")
+    comment(zhou, datetime(2026, 3, 12, 16, 20),
+            "课间与同学起争执，谈心后互相道歉，约定值日分工轮流来。")
+    comment(lin, datetime(2026, 4, 8, 16, 30),
+            "数学辅导：分数应用题画图法专项练习。")
+    comment(lin, datetime(2026, 4, 15, 16, 30),
+            "数学辅导：画图法巩固，正确率明显提升。")
+    comment(hao, datetime(2026, 3, 11, 16, 30),
+            "数学辅导：一元一次方程去括号易错点。")
+    comment(han, datetime(2026, 5, 6, 19, 30),
+            "反映近期上课走神，家长表示会调整晚间作息，控制电子产品使用。")
+    comment(feng, datetime(2026, 6, 20, 18, 0),
+            "电话表扬期末进步明显，家长很受鼓舞，表示暑假坚持阅读打卡。")
+    comment(song, datetime(2026, 4, 28, 10, 0),
+            "宋雅轩以3分12秒夺得第一名，为班级积8分。",
+            title="校运会女子800米决赛")
+    comment(luo, datetime(2026, 4, 28, 15, 0),
+            "罗蔚一以4米35获得第三名。",
+            title="校运会男子跳远")
+    comment(qiao, datetime(2026, 5, 16, 14, 0),
+            "三人组队参赛，乔安琪获最佳朗诵奖。",
+            mentioned=[tang, han], title="语文课文朗诵比赛")
+    comment(gaozc, datetime(2026, 5, 22, 15, 30),
+            "高子辰获二等奖，王浩坚持完成全部赛题。",
+            mentioned=[hao], title="数学趣味竞赛")
 
     # --- 更多成绩更正（成绩变化留痕）-----------------------------------------
     def correct_score(student, exam_key, subject, delta, reason, when):
@@ -468,6 +502,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                   "誊录串行，纠正为本人实际得分", datetime(2026, 3, 19, 15, 40))
 
     sync_all_birthday_events(db)
+    _seed_list_card_events(db, students, teacher)
     return teacher
 
 

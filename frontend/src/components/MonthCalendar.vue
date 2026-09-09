@@ -189,7 +189,7 @@ function dotColor(it) {
 }
 
 function needsPurpose(type) {
-  return type === "home_visited" || type === "parent_call"
+  return type === "home_visited"
 }
 
 // ------------------------------------------------------------ 编辑
