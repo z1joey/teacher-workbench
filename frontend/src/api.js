@@ -19,11 +19,13 @@ async function request(path, options = {}) {
 
   // Expired/invalid session: drop the token and send the user to login.
   // Login/register 401s (wrong credentials) are shown inline instead.
-  if (res.status === 401 && !path.startsWith("/auth/")) {
+  if (res.status === 401 && (path === "/auth/me" || !path.startsWith("/auth/"))) {
     setToken(null)
-    const loginPath = `${import.meta.env.BASE_URL}login`
-    if (!window.location.pathname.startsWith(loginPath)) {
-      window.location.href = loginPath
+    if (path !== "/auth/me") {
+      const loginPath = `${import.meta.env.BASE_URL}login`
+      if (!window.location.pathname.startsWith(loginPath)) {
+        window.location.href = loginPath
+      }
     }
     throw new Error("登录已过期，请重新登录")
   }

@@ -166,6 +166,7 @@ router.beforeEach(async (to) => {
   }
   if (AUTH_PATHS.has(to.path)) {
     if (!me.value) await loadMe()
+    if (!getToken()) return true
     return me.value?.role === "admin" ? "/admin" : "/"
   }
   if (!me.value) await loadMe()
