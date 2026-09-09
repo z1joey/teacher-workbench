@@ -180,7 +180,7 @@ async function resetApp() {
         <div class="card__body stack" style="gap: 16px">
           <p class="muted" style="margin: 0">
             支持学校下发的通用格式：首行班级标题，第二列表头为
-            <b>学号、姓名、性别</b>（可加出生日期等列，无法识别的列会自动忽略）。
+            <b>学号、姓名、性别</b>，可另加出生日期、家庭住址、监护人（姓名 / 电话 / 关系）等列，无法识别的列会自动忽略。
             只导入学生，不会创建班级。默认进入「未分班」；选择班级时会把导入的学生分配到该班。
             学号已存在的学生会被<b>更新</b>；未选班级时不改变其当前班级。
           </p>
@@ -274,7 +274,7 @@ async function resetApp() {
         </div>
         <div class="card__body stack" style="gap: 16px">
           <p class="muted" style="margin: 0">
-            按当前班级名单导出 .xlsx（学号 / 姓名 / 性别），格式与导入格式一致。
+            按当前班级名单导出 .xlsx（学号 / 姓名 / 性别 / 出生日期 / 家庭住址 / 监护人），格式与导入格式一致。
           </p>
           <div class="form-grid">
             <FormField label="班级" required>

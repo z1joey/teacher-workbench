@@ -11,6 +11,7 @@ from openpyxl import Workbook, load_workbook
 from app.models import AuthSession, Class, Enrollment, Event, Person
 from app.payloads import validate_person_payload
 from app.routers import data
+from app.routers.students import _guardian_link
 from app.security import hash_password
 from app.unassigned import ensure_unassigned_class, is_unassigned_class
 from tests.conftest import seed_person, seed_token
@@ -18,6 +19,10 @@ from tests.conftest import seed_person, seed_token
 TEACHER_TOKEN = "d" * 64
 AUTH = {"Authorization": f"Bearer {TEACHER_TOKEN}"}
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# 与后端导出一致的完整表头（含扩展列）
+_ROSTER_HEADERS_WITH_GUARDIAN = [
+    "学号", "姓名", "性别", "出生日期", "家庭住址", "监护人姓名", "监护人电话", "监护人关系",
+]
 
 
 def _student(db, name: str, admission_no: str, gender: str | None = None,
@@ -215,18 +220,38 @@ def test_roster_export_roundtrip(client, db):
     klass = Class(name="707班", academic_year="2025")
     db.add(klass)
     db.flush()
-    _student(db, "吴梓涵", "2025070701", gender="F")
+    s1 = _student(db, "吴梓涵", "2025070701", gender="F", birth_date="2012-05-14")
     _student(db, "邢宇辰", "2025070702", gender="M")
+    payload = dict(s1.payload or {})
+    payload["address"] = "解放路100号"
+    s1.payload = validate_person_payload("student", payload)
+    db.flush()
+    guardian = Person(
+        name="吴母", phone="13900000001",
+        password_hash=hash_password("123456"),
+        payload=validate_person_payload("guardian", {"phone": "13900000001"}),
+    )
+    db.add(guardian)
+    db.flush()
+    _guardian_link(db, s1.id, guardian, "母亲")
     for s in _students(db):
         db.add(Enrollment(person_id=s.id, class_id=klass.id, valid_from=date(2025, 9, 1)))
     db.commit()
 
-    res = client.get(f"/api/data/export/roster?class_id={klass.id}", headers=AUTH)
+    res = client.get(
+        "/api/data/export/roster", params={"class_id": str(klass.id)}, headers=AUTH
+    )
     assert res.status_code == 200
     ws = load_workbook(io.BytesIO(res.content)).active
     assert ws.cell(3, 1).value == "2025070701" and ws.cell(3, 2).value == "吴梓涵"
     assert ws.cell(3, 3).value == "女"
     assert ws.cell(4, 3).value == "男"
+    # 扩展列：出生日期 / 家庭住址 / 首位监护人（姓名/电话/关系）
+    assert ws.cell(3, 4).value == "2012-05-14"
+    assert ws.cell(3, 5).value == "解放路100号"
+    assert ws.cell(3, 6).value == "吴母"
+    assert ws.cell(3, 7).value == "13900000001"
+    assert ws.cell(3, 8).value == "母亲"
 
     res2 = _upload(client, res.content)
     assert res2.status_code == 200
@@ -249,11 +274,51 @@ def test_roster_export_unassigned_class_404(client, db):
     assert res.status_code == 404
 
 
+def test_roster_import_links_guardian_and_merges_shared_guardian(client, db):
+    """监护人列：挂接 + 关系写入；两行填同名同电话的监护人时合并为同一位。"""
+    wb = Workbook()
+    ws = wb.active
+    ws.append(_ROSTER_HEADERS_WITH_GUARDIAN)
+    ws.append(["2025070801", "张小凡", "男", "2013-03-04", "朝阳路8号", "张大力", "13900000003", "父亲"])
+    ws.append(["2025070802", "张小乐", "女", "2014-07-11", "朝阳路8号", "张大力", "13900000003", "父亲"])
+    res = _upload(client, _xlsx_bytes(wb))
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["created"] == 2
+    assert all(r.get("guardian") == "张大力" for r in body["rows"])
+
+    students = {s.name: s for s in _students(db)}
+    xiaofan = students["张小凡"]
+    xiaole = students["张小乐"]
+    payload = xiaofan.payload or {}
+    assert payload["birth_date"] == "2013-03-04"
+    assert payload["address"] == "朝阳路8号"
+    # 同名同电话 → 合并为同一位监护人，两个孩子都挂在他名下
+    assert len(xiaofan.guardians) == 1
+    assert len(xiaole.guardians) == 1
+    assert xiaofan.guardians[0].id == xiaole.guardians[0].id
+    assert xiaofan.guardians[0].name == "张大力"
+    assert xiaofan.guardians[0].phone == "13900000003"
+
+    # 关系写在学生-监护人关联上；再导入一次不产生重复挂接
+    before = len(xiaofan.guardians)
+    res2 = _upload(client, _xlsx_bytes(wb))
+    assert res2.status_code == 200
+    assert res2.json()["updated"] == 2
+    db.expire_all()
+    assert len(xiaofan.guardians) == before
+
+
 def test_roster_template_download(client):
     res = client.get("/api/data/export/roster-template", headers=AUTH)
     assert res.status_code == 200
     ws = load_workbook(io.BytesIO(res.content)).active
-    assert [ws.cell(2, c).value for c in (1, 2, 3)] == ["学号", "姓名", "性别"]
+    assert [ws.cell(2, c).value for c in range(1, 9)] == [
+        "学号", "姓名", "性别", "出生日期", "家庭住址", "监护人姓名", "监护人电话", "监护人关系",
+    ]
+    # 模板示例行带完整字段
+    assert ws.cell(3, 4).value == "2012-05-14"
+    assert ws.cell(3, 6).value == "张丽"
 
 
 def test_demo_seed_loads_dataset(client, db):

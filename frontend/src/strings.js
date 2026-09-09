@@ -195,6 +195,8 @@ const messages = {
   // --- 事件（普通事件） ---
   "events.title": "事件",
   "events.subtitle": "共 {count} 条普通事件 · 比赛、活动等",
+  "feed.participants": "参与人：",
+  "feed.participantClasses": "参与班级：",
   "events.emptyTitle": "还没有普通事件",
   "events.emptyDesc": "用「新建事件」记录比赛、活动等；考试和家访有各自的页面。",
   "events.create": "新建事件",

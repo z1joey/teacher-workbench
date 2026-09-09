@@ -987,6 +987,35 @@ def list_events(
             .all()
         ):
             students.setdefault(event_id, []).append(person)
+
+    # 班级覆盖：活动动态里「全班参加」时直接显示班级名。
+    # class_of: 学生 → 当前班级；class_size: 班级当前在读人数
+    class_of: dict[uuid.UUID, tuple[uuid.UUID, str]] = {}
+    class_size: dict[uuid.UUID, int] = {}
+    for class_id, class_name, person_id in (
+        db.query(Enrollment.class_id, Class.name, Enrollment.person_id)
+        .join(Class, Class.id == Enrollment.class_id)
+        .filter(Enrollment.valid_to.is_(None))
+        .all()
+    ):
+        class_of[person_id] = (class_id, class_name)
+        class_size[class_id] = class_size.get(class_id, 0) + 1
+
+    def whole_classes(roster: list[Person]) -> list[dict]:
+        """参与学生恰好覆盖了某个班当前全部在读学生 → 视为整班参加。"""
+        covered: dict[uuid.UUID, set] = {}
+        names: dict[uuid.UUID, str] = {}
+        for s in roster:
+            if s.id in class_of:
+                cid, cname = class_of[s.id]
+                covered.setdefault(cid, set()).add(s.id)
+                names[cid] = cname
+        return [
+            {"id": str(cid), "name": names[cid]}
+            for cid, ids in covered.items()
+            if class_size.get(cid, 0) > 0 and len(ids) == class_size[cid]
+        ]
+
     out = []
     for ev in rows:
         roster = students.get(ev.id, [])
@@ -1000,9 +1029,14 @@ def list_events(
                 "student_id": str(student.id) if student else None,
                 "student_name": student.name if student else None,
                 "students": [
-                    {"id": str(s.id), "name": s.name}
+                    {
+                        "id": str(s.id),
+                        "name": s.name,
+                        "class_name": class_of.get(s.id, (None, None))[1],
+                    }
                     for s in roster
                 ],
+                "whole_classes": whole_classes(roster),
                 "event_type": ev.type,
                 "occurred_at": ev.start_time.isoformat(),
                 "actor": None,

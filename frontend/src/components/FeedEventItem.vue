@@ -78,6 +78,34 @@ function fmtDate(ts) {
 function onClick() {
   if (clickable.value) openEvent(router, event.value)
 }
+
+// 参与人展示：整班参加的班只显示班级名，其余逐个列出；
+// 班级与散个学生混排时，班级名带「（全班）」标记避免混淆
+const participantItems = computed(() => {
+  if (event.value.event_type !== "activity") return []
+  const whole = event.value.whole_classes ?? []
+  const wholeNames = new Set(whole.map((c) => c.name))
+  const individuals = (event.value.students ?? []).filter(
+    (s) => !(s.class_name && wholeNames.has(s.class_name))
+  )
+  const items = whole.map((c) => ({
+    key: `c-${c.id}`,
+    label: individuals.length ? `${c.name}（全班）` : c.name,
+    to: `/classes/${c.id}`,
+  }))
+  for (const s of individuals) {
+    items.push({ key: `s-${s.id}`, label: s.name, to: `/students/${s.id}` })
+  }
+  return items
+})
+
+const participantsLabel = computed(() => {
+  const items = participantItems.value
+  if (items.length && items.every((i) => i.to.startsWith("/classes/"))) {
+    return t("feed.participantClasses")
+  }
+  return t("feed.participants")
+})
 </script>
 
 <template>
@@ -92,7 +120,11 @@ function onClick() {
     <div class="feed__body">
       <div class="feed__head">
         <span>
-          <template v-if="studentFirst && event.student_name">
+          <!-- 活动（比赛等）：标题承载了发生的事，标题独占一行，参与人另起一行 -->
+          <template v-if="event.event_type === 'activity' && !studentFirst">
+            {{ event.title }}
+          </template>
+          <template v-else-if="studentFirst && event.student_name">
             <router-link
               v-if="event.student_id"
               :to="`/students/${event.student_id}`"
@@ -137,6 +169,17 @@ function onClick() {
           </time>
         </span>
       </div>
+      <p
+        v-if="event.event_type === 'activity' && !studentFirst && participantItems.length"
+        class="feed__desc"
+      >
+        {{ participantsLabel }}
+        <template v-for="(item, i) in participantItems" :key="item.key">
+          <router-link v-if="item.to" :to="item.to" @click.stop>{{ item.label }}</router-link>
+          <template v-else>{{ item.label }}</template>
+          <template v-if="i < participantItems.length - 1">、</template>
+        </template>
+      </p>
       <p v-if="describeEvent(event.event_type, event.payload)" class="feed__desc">
         {{ describeEvent(event.event_type, event.payload) }}
       </p>

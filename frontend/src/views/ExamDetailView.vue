@@ -180,6 +180,9 @@ const trendChart = computed(() => {
 
 const subjects = computed(() => (averages.value ? averages.value.school.map((s) => s.subject) : []))
 
+// 这场考试还没有录入任何成绩时，趋势图没有可画的内容，不显示
+const hasExamScores = computed(() => (averages.value?.school ?? []).length > 0)
+
 const classRows = computed(() => {
   if (!averages.value) return []
   const byClass = {}
@@ -356,13 +359,16 @@ function pct(score, full) {
         </div>
         <div class="card__body">
           <LineChart
-            v-if="trendChart"
+            v-if="trendChart && hasExamScores"
             :labels="trendChart.labels"
             :dates="trendChart.dates"
             :series="trendChart.series"
             :y-max="trendChart.yMax"
             :highlight-index="trendChart.highlightIndex"
           />
+          <p v-else class="muted" style="padding: var(--sp-2) var(--sp-5)">
+            还没有成绩录入，录入后这里会显示全校平均分趋势。
+          </p>
         </div>
       </div>
 

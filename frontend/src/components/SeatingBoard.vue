@@ -197,8 +197,11 @@ async function saveSeating() {
               draggable="true"
               @dragstart="onSeatDragStart(sid, i, $event)"
             >
+              <span
+                v-if="studentById.get(sid)?.gender"
+                class="seat__gender"
+              >{{ genderLabel(studentById.get(sid)?.gender) }}</span>
               <b>{{ studentById.get(sid)?.name ?? "—" }}</b>
-              <span class="seat__gender">{{ genderLabel(studentById.get(sid)?.gender) }}</span>
             </div>
           </div>
         </div>

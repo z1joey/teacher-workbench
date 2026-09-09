@@ -262,6 +262,7 @@ const scoreDialogOpen = ref(false)
 const scoreDialogError = ref("")
 const scoreSaving = ref(false)
 const examOptions = ref([])
+const examListOpen = ref(false)
 const scoreForm = ref({ examId: "", values: {}, attended: {} })
 
 const chosenExam = computed(
@@ -271,6 +272,7 @@ const chosenExam = computed(
 async function openScoreDialog() {
   scoreDialogOpen.value = true
   scoreDialogError.value = ""
+  examListOpen.value = false
   scoreForm.value = { examId: "", values: {}, attended: {} }
   if (!examOptions.value.length) {
     try {
@@ -283,6 +285,13 @@ async function openScoreDialog() {
 
 function closeScoreDialog() {
   scoreDialogOpen.value = false
+  examListOpen.value = false
+}
+
+function pickExam(e) {
+  scoreForm.value.examId = e.id
+  examListOpen.value = false
+  onScoreExamChange()
 }
 
 function onScoreExamChange() {
@@ -953,18 +962,47 @@ const headerMeta = computed(() => {
         </button>
       </div>
       <div class="modal__body">
-        <FormField label="考试" required>
-          <select
-            v-model="scoreForm.examId"
-            class="select"
-            @change="onScoreExamChange"
-          >
-            <option value="" disabled>选择考试</option>
-            <option v-for="e in examOptions" :key="e.id" :value="e.id">
-              {{ e.name }}（{{ e.exam_date }}）
-            </option>
-          </select>
-        </FormField>
+        <!-- 考试选择用自绘列表：原生 select 弹出层在嵌入式 WebView 里会被
+             定位到屏幕底部，无法用样式修正 -->
+        <div class="field">
+          <span id="exam-picker-label" class="field__label">
+            考试 <span class="field__req" aria-hidden="true">*</span>
+          </span>
+          <div class="exam-picker">
+            <button
+              type="button"
+              class="exam-picker__trigger"
+              :class="{ 'is-placeholder': !chosenExam }"
+              aria-haspopup="listbox"
+              :aria-expanded="examListOpen"
+              aria-labelledby="exam-picker-label"
+              @click="examListOpen = !examListOpen"
+            >
+              <span class="grow">{{ chosenExam ? chosenExam.name : "选择考试" }}</span>
+              <Icon name="chevron-down" :size="14" style="flex-shrink: 0" />
+            </button>
+            <div v-if="examListOpen" class="exam-picker__menu" role="listbox">
+              <button
+                v-for="e in examOptions"
+                :key="e.id"
+                type="button"
+                role="option"
+                :aria-selected="e.id === scoreForm.examId"
+                class="exam-picker__option"
+                :class="{ 'is-active': e.id === scoreForm.examId }"
+                @click="pickExam(e)"
+              >
+                <span class="grow">
+                  {{ e.name }} <span class="muted">（{{ e.exam_date }}）</span>
+                </span>
+                <Icon v-if="e.id === scoreForm.examId" name="check" :size="14" />
+              </button>
+              <p v-if="!examOptions.length" class="muted" style="margin: 0; padding: 10px 12px">
+                还没有可选择的考试
+              </p>
+            </div>
+          </div>
+        </div>
 
         <template v-if="chosenExam">
           <div class="stack" style="gap: 8px; margin-top: 4px">

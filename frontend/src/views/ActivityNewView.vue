@@ -151,7 +151,8 @@ async function submit() {
           />
         </FormField>
 
-        <div class="form-grid">
+        <!-- 日期栅格后面还有字段：补回 .form-grid .field 被清掉的下边距 -->
+        <div class="form-grid" style="margin-bottom: var(--sp-4)">
           <FormField :label="t('eventNew.dateLabel')" optional>
             <input v-model="form.date" class="input" type="date" />
           </FormField>
@@ -163,7 +164,8 @@ async function submit() {
 
         <FormField :label="t('eventNew.studentsLabel')" optional :hint="t('eventNew.studentsHint')">
           <div>
-            <div v-if="classGroups.length > 1" class="row-wrap" style="margin-bottom: 10px">
+            <!-- 班级芯片与「指定学生」入口始终可用：只有一个班时也得能选人 -->
+            <div class="row-wrap" style="margin-bottom: 10px">
               <button
                 v-for="c in classGroups"
                 :key="c.key"

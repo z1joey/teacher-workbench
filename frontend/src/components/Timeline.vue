@@ -1,9 +1,20 @@
 <script setup>
+// 时间线按天分组：一天一个容器，组内最新在前；
+// 未来的日期排在今天上方（越近越靠下），过去的日子按越近越前排列；
+// 今天的容器用底色强调。
 import { computed } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "./Icon.vue"
 import { openEvent, isEventClickable } from "../eventNav"
-import { describeEvent, eventTitle, eventTypeColor, eventTypeIcon, eventTypeLabel, t } from "../strings"
+import {
+  dateLocale,
+  describeEvent,
+  eventTitle,
+  eventTypeColor,
+  eventTypeIcon,
+  eventTypeLabel,
+  t,
+} from "../strings"
 
 const props = defineProps({
   events: { type: Array, default: () => [] },
@@ -15,47 +26,54 @@ function eventTime(e) {
   return new Date(e.occurred_at).getTime()
 }
 
-function dayBounds() {
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-  const end = new Date()
-  end.setHours(23, 59, 59, 999)
-  return { start: start.getTime(), end: end.getTime() }
-}
-
-function sortAsc(a, b) {
-  return eventTime(a) - eventTime(b)
-}
-
-function sortDesc(a, b) {
-  return eventTime(b) - eventTime(a)
+function dayStart(ts) {
+  const d = new Date(ts)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
 }
 
 const timelineView = computed(() => {
-  const { start, end } = dayBounds()
-  const past = []
-  const today = []
-  const future = []
-
+  const todayKey = dayStart(Date.now())
+  const byDay = new Map()
   for (const event of props.events) {
-    const when = eventTime(event)
-    if (when > end) future.push(event)
-    else if (when >= start) today.push(event)
-    else past.push(event)
+    const key = dayStart(eventTime(event))
+    if (!byDay.has(key)) byDay.set(key, [])
+    byDay.get(key).push(event)
   }
 
-  future.sort(sortAsc)
-  today.sort(sortAsc)
-  past.sort(sortDesc)
-
-  const rows = []
-  for (const event of future) rows.push({ kind: "event", key: event.id, event })
-  rows.push({ kind: "today", key: "today" })
-  for (const event of today) rows.push({ kind: "event", key: event.id, event })
-  for (const event of past) rows.push({ kind: "event", key: event.id, event })
-
-  return { rows }
+  const groups = [...byDay.entries()].map(([key, events]) => ({
+    key,
+    events,
+    isToday: key === todayKey,
+    isFuture: key > todayKey,
+  }))
+  // 组间：未来日期升序在前，其后是今天，过去的日子越近越前
+  groups.sort((a, b) => {
+    const rank = (g) => (g.isToday ? 0 : g.isFuture ? -1 : 1)
+    if (rank(a) !== rank(b)) return rank(a) - rank(b)
+    return a.isFuture ? a.key - b.key : b.key - a.key
+  })
+  // 组内：最新的事件在最上面
+  for (const g of groups) g.events.sort((a, b) => eventTime(b) - eventTime(a))
+  for (const g of groups) g.label = dayLabel(g.key, todayKey)
+  return { groups }
 })
+
+function dayLabel(key, todayKey) {
+  const diff = Math.round((key - todayKey) / 86_400_000)
+  const d = new Date(key)
+  const sameYear = d.getFullYear() === new Date().getFullYear()
+  const date = d.toLocaleDateString(dateLocale(), {
+    ...(sameYear ? {} : { year: "numeric" }),
+    month: "short",
+    day: "numeric",
+    weekday: "short",
+  })
+  if (diff === 0) return `今天 · ${date}`
+  if (diff === 1) return `明天 · ${date}`
+  if (diff === -1) return `昨天 · ${date}`
+  return date
+}
 
 function fmt(ts) {
   return new Date(ts).toLocaleString("zh-CN", {
@@ -78,51 +96,53 @@ function open(e) {
 
 <template>
   <div v-if="events.length">
-    <ol class="timeline">
-      <template v-for="rowItem in timelineView.rows" :key="rowItem.key">
-        <li v-if="rowItem.kind === 'today'" class="timeline__item timeline__item--today">
-          <span class="timeline__dot timeline__dot--today">
-            <Icon name="calendar" :size="15" />
-          </span>
-          <div class="timeline__card timeline__card--today">
-            <span class="timeline__title">{{ t("detail.timelineToday") }}</span>
-          </div>
-        </li>
+    <section
+      v-for="group in timelineView.groups"
+      :key="group.key"
+      class="timeline__day"
+      :class="{ 'timeline__day--today': group.isToday }"
+    >
+      <div class="timeline__day-head">
+        <span class="timeline__day-label">{{ group.label }}</span>
+        <span class="timeline__day-count">{{ group.events.length }} 条</span>
+      </div>
+      <ol class="timeline">
         <li
-          v-else
+          v-for="event in group.events"
+          :key="event.id"
           class="timeline__item"
-          :class="{ 'is-clickable': isEventClickable(row(rowItem.event)) }"
-          :tabindex="isEventClickable(row(rowItem.event)) ? 0 : undefined"
-          :role="isEventClickable(row(rowItem.event)) ? 'button' : undefined"
+          :class="{ 'is-clickable': isEventClickable(row(event)) }"
+          :tabindex="isEventClickable(row(event)) ? 0 : undefined"
+          :role="isEventClickable(row(event)) ? 'button' : undefined"
           :aria-label="
-            isEventClickable(row(rowItem.event))
-              ? `查看这条${eventTypeLabel(rowItem.event.event_type, rowItem.event.payload)}记录`
+            isEventClickable(row(event))
+              ? `查看这条${eventTypeLabel(event.event_type, event.payload)}记录`
               : undefined
           "
-          @click="open(rowItem.event)"
-          @keydown.enter.prevent="open(rowItem.event)"
-          @keydown.space.prevent="open(rowItem.event)"
+          @click="open(event)"
+          @keydown.enter.prevent="open(event)"
+          @keydown.space.prevent="open(event)"
         >
           <span
             class="timeline__dot"
-            :style="{ background: eventTypeColor(rowItem.event.event_type) }"
+            :style="{ background: eventTypeColor(event.event_type) }"
           >
-            <Icon :name="eventTypeIcon(rowItem.event.event_type)" :size="15" />
+            <Icon :name="eventTypeIcon(event.event_type)" :size="15" />
           </span>
           <div class="timeline__card">
             <div class="timeline__head">
               <span class="timeline__title">{{
-                eventTitle(rowItem.event.event_type, rowItem.event.payload)
+                eventTitle(event.event_type, event.payload)
               }}</span>
-              <span v-if="rowItem.event.actor" class="timeline__actor">{{ rowItem.event.actor }}</span>
+              <span v-if="event.actor" class="timeline__actor">{{ event.actor }}</span>
             </div>
-            <p v-if="describeEvent(rowItem.event.event_type, rowItem.event.payload)" class="timeline__desc">
-              {{ describeEvent(rowItem.event.event_type, rowItem.event.payload) }}
+            <p v-if="describeEvent(event.event_type, event.payload)" class="timeline__desc">
+              {{ describeEvent(event.event_type, event.payload) }}
             </p>
-            <time class="timeline__time">{{ fmt(rowItem.event.occurred_at) }}</time>
+            <time class="timeline__time">{{ fmt(event.occurred_at) }}</time>
           </div>
         </li>
-      </template>
-    </ol>
+      </ol>
+    </section>
   </div>
 </template>
