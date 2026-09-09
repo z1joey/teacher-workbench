@@ -22,11 +22,22 @@ from app.routers.students import AUTO_HOME_VISIT_TAG_NAME
 from app.payloads import validate_person_payload
 from app.routers import dashboard, students
 from app.security import hash_password
+from app.workspace import ensure_workspace_id
 
 
 # ---------------------------------------------------------------------------
 # Seed helpers — persons / classes / enrollments / events, straight on the db
 # ---------------------------------------------------------------------------
+
+def _teacher_of(db) -> Person | None:
+    role = Person.payload["role"].as_string()
+    return (
+        db.query(Person)
+        .filter(role == "teacher")
+        .order_by(Person.created_at.asc(), Person.id.asc())
+        .first()
+    )
+
 
 def _seed_person(db, name: str, admission_no: str, *, birth_date: str | None = None,
                  active: bool = True) -> Person:
@@ -36,6 +47,9 @@ def _seed_person(db, name: str, admission_no: str, *, birth_date: str | None = N
         payload["birth_date"] = birth_date
     if not active:
         payload["is_active"] = False
+    teacher = _teacher_of(db)
+    if teacher is not None:
+        payload["workspace_id"] = ensure_workspace_id(teacher)
     p = Person(name=name, password_hash=hash_password(uuid.uuid4().hex), payload=payload)
     db.add(p)
     db.flush()
@@ -45,6 +59,7 @@ def _seed_person(db, name: str, admission_no: str, *, birth_date: str | None = N
 def _seed_teacher(db, phone: str = "13800000001") -> Person:
     p = Person(name="王老师", phone=phone, password_hash=hash_password("123456"),
                payload=validate_person_payload("teacher", {}))
+    ensure_workspace_id(p)
     db.add(p)
     db.flush()
     return p
@@ -66,7 +81,9 @@ def _headers(db, person: Person, token: str = "t" * 64) -> dict:
 
 
 def _seed_class(db, name: str = "七年级1班") -> Class:
-    c = Class(name=name, academic_year="2026")
+    teacher = _teacher_of(db)
+    c = Class(name=name, academic_year="2026",
+              teacher_id=teacher.id if teacher else None)
     db.add(c)
     db.flush()
     return c
@@ -132,7 +149,7 @@ def test_list_students_admission_no_order_and_shape(make_client, db, headers):
     # plain string ordering, same as the old order_by(Student.admission_no)
     assert [row["admission_no"] for row in rows] == ["S1", "S10", "S2"]
     assert set(rows[0]) == {"id", "admission_no", "name", "gender", "status",
-                            "class", "last_exam", "last_event", "tags"}
+                            "class", "guardians", "last_exam", "last_event", "tags"}
     assert rows[0]["name"] == "张一"
     assert rows[0]["status"] == "active"
     assert rows[0]["class"] == {"id": str(cls.id), "name": cls.name}
@@ -210,7 +227,7 @@ def test_create_student_class_not_found_400(make_client, db, headers):
         json={"name": " nobody", "class_id": str(uuid.uuid4())},
         headers=headers,
     )
-    assert r.status_code == 400
+    assert r.status_code == 404
     assert r.json()["detail"] == "class not found"
 
 
@@ -641,8 +658,10 @@ def test_manual_event_create_list_patch_delete(make_client, db, headers):
 
 def test_events_lists_events_the_teacher_attends(make_client, db, headers):
     teacher = db.query(Person).filter(Person.phone == "13800000001").one()
+    s1_payload = validate_person_payload("student", {"admission_no": "S001"})
+    s1_payload["workspace_id"] = ensure_workspace_id(teacher)
     s1 = Person(name="林晓雨", password_hash=hash_password(uuid.uuid4().hex),
-                payload=validate_person_payload("student", {"admission_no": "S001"}))
+                payload=s1_payload)
     db.add(s1)
     db.flush()
     # a guardian Person of record, linked through student_guardians — the home
@@ -688,10 +707,12 @@ def test_events_lists_events_the_teacher_attends(make_client, db, headers):
     assert [(row["event_type"], row["student_name"]) for row in rows] == [
         ("note_added", "王小明"), ("home_visited", "林晓雨")]
     assert set(rows[0]) == {"id", "title", "student_id", "student_name",
-                            "students", "event_type", "occurred_at", "actor",
-                            "payload"}
+                            "students", "whole_classes", "event_type",
+                            "occurred_at", "actor", "payload"}
     assert rows[0]["student_id"] == str(s2.id)
-    assert rows[0]["students"] == [{"id": str(s2.id), "name": "王小明"}]
+    assert rows[0]["students"] == [
+        {"id": str(s2.id), "name": "王小明", "class_name": None}
+    ]
     assert rows[0]["title"] == "随笔"
     assert rows[0]["payload"] == {"notes": "作业潦草"}
     visit = rows[1]
@@ -712,8 +733,11 @@ def test_events_lists_events_the_teacher_attends(make_client, db, headers):
 
 
 def test_home_visit_guardian_participants(make_client, db, headers):
+    teacher = db.query(Person).filter(Person.phone == "13800000001").one()
+    s_payload = validate_person_payload("student", {"admission_no": "S001"})
+    s_payload["workspace_id"] = ensure_workspace_id(teacher)
     s = Person(name="林晓雨", password_hash=hash_password(uuid.uuid4().hex),
-               payload=validate_person_payload("student", {"admission_no": "S001"}))
+               payload=s_payload)
     db.add(s)
     db.flush()
     g_mom = Person(name="林女士", phone="13810001000",
@@ -730,7 +754,6 @@ def test_home_visit_guardian_participants(make_client, db, headers):
                       password_hash=hash_password(uuid.uuid4().hex),
                       payload=validate_person_payload("guardian", {"phone": "13810001999"}))
     db.add(stranger)
-    teacher = db.query(Person).filter(Person.phone == "13800000001").one()
     db.commit()
     client = make_client(students.router)
 
