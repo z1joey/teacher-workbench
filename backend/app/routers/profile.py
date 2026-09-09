@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -8,6 +8,7 @@ from ..deps import get_current_person
 from ..eventing import MANUAL_EVENT_TYPES
 from ..models import Class, Enrollment, Event, Person
 from ..payloads import validate_person_payload
+from ..routers.auth import normalize_phone, validate_phone_format
 from ..unassigned import is_unassigned_class
 from ..workspace import classes_query
 
@@ -41,7 +42,7 @@ def settings_out(payload: dict) -> dict:
 
 class ProfileIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    email: str | None = None
+    phone: str | None = None
     auto_tags: bool | None = None
     calendar_birthdays: bool | None = None
 
@@ -109,7 +110,23 @@ def update_profile(
 ):
     payload = dict(person.payload or {})
     person.name = body.name.strip()
-    person.email = (body.email or "").strip() or None
+
+    if "phone" in body.model_fields_set:
+        raw = (body.phone or "").strip()
+        if not raw:
+            person.phone = None
+        else:
+            phone = normalize_phone(raw)
+            validate_phone_format(phone)
+            conflict = (
+                db.query(Person)
+                .filter(Person.phone == phone, Person.id != person.id)
+                .first()
+            )
+            if conflict is not None:
+                raise HTTPException(status_code=409, detail="该手机号已注册")
+            person.phone = phone
+
     if "auto_tags" in body.model_fields_set and body.auto_tags is not None:
         payload["auto_tags"] = body.auto_tags
     if "calendar_birthdays" in body.model_fields_set and body.calendar_birthdays is not None:

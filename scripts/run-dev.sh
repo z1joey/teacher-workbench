@@ -2,11 +2,11 @@
 # Start (or stop) the local dev stack: FastAPI backend + Vite frontend.
 #
 # Usage:
-#   ./run-dev.sh         # first-run setup + start both servers
-#   ./run-dev.sh stop    # stop anything listening on the dev ports
+#   ./scripts/run-dev.sh         # first-run setup + start both servers
+#   ./scripts/run-dev.sh stop    # stop anything listening on the dev ports
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_DIR="$ROOT/backend"
 FRONTEND_DIR="$ROOT/frontend"
 VENV="$BACKEND_DIR/.venv"
@@ -80,7 +80,7 @@ start_dev() {
   frontend_pids="$(port_pids "$FRONTEND_PORT")"
   if [[ -n "${backend_pids// }" || -n "${frontend_pids// }" ]]; then
     echo "Dev servers already running (ports $BACKEND_PORT / $FRONTEND_PORT)." >&2
-    echo "Run ./run-dev.sh stop first, or open http://localhost:$FRONTEND_PORT/gao/" >&2
+    echo "Run ./scripts/run-dev.sh stop first, or open http://localhost:$FRONTEND_PORT/gao/" >&2
     exit 1
   fi
 

@@ -58,8 +58,12 @@ def _seed_person(db, name: str, admission_no: str, *, role: str = "student",
     return p
 
 
-def _seed_teacher(db, phone: str = "13800000001", name: str = "王老师") -> Person:
-    p = Person(name=name, phone=phone, password_hash=hash_password("123456"),
+def _seed_teacher(db, phone: str = "13800000001", name: str = "王老师",
+                  email: str | None = None) -> Person:
+    if email is None:
+        email = f"{phone}@test.example"
+    p = Person(name=name, phone=phone, email=email,
+               password_hash=hash_password("123456"),
                payload=validate_person_payload("teacher", {}))
     ensure_workspace_id(p)
     db.add(p)

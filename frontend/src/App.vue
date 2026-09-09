@@ -74,7 +74,7 @@ async function logout() {
 async function onLogout() {
   const ok = await ask({
     title: "退出登录？",
-    message: "退出后需要重新输入手机号和密码。",
+    message: "退出后需要重新输入邮箱和密码。",
     confirmLabel: "退出登录",
     tone: "warn",
   })

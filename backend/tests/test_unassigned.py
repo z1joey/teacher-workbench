@@ -28,7 +28,7 @@ def test_class_for_api_hides_unassigned(db):
 
 
 def test_create_student_without_class_enrolls_in_unassigned(make_client, db):
-    teacher = seed_person(db, "13800000001", name="王老师")
+    teacher = seed_person(db, "wang@test.example", phone="13800000001", name="王老师")
     token = seed_token(db, teacher, "t" * 64)
     headers = {"Authorization": f"Bearer {token}"}
     unassigned = ensure_unassigned_class(db)

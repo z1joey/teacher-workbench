@@ -18,21 +18,37 @@ from ..workspace import ensure_workspace_id
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+DEMO_TEACHER_EMAIL = "chen@school.edu"
+
 
 class RegisterIn(BaseModel):
     name: str | None = Field(default=None, max_length=100)
-    phone: str
+    email: str
     password: str = Field(min_length=6, max_length=64)
-    email: str | None = None
+    phone: str | None = None
 
 
 class LoginIn(BaseModel):
-    phone: str
+    email: str
     password: str
 
 
 def normalize_phone(phone: str) -> str:
     return phone.replace(" ", "").replace("-", "")
+
+
+def normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def validate_email_format(email: str) -> None:
+    if "@" not in email or len(email) < 3:
+        raise HTTPException(status_code=400, detail="邮箱格式不正确")
+
+
+def validate_phone_format(phone: str) -> None:
+    if not re.fullmatch(r"\d{6,15}", phone):
+        raise HTTPException(status_code=400, detail="手机号格式不正确")
 
 
 def user_out(u: Person) -> dict:
@@ -64,7 +80,7 @@ def setup_status(db: Session = Depends(get_db)):
     """Tell the login page whether first-time bootstrap is available."""
     role = Person.payload["role"].as_string()
     teachers = db.query(Person).filter(role == "teacher").count()
-    demo = db.query(Person).filter(Person.phone == "13800000001").first()
+    demo = db.query(Person).filter(Person.email == DEMO_TEACHER_EMAIL).first()
     return {
         "needs_bootstrap": teachers == 0,
         "has_demo_account": demo is not None,
@@ -73,19 +89,24 @@ def setup_status(db: Session = Depends(get_db)):
 
 @router.post("/register", status_code=201)
 def register(body: RegisterIn, db: Session = Depends(get_db)):
-    phone = normalize_phone(body.phone)
-    if not re.fullmatch(r"\d{6,15}", phone):
-        raise HTTPException(status_code=400, detail="手机号格式不正确")
-    if body.email and "@" not in body.email:
-        raise HTTPException(status_code=400, detail="邮箱格式不正确")
-    if db.query(Person).filter(Person.phone == phone).first() is not None:
-        raise HTTPException(status_code=409, detail="该手机号已注册")
+    email = normalize_email(body.email)
+    validate_email_format(email)
+    if db.query(Person).filter(Person.email == email).first() is not None:
+        raise HTTPException(status_code=409, detail="该邮箱已注册")
+
+    phone = None
+    if body.phone:
+        phone = normalize_phone(body.phone)
+        validate_phone_format(phone)
+        if db.query(Person).filter(Person.phone == phone).first() is not None:
+            raise HTTPException(status_code=409, detail="该手机号已注册")
+
     ensure_unassigned_class(db)
     payload = validate_person_payload("teacher", {})
     person = Person(
-        name=(body.name or "").strip() or phone,
+        name=(body.name or "").strip() or email.split("@")[0],
+        email=email,
         phone=phone,
-        email=(body.email or "").strip() or None,
         password_hash=hash_password(body.password),
         payload=payload,
     )
@@ -110,7 +131,7 @@ def bootstrap_demo(db: Session = Depends(get_db)):
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"初始化失败: {exc}") from exc
-    teacher = db.query(Person).filter(Person.phone == "13800000001").one()
+    teacher = db.query(Person).filter(Person.email == DEMO_TEACHER_EMAIL).one()
     token = create_session(db, teacher.id)
     db.commit()
     return {"token": token, "user": user_out(teacher)}
@@ -118,9 +139,10 @@ def bootstrap_demo(db: Session = Depends(get_db)):
 
 @router.post("/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
-    person = db.query(Person).filter(Person.phone == normalize_phone(body.phone)).first()
+    email = normalize_email(body.email)
+    person = db.query(Person).filter(Person.email == email).first()
     if person is None or not verify_password(body.password, person.password_hash):
-        raise HTTPException(status_code=401, detail="手机号或密码错误")
+        raise HTTPException(status_code=401, detail="邮箱或密码错误")
     token = create_session(db, person.id)
     db.commit()
     return {"token": token, "user": user_out(person)}

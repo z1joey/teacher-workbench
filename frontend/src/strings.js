@@ -128,7 +128,7 @@ const messages = {
 
   // --- 登录 ---
   "login.name": "姓名",
-  "login.phone": "手机号",
+  "login.email": "邮箱",
   "login.password": "密码",
   "login.submit": "登录",
   "login.submitting": "正在登录…",
@@ -141,9 +141,8 @@ const messages = {
   // --- 注册 ---
   "signup.subtitle": "创建教师账号",
   "signup.nameRequired": "请填写姓名",
-  "signup.phoneHint": "6-15 位数字，可用空格或短横线分隔",
-  "signup.phoneRequired": "请输入手机号",
-  "signup.phoneInvalid": "手机号格式不正确，请输入 6-15 位数字",
+  "signup.emailRequired": "请输入邮箱",
+  "signup.emailInvalid": "邮箱格式不正确",
   "signup.passwordShort": "密码至少 6 位",
   "signup.password2": "确认密码",
   "signup.passwordMismatch": "两次输入的密码不一致",
@@ -263,8 +262,11 @@ const messages = {
   // --- 个人中心 ---
   "profile.title": "个人中心",
   "profile.subtitle": "个人信息、班级与教学足迹",
-  "profile.loginPhone": "登录手机号",
-  "profile.email": "邮箱",
+  "profile.loginEmail": "登录邮箱",
+  "profile.phone": "手机号",
+  "profile.phoneEmpty": "未填写",
+  "profile.phoneHint": "6-15 位数字，可用空格或短横线分隔",
+  "profile.phoneInvalid": "手机号格式不正确，请输入 6-15 位数字",
   "profile.myClasses": "我的班级",
   "profile.noClasses": "暂时没有班级",
   "profile.activity": "教学足迹",
@@ -712,7 +714,8 @@ export function recordableEventOptions() {
 
 // 把后端/网络错误翻译成能指导下一步动作的话（错误可识别、可诊断、可恢复）
 const ERROR_HINTS = [
-  [/手机号已(注册|存在)|already registered/i, "该手机号已注册，可直接登录，或联系管理员重置密码"],
+  [/邮箱已(注册|存在)/i, "该邮箱已注册，可直接登录，或联系管理员重置密码"],
+  [/手机号已(注册|存在)|already registered/i, "该手机号已被使用，请换一个号码"],
   [/at least 6 characters/i, "密码至少 6 位"],
   [/internal server error|proxy|bad gateway|service unavailable/i, "服务器暂时出了问题，请稍后重试"],
   [/登录已过期|not authenticated|未登录/i, "登录已过期，请重新登录"],

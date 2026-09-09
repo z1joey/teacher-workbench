@@ -32,9 +32,10 @@ def client(make_client, db):
     (exactly like app/main.py does)."""
     tc = make_client(auth.router, admin.router, auth_dependency=False)
 
-    admin_p = seed_person(db, "13600000000", role="admin", name="管理员")
-    teacher = seed_person(db, "13600000001", name="陈老师")
-    teacher2 = seed_person(db, "13600000002", name="赵老师")
+    admin_p = seed_person(db, "admin136@test.example", phone="13600000000",
+                          role="admin", name="管理员")
+    teacher = seed_person(db, "teacher136@test.example", phone="13600000001", name="陈老师")
+    teacher2 = seed_person(db, "teacher237@test.example", phone="13600000002", name="赵老师")
 
     klass = Class(name="七年级1班", academic_year="2025/2026")
     db.add(klass)
@@ -182,7 +183,7 @@ def test_stats_keys(client, db):
     # A disabled person must not count as active. SQLite's json_extract maps
     # JSON booleans to integers, so SQL text comparisons can't express this —
     # the endpoint counts in Python; this locks that.
-    seed_person(db, "13600000003", name="已停用", active=False)
+    seed_person(db, "inactive@test.example", phone="13600000003", name="已停用", active=False)
     db.commit()
     stats = tc.get("/api/admin/stats").json()
     assert set(stats) == {"database", "tables", "users_total", "users_admins",

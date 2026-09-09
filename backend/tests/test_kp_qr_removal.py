@@ -80,7 +80,7 @@ def _seed_student_with_evidence(db):
     from app import eventing
     from app.models import Class, Enrollment
 
-    teacher = seed_person(db, "13900000001", name="陈老师")
+    teacher = seed_person(db, "chen139@test.example", phone="13900000001", name="陈老师")
     seed_token(db, teacher, TEACHER_TOKEN)
     student = seed_person(db, None, role="student", name="林小明", admission_no="S901")
     klass = Class(name="七年级1班", academic_year="2025/2026")
@@ -140,7 +140,8 @@ def test_delete_student_with_evidence_soft_deactivates(client, db):
 @pytest.fixture()
 def admin_client(client, db):
     """Full-app client with an admin Authorization header pre-set."""
-    admin = seed_person(db, "13900000000", role="admin", name="管理员")
+    admin = seed_person(db, "admin139@test.example", phone="13900000000",
+                        role="admin", name="管理员")
     seed_token(db, admin, ADMIN_TOKEN)
     client.headers.update({"Authorization": f"Bearer {ADMIN_TOKEN}"})
     yield client

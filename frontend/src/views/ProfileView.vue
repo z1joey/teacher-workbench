@@ -21,9 +21,13 @@ const error = ref("")
 const loading = ref(true)
 const editing = ref(false)
 const saving = ref(false)
-const editForm = ref({ name: "", email: "" })
+const editForm = ref({ name: "", phone: "" })
 const errors = ref({})
 const settingsSaving = ref(false)
+
+function normalizePhone(phone) {
+  return phone.replace(/[\s-]/g, "")
+}
 
 async function saveSettings() {
   if (!profile.value) return
@@ -32,7 +36,7 @@ async function saveSettings() {
   try {
     const updated = await api.patch("/profile", {
       name: profile.value.user.name,
-      email: profile.value.user.email || null,
+      phone: profile.value.user.phone || null,
       auto_tags: profile.value.settings.auto_tags,
       calendar_birthdays: profile.value.settings.calendar_birthdays,
     })
@@ -69,7 +73,7 @@ onMounted(load)
 
 function startEdit() {
   const user = profile.value.user
-  editForm.value = { name: user.name || "", email: user.email || "" }
+  editForm.value = { name: user.name || "", phone: user.phone || "" }
   errors.value = {}
   editing.value = true
 }
@@ -81,6 +85,10 @@ function cancelEdit() {
 function validate() {
   const e = {}
   if (!editForm.value.name.trim()) e.name = t("login.name") + "不能为空"
+  const phone = normalizePhone(editForm.value.phone.trim())
+  if (editForm.value.phone.trim() && !/^\d{6,15}$/.test(phone)) {
+    e.phone = t("profile.phoneInvalid")
+  }
   errors.value = e
   return !Object.keys(e).length
 }
@@ -90,9 +98,10 @@ async function saveProfile() {
   saving.value = true
   error.value = ""
   try {
+    const phoneRaw = editForm.value.phone.trim()
     const updated = await api.patch("/profile", {
       name: editForm.value.name.trim(),
-      email: editForm.value.email.trim() || null,
+      phone: phoneRaw ? normalizePhone(phoneRaw) : null,
     })
     profile.value.user = { ...profile.value.user, ...updated }
     if (me.value) {
@@ -114,7 +123,7 @@ async function saveProfile() {
 async function logout() {
   const ok = await ask({
     title: "退出登录？",
-    message: "退出后需要重新输入手机号和密码。",
+    message: "退出后需要重新输入邮箱和密码。",
     confirmLabel: t("auth.logout"),
     tone: "warn",
   })
@@ -171,9 +180,11 @@ const activity = computed(() => {
               <div class="grow">
                 <p style="font-size: 17px; font-weight: 600">{{ profile.user.name }}</p>
                 <div class="row-wrap" style="margin-top: 6px">
-                  <span class="pill pill--outline">{{ t("profile.loginPhone") }}：{{ profile.user.phone }}</span>
-                  <span v-if="profile.user.email" class="pill pill--outline">
-                    {{ t("profile.email") }}：{{ profile.user.email }}
+                  <span class="pill pill--outline">
+                    {{ t("profile.loginEmail") }}：{{ profile.user.email }}
+                  </span>
+                  <span class="pill pill--outline">
+                    {{ t("profile.phone") }}：{{ profile.user.phone || t("profile.phoneEmpty") }}
                   </span>
                 </div>
               </div>
@@ -185,8 +196,19 @@ const activity = computed(() => {
               <FormField :label="t('login.name')" required :error="errors.name || ''">
                 <input v-model="editForm.name" class="input" type="text" :aria-invalid="!!errors.name" />
               </FormField>
-              <FormField :label="t('profile.email')" optional>
-                <input v-model="editForm.email" class="input" type="email" />
+              <FormField
+                :label="t('profile.phone')"
+                optional
+                :error="errors.phone || ''"
+                :hint="t('profile.phoneHint')"
+              >
+                <input
+                  v-model="editForm.phone"
+                  class="input"
+                  type="tel"
+                  inputmode="numeric"
+                  :aria-invalid="!!errors.phone"
+                />
               </FormField>
             </div>
             <div class="form-actions">

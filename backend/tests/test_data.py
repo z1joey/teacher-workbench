@@ -43,7 +43,7 @@ def _student(db, name: str, admission_no: str, gender: str | None = None,
 @pytest.fixture()
 def client(make_client, db):
     tc = make_client(data.router)
-    teacher = seed_person(db, "13800000001", name="陈老师")
+    teacher = seed_person(db, "chen@test.example", phone="13800000001", name="陈老师")
     seed_token(db, teacher, TEACHER_TOKEN)
     db.commit()
     return tc

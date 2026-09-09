@@ -489,8 +489,8 @@ def run() -> None:
         print(f"  events by type: {types}")
         print(f"  tags: {db.query(Tag).count()}")
         print(f"  enrollments: {db.query(Enrollment).count()}")
-        print("  demo login: 13800000001 / 123456")
-        print("  admin login: 13800000000 / admin123  → hidden /admin dashboard")
+        print("  demo login: chen@school.edu / 123456")
+        print("  admin login: admin@school.dev / admin123  → hidden /admin dashboard")
     except Exception:
         db.rollback()
         raise
