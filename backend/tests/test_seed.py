@@ -56,19 +56,48 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         assert {s.name for s in grandmah.students} == {"王浩", "邓晓彤"}
 
         # events by type: 6 graded sittings + 1 upcoming exam, every
-        # student-subject of the graded sittings scored, the correction
-        # story, 王浩's class move, 3 visits, 2 notes, plus yearly birthdays.
+        # student-subject of the graded sittings scored, 3 correction stories,
+        # 王浩's class move, 5 visits (one planned), 2 notes, teacher-written
+        # records (评语/谈话/辅导/电话沟通), 比赛/活动, plus yearly birthdays.
         types = dict(db.query(Event.type, func.count(Event.id)).group_by(Event.type).all())
         assert types == {
             "exam": 7,
             "score": 6 * 9 * 24,
             "enrolled": 24,
             "class_moved": 1,
-            "home_visited": 3,
+            "home_visited": 5,
             "note_added": 2,
-            "result_changed": 1,
+            "result_changed": 3,
+            "comment": 3,
+            "talk": 2,
+            "tutoring": 3,
+            "parent_call": 2,
+            "activity": 4,
+            "seat_changed": 24,
             "birthday": 24,
         }
+
+        # every home visit carries a purpose; exactly one stays 未完成 so the
+        # 待跟进 queue is non-empty
+        visit_payloads = [
+            p for (p,) in db.query(Event.payload).filter(Event.type == "home_visited").all()
+        ]
+        assert all(p.get("purpose") for p in visit_payloads)
+        assert sum(1 for p in visit_payloads if not p.get("done")) == 1
+
+        # seating: both classes ship a persisted layout; 王浩 (moved to 七1)
+        # keeps a seat there, and one class has empty seats for realism
+        from app.models import Class, ClassSeating
+
+        seatings = {s.class_id: s for s in db.query(ClassSeating).all()}
+        assert len(seatings) == 2
+        c71_seating = next(
+            s for s in seatings.values()
+            if db.get(Class, s.class_id).name == "七年级1班"
+        )
+        assert (c71_seating.rows, c71_seating.cols) == (4, 4)
+        assert len(c71_seating.seats) == 13
+        assert str(wang.id) in c71_seating.seats.values()
 
         # absent convention: absent=true with no score key
         payloads = [p for (p,) in db.query(Event.payload).filter(Event.type == "score").all()]

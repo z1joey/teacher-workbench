@@ -12,9 +12,17 @@ const props = defineProps({
 })
 
 const seating = ref(null) // { rows, cols, cells: Array(学生id|null) }，行优先
+const pristine = ref("") // 上次加载/保存成功后的快照，用于判断有无未保存改动
 const saving = ref(false)
 const error = ref("")
 const seatDrag = ref(null) // { studentId, from: "seat"|"pool", index? }
+
+function snapshot(s) {
+  return `${s.rows}x${s.cols}|${s.cells.map((v) => v ?? "-").join(",")}`
+}
+
+// 行列或座位任一处有改动即视为待保存
+const dirty = computed(() => !!seating.value && snapshot(seating.value) !== pristine.value)
 
 const studentById = computed(() => {
   const map = new Map()
@@ -42,9 +50,11 @@ async function load() {
       if (i >= 0 && i < cells.length && studentById.value.has(sid)) cells[i] = sid
     }
     seating.value = { rows, cols, cells }
+    pristine.value = snapshot(seating.value)
   } catch (e) {
     error.value = friendlyError(e)
     seating.value = { rows: 4, cols: 8, cells: Array(32).fill(null) }
+    pristine.value = snapshot(seating.value)
   }
 }
 onMounted(load)
@@ -109,6 +119,7 @@ async function saveSeating() {
       cols: s.cols,
       seats,
     })
+    pristine.value = snapshot(seating.value)
     notify({ tone: "ok", title: "座位表已保存", timeout: 2600 })
   } catch (e) {
     error.value = friendlyError(e)
@@ -119,93 +130,104 @@ async function saveSeating() {
 </script>
 
 <template>
-  <div v-if="!seating" class="state state--in-card">
-    <p class="state__desc">{{ t("common.loading") }}</p>
+  <div class="card" style="margin-bottom: var(--sp-5)">
+    <div class="card__head">
+      <div>
+        <h2 class="card__title"><Icon name="board" :size="16" /> {{ t("classes.seating") }}</h2>
+        <p class="card__desc">拖动学生调整座位，改完记得保存</p>
+      </div>
+      <div v-if="seating" class="row" style="gap: 10px; align-items: center">
+        <label class="row" style="gap: 4px; align-items: center; font-size: 13px">
+          行
+          <input
+            v-model.number="seating.rows"
+            class="input input--sm tnum"
+            type="number"
+            min="1"
+            max="20"
+            style="width: 60px"
+            @change="resizeSeating"
+            @input="resizeSeating"
+          />
+        </label>
+        <label class="row" style="gap: 4px; align-items: center; font-size: 13px">
+          列
+          <input
+            v-model.number="seating.cols"
+            class="input input--sm tnum"
+            type="number"
+            min="1"
+            max="12"
+            style="width: 60px"
+            @change="resizeSeating"
+            @input="resizeSeating"
+          />
+        </label>
+        <button
+          type="button"
+          class="btn btn--primary btn--sm"
+          :disabled="saving || !dirty"
+          @click="saveSeating"
+        >
+          <span v-if="saving" class="spinner" />
+          {{ saving ? t("action.saving") : t("action.save") }}
+        </button>
+      </div>
+    </div>
+    <div class="card__body">
+      <div v-if="!seating" class="state state--in-card">
+        <p class="state__desc">{{ t("common.loading") }}</p>
+      </div>
+      <template v-else>
+        <div
+          class="seating-grid"
+          :style="{ gridTemplateColumns: `repeat(${seating.cols}, minmax(0, 1fr))` }"
+        >
+          <div
+            v-for="(sid, i) in seating.cells"
+            :key="i"
+            class="seat"
+            :class="{ 'seat--filled': sid }"
+            @dragover.prevent
+            @drop.prevent="onDropSeat(i)"
+          >
+            <div
+              v-if="sid"
+              class="seat__chip"
+              draggable="true"
+              @dragstart="onSeatDragStart(sid, i, $event)"
+            >
+              <b>{{ studentById.get(sid)?.name ?? "—" }}</b>
+              <span class="seat__gender">{{ genderLabel(studentById.get(sid)?.gender) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px">
+          <p class="field__hint" style="margin-bottom: 6px">
+            未安排的学生（拖到座位入座，座位间拖动互换，拖回这里移除）
+          </p>
+          <div class="chips" @dragover.prevent @drop.prevent="onDropPool">
+            <div
+              v-for="s in poolStudents"
+              :key="s.id"
+              class="chip"
+              draggable="true"
+              @dragstart="onPoolDragStart(s.id, $event)"
+            >
+              {{ s.name }}
+              <span class="muted">{{ genderLabel(s.gender) }}</span>
+            </div>
+            <span v-if="!poolStudents.length" class="muted" style="font-size: 13px">
+              全部学生都已安排座位
+            </span>
+          </div>
+        </div>
+
+        <p v-if="error" class="field__error" style="margin-top: 10px">
+          <Icon name="alert-circle" :size="12" /> {{ error }}
+        </p>
+      </template>
+    </div>
   </div>
-  <template v-else>
-    <div
-      class="row-wrap"
-      style="align-items: center; justify-content: flex-end; gap: 14px; margin-bottom: 12px"
-    >
-      <label class="row" style="gap: 4px; align-items: center; font-size: 13px">
-        行
-        <input
-          v-model.number="seating.rows"
-          class="input input--sm tnum"
-          type="number"
-          min="1"
-          max="20"
-          style="width: 60px"
-          @change="resizeSeating"
-          @input="resizeSeating"
-        />
-      </label>
-      <label class="row" style="gap: 4px; align-items: center; font-size: 13px">
-        列
-        <input
-          v-model.number="seating.cols"
-          class="input input--sm tnum"
-          type="number"
-          min="1"
-          max="12"
-          style="width: 60px"
-          @change="resizeSeating"
-          @input="resizeSeating"
-        />
-      </label>
-      <button type="button" class="btn btn--primary btn--sm" :disabled="saving" @click="saveSeating">
-        <span v-if="saving" class="spinner" />
-        {{ saving ? t("action.saving") : t("action.save") }}
-      </button>
-    </div>
-
-    <div
-      class="seating-grid"
-      :style="{ gridTemplateColumns: `repeat(${seating.cols}, minmax(0, 1fr))` }"
-    >
-      <div
-        v-for="(sid, i) in seating.cells"
-        :key="i"
-        class="seat"
-        :class="{ 'seat--filled': sid }"
-        @dragover.prevent
-        @drop.prevent="onDropSeat(i)"
-      >
-        <div
-          v-if="sid"
-          class="seat__chip"
-          draggable="true"
-          @dragstart="onSeatDragStart(sid, i, $event)"
-        >
-          <b>{{ studentById.get(sid)?.name ?? "—" }}</b>
-          <span class="seat__gender">{{ genderLabel(studentById.get(sid)?.gender) }}</span>
-        </div>
-      </div>
-    </div>
-
-    <div style="margin-top: 14px">
-      <p class="field__hint" style="margin-bottom: 6px">
-        未安排的学生（拖到座位入座，座位间拖动互换，拖回这里移除）
-      </p>
-      <div class="chips" @dragover.prevent @drop.prevent="onDropPool">
-        <div
-          v-for="s in poolStudents"
-          :key="s.id"
-          class="chip"
-          draggable="true"
-          @dragstart="onPoolDragStart(s.id, $event)"
-        >
-          {{ s.name }}
-          <span class="muted">{{ genderLabel(s.gender) }}</span>
-        </div>
-        <span v-if="!poolStudents.length" class="muted" style="font-size: 13px">
-          全部学生都已安排座位
-        </span>
-      </div>
-    </div>
-
-    <p v-if="error" class="field__error" style="margin-top: 10px">
-      <Icon name="alert-circle" :size="12" /> {{ error }}
-    </p>
-  </template>
 </template>

@@ -21,7 +21,8 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_person
-from ..eventing import RECORD_EVENT_TYPES
+from ..eventing import RECORD_EVENT_TYPES, create_event
+from ..models._common import utcnow
 from ..unassigned import is_unassigned_class
 from ..workspace import classes_query, require_class_in_workspace
 from ..models import Class, ClassSeating, Enrollment, Event, Person, person_events
@@ -312,6 +313,13 @@ def get_seating(
     return {"rows": row.rows, "cols": row.cols, "seats": row.seats or {}}
 
 
+def _seat_label(pos: int | None, cols: int) -> str | None:
+    """座位序号 → 「第X排第Y列」；None（无座位）原样返回。"""
+    if pos is None:
+        return None
+    return f"第{pos // cols + 1}排第{pos % cols + 1}列"
+
+
 @router.put("/classes/{class_id}/seating")
 def save_seating(
     class_id: uuid.UUID,
@@ -320,7 +328,8 @@ def save_seating(
     user: Person = Depends(get_current_person),
 ):
     """保存座位表。只校验「座位属于本班、一人一座、位置在格内」；学生转班后
-    旧座位保留原序号，由前端在名单变化时清掉失效座位。"""
+    旧座位保留原序号，由前端在名单变化时清掉失效座位。
+    任一学生的座位发生变化（首次安排/移动/移出）都会留一条 seat_changed 事件。"""
     require_class_in_workspace(db, user, class_id)
     member_ids = {str(s.id) for s in current_students(db, class_id)}
     seen: set[str] = set()
@@ -334,6 +343,8 @@ def save_seating(
         seen.add(str(sid))
 
     row = db.get(ClassSeating, class_id)
+    old_seats = dict(row.seats or {}) if row is not None else {}
+    old_cols = row.cols if row is not None else body.cols
     seats = {pos: str(sid) for pos, sid in body.seats.items()}
     if row is None:
         row = ClassSeating(
@@ -344,6 +355,23 @@ def save_seating(
         row.rows = body.rows
         row.cols = body.cols
         row.seats = seats
+
+    for sid in sorted(set(old_seats.values()) | set(seats.values())):
+        old_pos = next((int(p) for p, v in old_seats.items() if v == sid), None)
+        new_pos = next((int(p) for p, v in seats.items() if v == sid), None)
+        if old_pos == new_pos:
+            continue
+        create_event(
+            db,
+            event_type="seat_changed",
+            title="换座位",
+            start_time=utcnow(),
+            payload={
+                "from": _seat_label(old_pos, old_cols),
+                "to": _seat_label(new_pos, body.cols),
+            },
+            attendee_ids=[uuid.UUID(sid)],
+        )
     db.commit()
     return {"rows": row.rows, "cols": row.cols, "seats": row.seats or {}}
 

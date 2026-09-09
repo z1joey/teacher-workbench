@@ -180,7 +180,7 @@ const messages = {
   // --- 数据 ---
   "data.demoTitle": "演示数据",
   "data.demoSub": "用于本地试用或发布前验收：演示内容绑定当前教师账号，仅教师可操作。",
-  "data.demoBody": "包含两个班级、完整成绩曲线、家访与跟进记录。加载或清空后都会保留你当前登录的教师账号，无需重新登录。",
+  "data.demoBody": "包含两个班级、全年成绩曲线与更正留痕、座位表、家访、谈心、辅导、家长沟通、评语、比赛活动等真实场景。加载或清空后都会保留你当前登录的教师账号，无需重新登录。",
   "data.demoSeed": "加载演示数据",
   "data.demoSeedWarn": "这会清空现有业务数据，并写入演示用的班级、学生、考试与跟进记录。",
   "data.demoSeedDone": "演示数据已加载",
@@ -324,6 +324,7 @@ const messages = {
   "exams.fullScore": "满分",
   "exams.emptyTitle": "还没有考试",
   "exams.emptyDesc": "新建一次考试并选好科目，之后就能在学生档案里录入成绩。",
+  "exams.pastSection": "已结束的考试",
 
   "exam.averages": "平均分",
   "exam.perClass": "各班平均分",
@@ -463,6 +464,7 @@ const messages = {
   "tl.score": "成绩",
   "tl.exam_taken": "参加考试",
   "tl.result_changed": "成绩更正",
+  "tl.seat_changed": "换座位",
   "tl.birthday": "生日",
   "tl.home_visited": "家访",
   "tl.parent_call": "家长沟通",
@@ -607,6 +609,7 @@ const EVENT_TYPES = {
   comment: { icon: "note", color: "#7C5BA8" },
   birthday: { icon: "cake", color: "#9A5B07" },
   activity: { icon: "flag", color: "#0E7490" },
+  seat_changed: { icon: "swap", color: "#2B8A8A" },
   exam: { icon: "clipboard", color: "#2E6BA8" },
   score: { icon: "clipboard", color: "#1D4ED8" },
 }
@@ -659,6 +662,12 @@ export function describeEvent(type, p = {}) {
     case "result_changed":
       if (p.notes) return p.notes
       return `${p.exam ?? ""} · ${subject(p.subject)}: ${p.old} → ${p.new}${p.reason ? " · " + p.reason : ""}`
+    case "seat_changed":
+      // from/to 是「第X排第Y列」或空：空 to = 移出座位表，空 from = 首次安排
+      if (p.notes) return p.notes
+      if (p.from && p.to) return `${p.from} → ${p.to}`
+      if (p.to) return `安排座位：${p.to}`
+      return "移出座位表"
     case "birthday":
       // 全局约定：生日只显示标题（见 eventTitle），不渲染描述
       return ""

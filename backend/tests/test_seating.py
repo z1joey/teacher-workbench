@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from app.models import Class, Enrollment
+from app.models import Class, Enrollment, Event
 from app.routers import classes as classes_router
 from tests.conftest import seed_person, seed_token
 
@@ -71,6 +71,39 @@ def test_seating_roundtrip(client):
     r = _put(client, klass, 1, 1, {})
     assert r.status_code == 200
     assert _get(client, klass).json() == {"rows": 1, "cols": 1, "seats": {}}
+
+
+def test_seating_changes_emit_seat_changed_events(client):
+    klass = client["class"]
+    s1, s2 = client["students"]["s1"], client["students"]["s2"]
+
+    def seat_events():
+        return client["db"].query(Event).filter(Event.type == "seat_changed").all()
+
+    # 初次安排：每位就座学生一条「安排座位」事件（from 为空）
+    assert _put(client, klass, 2, 3, {"0": str(s1.id), "5": str(s2.id)}).status_code == 200
+    events = seat_events()
+    assert len(events) == 2
+    by_student = {e.attendees[0].id: e for e in events}
+    assert by_student[s1.id].payload["to"] == "第1排第1列"
+    assert by_student[s1.id].payload["from"] is None
+    assert by_student[s2.id].payload["to"] == "第2排第3列"
+
+    # 重新安排：s1 挪座、s2 移出 → 各留一条；s1 从第2排第3列 → 第1排第2列
+    assert _put(client, klass, 2, 3, {"1": str(s1.id)}).status_code == 200
+    events = seat_events()
+    assert len(events) == 4
+    moved = {e.attendees[0].id: e for e in events if e.id not in {x.id for x in events[:2]}}
+    s1_ev = moved[s1.id]
+    assert s1_ev.payload["from"] == "第1排第1列"
+    assert s1_ev.payload["to"] == "第1排第2列"
+    s2_ev = moved[s2.id]
+    assert s2_ev.payload["from"] == "第2排第3列"
+    assert s2_ev.payload["to"] is None  # 移出座位表
+
+    # 无变化的重复保存：不产生新事件
+    assert _put(client, klass, 2, 3, {"1": str(s1.id)}).status_code == 200
+    assert len(seat_events()) == 4
 
 
 def test_seating_rejects_duplicate_member_and_out_of_range(client):

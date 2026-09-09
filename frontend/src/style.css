@@ -709,6 +709,10 @@ mark.hl {
 .page-head__meta-row {
   align-items: center;
 }
+.page-head__tag-row {
+  align-items: center;
+  margin-top: var(--sp-2);
+}
 .page-head__tag-form {
   max-width: 520px;
 }
@@ -1665,6 +1669,29 @@ a.chip:hover {
   border-radius: 50%;
   background: var(--tag-color);
   flex: 0 0 auto;
+}
+/* 「添加标签」按钮复用标签外观：虚线空底，展开时转为实线主色。
+   放在 .tag 之后：border 走 shorthand，后写的选择器才能覆盖成 dashed */
+.tag--add {
+  border-style: dashed;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  appearance: none;
+  font-family: inherit; /* 尺寸/字重沿用 .tag 的 12px/600，不用 shorthand 以免重置 */
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.tag--add::before {
+  display: none; /* 自带 tag 图标，不重复显示色点 */
+}
+.tag--add:hover,
+.tag--add.is-open {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.tag--add.is-open {
+  border-style: solid;
 }
 .tag__x {
   display: grid;
@@ -2981,14 +3008,6 @@ a.chip:hover {
 }
 .card--link:hover .card__title {
   color: var(--primary);
-}
-
-/* 已结束的考试（考试列表）：整卡置灰提示"已成过往"，仍可点击进详情 */
-.card--past {
-  opacity: 0.55;
-}
-.card--past:hover {
-  opacity: 1;
 }
 
 /* 可勾选的筹码（新建考试的科目选择）；选中色也可由内联 style 覆盖为科目色 */

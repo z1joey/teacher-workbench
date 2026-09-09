@@ -135,24 +135,32 @@ async function removeClass() {
 
 // 语数英 120 分、其余 100 分——原始分同轴比较不公平，统一画成得分率（%）
 const trendChart = computed(() => {
-  if (!detail.value || !detail.value.trend.exams.length) return null
-  const series = detail.value.trend.series.map((s) => {
+  const trend = detail.value?.trend
+  if (!trend || !trend.exams.length) return null
+  // 本班各科都没成绩的考试（未录入/未参加）不进图表
+  const kept = trend.exams
+    .map((_, i) => i)
+    .filter((i) => trend.series.some((s) => s.values[i] != null))
+  if (!kept.length) return null
+  const pick = (arr) => kept.map((i) => arr[i])
+  const series = trend.series.map((s) => {
     const full = s.full_score || 100
     return {
       key: s.subject,
       label: subject(s.subject),
       color: subjectColor(s.subject),
-      values: s.values.map((v) => (v == null ? null : Math.round((v / full) * 1000) / 10)),
+      values: pick(s.values).map((v) => (v == null ? null : Math.round((v / full) * 1000) / 10)),
     }
   })
   return {
-    labels: detail.value.trend.exams.map((e) => e.name),
-    dates: detail.value.trend.exams.map((e) => e.exam_date),
+    labels: pick(trend.exams).map((e) => e.name),
+    dates: pick(trend.exams).map((e) => e.exam_date),
     series,
     yMax: 100,
     formatTip: (s, pct, i) => {
-      const orig = detail.value.trend.series.find((x) => x.subject === s.key)
-      const raw = orig ? orig.values[i] : null
+      const origIdx = kept[i]
+      const orig = trend.series.find((x) => x.subject === s.key)
+      const raw = orig ? orig.values[origIdx] : null
       const full = orig ? orig.full_score || 100 : 100
       return raw != null ? `${pct}%（${raw}/${full} 分）` : `${pct}%`
     },
@@ -160,6 +168,26 @@ const trendChart = computed(() => {
 })
 
 const hasScores = computed(() => detail.value && detail.value.averages.length > 0)
+
+// 各科平均成绩附上与上次考试相比的变化：取该科最近两场有成绩的平均分之差
+const averagesWithDelta = computed(() => {
+  if (!detail.value) return []
+  const bySubject = new Map(
+    (detail.value.trend?.series || []).map((s) => [s.subject, s.values.filter((v) => v != null)])
+  )
+  return detail.value.averages.map((a) => {
+    const vals = bySubject.get(a.subject)
+    const delta =
+      vals && vals.length >= 2
+        ? Math.round((vals[vals.length - 1] - vals[vals.length - 2]) * 10) / 10
+        : null
+    return { ...a, delta }
+  })
+})
+
+function fmtDelta(delta) {
+  return `${delta > 0 ? "↑" : "↓"}${Math.abs(delta).toFixed(1)}`
+}
 
 // ------------------------------------------------------------------ 学生进出班
 
@@ -349,18 +377,8 @@ function fmtPct(score, full) {
         </form>
       </div>
 
-      <!-- 座位表：班级页默认显示，就地拖拽编辑 -->
-      <div class="card" style="margin-bottom: var(--sp-5)">
-        <div class="card__head">
-          <div>
-            <h2 class="card__title"><Icon name="board" :size="16" /> {{ t("classes.seating") }}</h2>
-            <p class="card__desc">拖动学生调整座位，改完记得保存</p>
-          </div>
-        </div>
-        <div class="card__body">
-          <SeatingBoard :class-id="classId" :students="detail.students" />
-        </div>
-      </div>
+      <!-- 座位表：班级页默认显示，标题行带行列设置，就地拖拽编辑 -->
+      <SeatingBoard :class-id="classId" :students="detail.students" />
 
       <div class="split">
         <div>
@@ -428,9 +446,17 @@ function fmtPct(score, full) {
             <div v-if="!hasScores" class="state state--in-card">
               <p class="state__desc">{{ t("classdetail.noScores") }}</p>
             </div>
-            <div v-for="a in detail.averages" :key="a.subject" class="stat stat--plain">
+            <div v-for="a in averagesWithDelta" :key="a.subject" class="stat stat--plain">
               <div class="stat__label">{{ subject(a.subject) }}</div>
-              <div class="stat__value tnum">{{ a.avg ?? t("common.none") }}</div>
+              <div class="stat__value tnum">
+                {{ a.avg ?? t("common.none") }}
+                <span
+                  v-if="a.delta != null"
+                  class="tnum score-pill__delta"
+                  :style="{ color: a.delta >= 0 ? 'var(--ok)' : 'var(--warn)' }"
+                  title="与上一场考试的平均分相比"
+                >{{ fmtDelta(a.delta) }}</span>
+              </div>
               <div class="stat__sub">
                 {{ t("exam.outOf") }} {{ a.full_score }}（{{ fmtPct(a.avg, a.full_score) }}%） ·
                 {{ t("exam.exams", { count: a.count }) }}

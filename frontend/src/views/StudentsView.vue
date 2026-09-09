@@ -1,7 +1,8 @@
 <script setup>
-// 学生列表：按班级分组，可折叠；每组内用卡片网格展示学生。
+// 学生列表：一次只看一个班（页头标题位下拉切换，未分班也是一个选项），
+// 顶部搜索时跨全部学生匹配、平铺展示结果。
 import { computed, onMounted, ref } from "vue"
-import { useRouter } from "vue-router"
+import { useRoute, useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
@@ -10,12 +11,14 @@ import { searchQuery, searchStudents, studentMatchesQuery, matchedGuardiansOf } 
 import Highlight from "../components/Highlight.vue"
 import { friendlyError, tagStyle, t, eventTitle, describeEvent, dateLocale } from "../strings"
 
+const route = useRoute()
 const router = useRouter()
 const students = ref([])
 const query = searchQuery // global — the top bar search box filters this list
 const loading = ref(true)
 const error = ref("")
-const collapsed = ref({})
+
+const UNGROUPED = "ungrouped" // ?class= 的未分班哨兵值
 
 async function load() {
   loading.value = true
@@ -37,29 +40,43 @@ const filtered = computed(() => {
   return students.value.filter((s) => studentMatchesQuery(s, q))
 })
 
-// First-appearance order (admission_no order); students without a class go last.
-const groups = computed(() => {
-  const byName = new Map()
-  for (const s of filtered.value) {
-    const name = s.class ? s.class.name : t("students.ungrouped")
-    if (!byName.has(name)) byName.set(name, [])
-    byName.get(name).push(s)
-  }
-  const ungrouped = t("students.ungrouped")
-  return [...byName.entries()]
-    .sort(([a], [b]) => (a === ungrouped) - (b === ungrouped))
-    .map(([name, list]) => ({ name, list }))
-})
-
 const searching = computed(() => query.value.trim().length > 0)
 
-// While searching, always expand so matches are never hidden inside a collapsed group.
-function isCollapsed(group) {
-  return !searching.value && !!collapsed.value[group.name]
+// 班级选项来自学生数据本身（没有学生的班不出现在学生页）
+const classOptions = computed(() => {
+  const byId = new Map()
+  for (const s of students.value) {
+    if (s.class && !byId.has(s.class.id)) byId.set(s.class.id, { id: s.class.id, name: s.class.name })
+  }
+  return [...byId.values()]
+})
+const hasUngrouped = computed(() => students.value.some((s) => !s.class))
+const groupCount = computed(() => classOptions.value.length + (hasUngrouped.value ? 1 : 0))
+
+// 选中班：URL ?class= 优先（班 id 或 "ungrouped"），否则第一个班
+const selectedKey = computed(() => {
+  const raw = route.query.class
+  const wanted = Array.isArray(raw) ? raw[0] : raw
+  if (wanted === UNGROUPED) return UNGROUPED
+  if (wanted && classOptions.value.some((c) => c.id === wanted)) return wanted
+  return classOptions.value[0]?.id ?? (students.value.length ? UNGROUPED : null)
+})
+
+function switchClass(key) {
+  router.replace({ query: { ...route.query, class: key } })
 }
-function toggleGroup(group) {
-  collapsed.value[group.name] = !collapsed.value[group.name]
-}
+
+// 搜索时跨全部学生匹配；平时只看选中班
+const visibleStudents = computed(() => {
+  if (searching.value) return filtered.value
+  if (!selectedKey.value) return []
+  if (selectedKey.value === UNGROUPED) return students.value.filter((s) => !s.class)
+  return students.value.filter((s) => s.class?.id === selectedKey.value)
+})
+
+const classEmpty = computed(
+  () => !searching.value && !!students.value.length && !visibleStudents.value.length
+)
 
 function fmtDate(ts) {
   return new Date(ts).toLocaleDateString(dateLocale(), {
@@ -84,8 +101,22 @@ function guardianHits(s) {
 <template>
   <PageHeader
     :title="t('students.title')"
-    :subtitle="t('students.subtitle', { count: students.length })"
+    :subtitle="t('students.subtitle', { count: visibleStudents.length })"
   >
+    <template v-if="groupCount > 1" #title>
+      <label class="class-switcher">
+        <select
+          class="class-switcher__select"
+          :value="selectedKey"
+          aria-label="选择班级"
+          @change="switchClass($event.target.value)"
+        >
+          <option v-for="c in classOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
+          <option v-if="hasUngrouped" :value="UNGROUPED">{{ t("students.ungrouped") }}</option>
+        </select>
+        <Icon name="chevron-down" :size="18" class="class-switcher__chevron" />
+      </label>
+    </template>
     <template #actions>
       <span v-if="searching" class="pill pill--info">
         正在筛选「{{ query.trim() }}」· {{ filtered.length }} 人
@@ -107,9 +138,17 @@ function guardianHits(s) {
   <AsyncState
     :loading="loading"
     :error="error"
-    :empty="!loading && !filtered.length"
-    :empty-title="searching ? t('common.noMatch') : t('students.emptyTitle')"
-    :empty-desc="searching ? '换个姓名、学号或班级再试试。' : t('students.emptyDesc')"
+    :empty="!loading && !error && !visibleStudents.length"
+    :empty-title="
+      searching ? t('common.noMatch') : classEmpty ? '这个班还没有学生' : t('students.emptyTitle')
+    "
+    :empty-desc="
+      searching
+        ? '换个姓名、学号或班级再试试。'
+        : classEmpty
+          ? '从页头下拉切换其他班级。'
+          : t('students.emptyDesc')
+    "
     empty-icon="users"
     @retry="load"
   >
@@ -120,87 +159,57 @@ function guardianHits(s) {
       </router-link>
     </template>
 
-    <div class="stack stack--flush">
-      <section
-        v-for="g in groups"
-        :key="g.name"
-        class="card student-group"
-        :class="{ 'is-collapsed': isCollapsed(g) }"
-      >
-        <button
-          :id="`group-head-${g.name}`"
-          class="student-group__toggle"
-          type="button"
-          :aria-expanded="!isCollapsed(g)"
-          :aria-controls="`group-body-${g.name}`"
-          @click="toggleGroup(g)"
+    <section v-if="visibleStudents.length" class="card">
+      <div class="student-cards">
+        <article
+          v-for="s in visibleStudents"
+          :key="s.id"
+          class="student-card is-clickable"
+          tabindex="0"
+          @click="router.push(`/students/${s.id}`)"
+          @keydown.enter.prevent="router.push(`/students/${s.id}`)"
         >
-          <Icon
-            :name="isCollapsed(g) ? 'chevron-right' : 'chevron-down'"
-            :size="16"
-            class="student-group__chevron"
-          />
-          <span class="student-group__name">{{ g.name }}</span>
-          <span class="pill pill--muted pill--count">{{ g.list.length }}</span>
-        </button>
+          <header class="student-card__head">
+            <div class="student-card__identity">
+              <h3 class="student-card__name">{{ s.name }}</h3>
+              <span class="student-card__no muted tnum">
+                {{ s.admission_no }}<template v-if="searching && s.class"> · {{ s.class.name }}</template>
+              </span>
+            </div>
+            <Icon name="chevron-right" :size="15" class="student-card__chevron" />
+          </header>
 
-        <div
-          v-show="!isCollapsed(g)"
-          :id="`group-body-${g.name}`"
-          class="student-group__body"
-          role="region"
-          :aria-labelledby="`group-head-${g.name}`"
-        >
-          <div class="student-cards">
-            <article
-              v-for="s in g.list"
-              :key="s.id"
-              class="student-card is-clickable"
-              tabindex="0"
-              @click="router.push(`/students/${s.id}`)"
-              @keydown.enter.prevent="router.push(`/students/${s.id}`)"
-            >
-              <header class="student-card__head">
-                <div class="student-card__identity">
-                  <h3 class="student-card__name">{{ s.name }}</h3>
-                  <span class="student-card__no muted tnum">{{ s.admission_no }}</span>
-                </div>
-                <Icon name="chevron-right" :size="15" class="student-card__chevron" />
-              </header>
+          <p v-if="guardianHits(s).length" class="student-card__guardians muted">
+            监护人：<template v-for="(g, gi) in guardianHits(s)" :key="g.id"><template v-if="gi">、</template><Highlight :text="g.name" :query="query" /></template>
+          </p>
 
-              <p v-if="guardianHits(s).length" class="student-card__guardians muted">
-                监护人：<template v-for="(g, gi) in guardianHits(s)" :key="g.id"><template v-if="gi">、</template><Highlight :text="g.name" :query="query" /></template>
-              </p>
-
-              <div v-if="s.tags?.length" class="chips student-card__tags">
-                <span
-                  v-for="tag in s.tags"
-                  :key="tag.id"
-                  class="tag"
-                  :style="tagStyle(tag.color)"
-                >{{ tag.name }}</span>
-              </div>
-
-              <footer v-if="s.last_event" class="student-card__event">
-                <div class="student-card__event-head">
-                  <span class="student-card__event-type">
-                    {{ eventTitle(s.last_event.event_type, s.last_event.payload) }}
-                  </span>
-                  <time class="student-card__event-time muted tnum">
-                    {{ fmtDate(s.last_event.occurred_at) }}
-                  </time>
-                </div>
-                <p v-if="lastEventText(s.last_event)" class="student-card__event-desc muted">
-                  {{ lastEventText(s.last_event) }}
-                </p>
-              </footer>
-              <p v-else class="student-card__empty muted">
-                <Icon name="clock" :size="12" /> {{ t("students.noRecentEvent") }}
-              </p>
-            </article>
+          <div v-if="s.tags?.length" class="chips student-card__tags">
+            <span
+              v-for="tag in s.tags"
+              :key="tag.id"
+              class="tag"
+              :style="tagStyle(tag.color)"
+            >{{ tag.name }}</span>
           </div>
-        </div>
-      </section>
-    </div>
+
+          <footer v-if="s.last_event" class="student-card__event">
+            <div class="student-card__event-head">
+              <span class="student-card__event-type">
+                {{ eventTitle(s.last_event.event_type, s.last_event.payload) }}
+              </span>
+              <time class="student-card__event-time muted tnum">
+                {{ fmtDate(s.last_event.occurred_at) }}
+              </time>
+            </div>
+            <p v-if="lastEventText(s.last_event)" class="student-card__event-desc muted">
+              {{ lastEventText(s.last_event) }}
+            </p>
+          </footer>
+          <p v-else class="student-card__empty muted">
+            <Icon name="clock" :size="12" /> {{ t("students.noRecentEvent") }}
+          </p>
+        </article>
+      </div>
+    </section>
   </AsyncState>
 </template>

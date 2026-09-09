@@ -166,13 +166,7 @@ async function resetApp() {
   <PageHeader
     title="数据"
     subtitle="用 Excel 花名册批量导入、导出学生"
-  >
-    <template #actions>
-      <button class="btn" @click="downloadTemplate">
-        <Icon name="note" :size="15" /> 花名册模板
-      </button>
-    </template>
-  </PageHeader>
+  />
 
   <AsyncState :loading="loading" :error="error" :rows="4" @retry="load">
     <div class="stack" style="gap: 20px">

@@ -27,7 +27,7 @@ from .eventing import sync_all_birthday_events
 from .unassigned import ensure_unassigned_class
 from .workspace import ensure_workspace_id, tag_student_workspace
 from .eventing import create_event
-from .models import Class, Enrollment, Event, Person, Tag, student_guardians
+from .models import Class, ClassSeating, Enrollment, Event, Person, Tag, student_guardians
 from .payloads import validate_person_payload
 from .routers.students import _guardians_of, _find_or_create_guardian
 from .security import hash_password
@@ -290,23 +290,70 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                           "reason": "均衡编班"},
                  attendee_ids=[hao.id])
 
-    # --- home visits + notes -------------------------------------------------
+    # --- 座位表演示：两个班各一张常驻布局，留几个空座更接近真实教室 ---------
+    # seats 为 {行优先座位序号: 学生}；林晓雨(需关注)固定前排，王浩转班后坐末排
+    seating_plan = {
+        c71.id: (4, 4, {  # 4 排 4 列，末排只坐转班来的王浩
+            "0": "林晓雨", "1": "陈佳怡", "2": "周子涵", "3": "吴一凡",
+            "4": "宋雅轩", "5": "徐曼怡", "6": "高子辰", "7": "韩如冰",
+            "8": "乔安琪", "9": "冯俊豪", "10": "唐美琳", "11": "罗蔚一",
+            "12": "王浩",
+        }),
+        c72.id: (4, 3, {  # 4 排 3 列，末排一个空座
+            "0": "郭浩然", "1": "李思彤", "2": "张悦",
+            "3": "刘宇宸", "4": "何佳欣", "5": "崔明轩",
+            "6": "潘书涵", "7": "袁志远", "8": "邓晓彤",
+            "9": "任凯文", "10": "沈洛一",
+        }),
+    }
+    for class_id, (rows, cols, layout) in seating_plan.items():
+        db.add(ClassSeating(
+            class_id=class_id,
+            rows=rows,
+            cols=cols,
+            seats={pos: str(by_name[name].id) for pos, name in layout.items()},
+        ))
+    db.flush()
+
+    # 开学排座同样留痕：每位就座学生一条换座位事件（王浩的是转班后的新安排）
+    for class_id, (rows, cols, layout) in seating_plan.items():
+        for pos, name in layout.items():
+            i = int(pos)
+            student = by_name[name]
+            day = (
+                date(2026, 3, 2)
+                if (name == "王浩" and class_id == c71.id)
+                else date(2025, 9, 2)
+            )
+            create_event(db, event_type="seat_changed", title="换座位",
+                         start_time=dt(day, time(8, 40)),
+                         payload={"to": f"第{i // cols + 1}排第{i % cols + 1}列"},
+                         attendee_ids=[student.id])
+
+    # --- home visits + notes + 谈心/辅导/家长沟通/评语/活动 -------------------
     # Visits involve 陈老师 (the visiting teacher), the student and the
     # guardian of record (snapshotted from the linked guardian Person); notes
     # involve her and the student. Home-visit purpose folds into the summary
-    # (HomeVisitPayload has summary/purpose/guardian only).
+    # (HomeVisitPayload has summary/purpose/guardian only). One visit is left
+    # undone so the 待跟进 queue has content.
     visits = [
-        (hao, datetime(2026, 3, 20, 19, 0),
+        (hao, datetime(2026, 3, 20, 19, 0), "行为习惯", True,
          "频繁迟到：父母上早班，商定由爷爷负责早餐和晨间作息。"),
-        (lin, datetime(2026, 5, 10, 19, 30),
+        (lin, datetime(2026, 5, 10, 19, 30), "学业沟通", True,
          "数学提升计划：与家长沟通分数专项练习计划，每周二、周四各练习20分钟。"),
-        (guo, datetime(2026, 6, 5, 18, 30),
+        (xu := by_name["徐曼怡"], datetime(2026, 4, 11, 18, 30), "作业习惯", True,
+         "父母反映回家作业拖拉，约定使用番茄钟计划表，每周末电话跟进一次。"),
+        (guo, datetime(2026, 6, 5, 18, 30), "期末走访", True,
          "期末走访：家庭支持到位，学生自述备考状态良好。"),
+        (deng, datetime(2026, 7, 2, 19, 0), "期末回访", False,
+         "约期末后回访，了解转班前后学习状态的变化，准备暑期建议。"),
     ]
-    for student, when, summary in visits:
+    for student, when, purpose, done, summary in visits:
         guardians = _guardians_of(db, student.id)
         create_event(db, event_type="home_visited", title="家访", start_time=when,
                      payload={"summary": summary,
+                              "purpose": purpose,
+                              "done": done,
                               "guardian": guardians[0][0].name if guardians else None},
                      attendee_ids=[student.id, teacher.id])
 
@@ -318,6 +365,107 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                  start_time=datetime(2026, 3, 22, 15, 0),
                  payload={"notes": "家庭约定后，出勤情况明显改善。"},
                  attendee_ids=[hao.id, teacher.id])
+
+    # --- 谈心 / 辅导 / 家长沟通 ----------------------------------------------
+    zhou = by_name["周子涵"]
+    han = by_name["韩如冰"]
+    feng = by_name["冯俊豪"]
+    talk_items = [
+        (hao, datetime(2026, 3, 4, 16, 0),
+         "转班第一天，聊聊新班级的节奏，安排同桌互相认识。"),
+        (zhou, datetime(2026, 3, 12, 16, 20),
+         "课间与同学起争执，谈心后互相道歉，约定值日分工轮流来。"),
+    ]
+    for student, when, notes in talk_items:
+        create_event(db, event_type="talk", title="谈话", start_time=when,
+                     payload={"notes": notes}, attendee_ids=[student.id, teacher.id])
+
+    tutor_items = [
+        (lin, datetime(2026, 4, 8, 16, 30), "数学辅导：分数应用题画图法专项练习。"),
+        (lin, datetime(2026, 4, 15, 16, 30), "数学辅导：画图法巩固，正确率明显提升。"),
+        (hao, datetime(2026, 3, 11, 16, 30), "数学辅导：一元一次方程去括号易错点。"),
+    ]
+    for student, when, notes in tutor_items:
+        create_event(db, event_type="tutoring", title="辅导", start_time=when,
+                     payload={"notes": notes}, attendee_ids=[student.id, teacher.id])
+
+    call_items = [
+        (han, datetime(2026, 5, 6, 19, 30),
+         "反映近期上课走神，家长表示会调整晚间作息，控制电子产品使用。"),
+        (feng, datetime(2026, 6, 20, 18, 0),
+         "电话表扬期末进步明显，家长很受鼓舞，表示暑假坚持阅读打卡。"),
+    ]
+    for student, when, notes in call_items:
+        create_event(db, event_type="parent_call", title="电话沟通", start_time=when,
+                     payload={"notes": notes}, attendee_ids=[student.id, teacher.id])
+
+    # --- 评语 ---------------------------------------------------------------
+    song = by_name["宋雅轩"]
+    qiao = by_name["乔安琪"]
+    tang = by_name["唐美琳"]
+
+    def comment(about, when, notes, mentioned=()):
+        create_event(db, event_type="comment", title="评语", start_time=when,
+                     payload={"notes": notes,
+                              "about": {"id": str(about.id), "name": about.name},
+                              "mentioned": [{"id": str(m.id), "name": m.name}
+                                            for m in mentioned]},
+                     attendee_ids=[about.id, *[m.id for m in mentioned], teacher.id])
+
+    comment(lin, datetime(2026, 4, 24, 16, 0),
+            "近期数学课堂发言积极，画图法用得越来越好，继续保持这股劲头。")
+    comment(song, datetime(2026, 4, 29, 17, 0),
+            "运动会报名组织有序，平时也乐于帮同学讲题，很有小老师的样子。",
+            mentioned=[tang, qiao])
+    comment(hao, datetime(2026, 3, 27, 16, 30),
+            "转班后适应得不错，数学方程部分仍需巩固，已安排每周一次辅导。")
+
+    # --- 比赛 / 班级活动（title 记发生了什么，notes 记结果）-------------------
+    luo = by_name["罗蔚一"]
+    gaozc = by_name["高子辰"]
+    activities = [
+        ("校运会女子800米决赛", datetime(2026, 4, 28, 10, 0),
+         [song, teacher], "宋雅轩以3分12秒夺得第一名，为班级积8分。"),
+        ("校运会男子跳远", datetime(2026, 4, 28, 15, 0),
+         [luo, teacher], "罗蔚一以4米35获得第三名。"),
+        ("语文课文朗诵比赛", datetime(2026, 5, 16, 14, 0),
+         [qiao, tang, han, teacher], "三人组队参赛，乔安琪获最佳朗诵奖。"),
+        ("数学趣味竞赛", datetime(2026, 5, 22, 15, 30),
+         [gaozc, hao, teacher], "高子辰获二等奖，王浩坚持完成全部赛题。"),
+    ]
+    for title, when, attendees, notes in activities:
+        create_event(db, event_type="activity", title=title, start_time=when,
+                     payload={"notes": notes}, attendee_ids=[a.id for a in attendees])
+
+    # --- 更多成绩更正（成绩变化留痕）-----------------------------------------
+    def correct_score(student, exam_key, subject, delta, reason, when):
+        """Rewrite one already-written score payload and document the change."""
+        exam = exams_by_key[exam_key]
+        ev = (
+            db.query(Event)
+            .filter(
+                Event.type == "score",
+                Event.title == f"{exam.title}·{subject}",
+                Event.start_time == exam.start_time,
+                Event.attendees.any(Person.id == student.id),
+            )
+            .one()
+        )
+        payload = dict(ev.payload or {})
+        old = payload.get("score")
+        new = round(clamp(old + delta, 0.0, SUBJECT_FULL_SCORES[subject]), 1)
+        payload["score"] = new
+        ev.payload = payload
+        create_event(db, event_type="result_changed", title=f"{subject}成绩更正",
+                     start_time=when,
+                     payload={"exam": exam.title, "subject": subject,
+                              "old": old, "new": new, "reason": reason},
+                     attendee_ids=[student.id])
+
+    correct_score(guo, "final", "english", 3.0,
+                  "作文漏判，补记3分", datetime(2026, 6, 28, 16, 30))
+    correct_score(zhou, "mar", "physics", -2.0,
+                  "誊录串行，纠正为本人实际得分", datetime(2026, 3, 19, 15, 40))
 
     sync_all_birthday_events(db)
     return teacher

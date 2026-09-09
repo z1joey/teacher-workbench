@@ -17,6 +17,7 @@ SYSTEM_EVENT_TYPES = {
     "class_moved",
     "exam_taken",
     "result_changed",
+    "seat_changed",
 }
 
 # event types that teachers write by hand

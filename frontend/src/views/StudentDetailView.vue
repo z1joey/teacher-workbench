@@ -580,6 +580,10 @@ const headerMeta = computed(() => {
             <span v-for="m in headerMeta" :key="m.label" class="pill pill--outline">
               {{ m.label }} <b class="tnum">{{ m.value }}</b>
             </span>
+          </div>
+
+          <!-- 标签独立一行；「添加标签」复用标签外观（虚线空底） -->
+          <div class="row-wrap page-head__tag-row">
             <span
               v-for="tag in student.tags"
               :key="tag.id"
@@ -591,7 +595,12 @@ const headerMeta = computed(() => {
                 <Icon name="close" :size="10" />
               </button>
             </span>
-            <button type="button" class="btn btn--sm btn--ghost" @click="toggleTagForm">
+            <button
+              type="button"
+              class="tag tag--add"
+              :class="{ 'is-open': tagFormOpen }"
+              @click="toggleTagForm"
+            >
               <Icon name="tag" :size="11" /> {{ t("detail.addTag") }}
             </button>
           </div>
