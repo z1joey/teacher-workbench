@@ -24,17 +24,34 @@ from app.routers import classes as classes_router
 from app.routers import dashboard as dashboard_router
 from app.routers import exams as exams_router
 from app.security import hash_password
+from app.workspace import ensure_workspace_id
 
 
 # ---------------------------------------------------------------------------
 # Seed helpers — persons / classes / enrollments / exams / scores
 # ---------------------------------------------------------------------------
 
+def _teacher_of(db) -> Person | None:
+    """本测试库里（唯一）的教师；工作区隔离后班级/学生的归属锚点。"""
+    role = Person.payload["role"].as_string()
+    return (
+        db.query(Person)
+        .filter(role == "teacher")
+        .order_by(Person.created_at.asc(), Person.id.asc())
+        .first()
+    )
+
+
 def _seed_person(db, name: str, admission_no: str, *, role: str = "student",
                  active: bool = True) -> Person:
     payload = validate_person_payload(role, {"admission_no": admission_no})
     if not active:
         payload["is_active"] = False
+    if role == "student":
+        # 工作区隔离：学生要挂到教师工作区，该教师的接口才看得到
+        teacher = _teacher_of(db)
+        if teacher is not None:
+            payload["workspace_id"] = ensure_workspace_id(teacher)
     p = Person(name=name, password_hash=hash_password(uuid.uuid4().hex), payload=payload)
     db.add(p)
     db.flush()
@@ -44,6 +61,7 @@ def _seed_person(db, name: str, admission_no: str, *, role: str = "student",
 def _seed_teacher(db, phone: str = "13800000001", name: str = "王老师") -> Person:
     p = Person(name=name, phone=phone, password_hash=hash_password("123456"),
                payload=validate_person_payload("teacher", {}))
+    ensure_workspace_id(p)
     db.add(p)
     db.flush()
     return p
@@ -55,10 +73,11 @@ def _headers(db, person: Person, token: str = "t" * 64) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _seed_class(db, name: str = "七年级1班", grade_level: int = 7,
-                academic_year: str = "2026", homeroom: Person | None = None) -> Class:
-    c = Class(name=name, grade_level=grade_level, academic_year=academic_year,
-              homeroom_person_id=homeroom.id if homeroom else None)
+def _seed_class(db, name: str = "七年级1班", academic_year: str = "2026") -> Class:
+    # 班级归属到教师：工作区隔离后 require_class_in_workspace 校验所有权
+    teacher = _teacher_of(db)
+    c = Class(name=name, academic_year=academic_year,
+              teacher_id=teacher.id if teacher else None)
     db.add(c)
     db.flush()
     return c
@@ -104,9 +123,8 @@ def _enter_scores(db, exam: Event, person: Person, subject_scores: dict[str, flo
 
 
 def _manual_event(db, person: Person, event_type: str, summary: str,
-                  start: datetime, follow_up: str | None = None) -> Event:
-    payload = ({"summary": summary, "follow_up": follow_up}
-               if event_type == "home_visited" else {"notes": summary})
+                  start: datetime) -> Event:
+    payload = {"summary": summary} if event_type == "home_visited" else {"notes": summary}
     ev = eventing.create_event(db, event_type=event_type, title=summary,
                                start_time=start, payload=payload,
                                attendee_ids=[person.id])
@@ -168,7 +186,7 @@ def test_create_exam_creates_event_with_class_attendees(make_client, db, headers
 
     body = client.post(
         "/api/exams",
-        json={"name": "期中考试", "exam_date": "2026-05-20", "class_id": str(cls.id),
+        json={"name": "期中考试", "exam_date": "2026-05-20", "class_ids": [str(cls.id)],
               "subjects": [{"subject": "语文", "full_score": 120},
                             {"subject": "数学", "full_score": 100}]},
         headers=headers,
@@ -521,42 +539,32 @@ def test_delete_exam_keeps_score_events(make_client, db, headers):
 
 def test_class_crud_contract(make_client, db, headers):
     client = make_client(classes_router.router)
-    teacher = _seed_teacher(db, phone="13800000002", name="李老师")
     student = _seed_person(db, "张一", "S1")
     db.commit()
 
     r = client.post("/api/classes", json={
-        "name": "七年级1班", "grade_level": 7, "academic_year": "2026",
-        "homeroom_teacher_id": str(teacher.id),
+        "name": "七年级1班", "academic_year": "2026",
     }, headers=headers)
     assert r.status_code == 201, r.text
     data = r.json()
     assert data == {
-        "id": data["id"], "name": "七年级1班", "grade_level": 7,
-        "academic_year": "2026", "homeroom_teacher_id": str(teacher.id),
-        "homeroom_teacher": "李老师", "student_count": 0, "students": [],
+        "id": data["id"], "name": "七年级1班",
+        "academic_year": "2026", "student_count": 0, "students": [],
     }
 
     dup = client.post("/api/classes", json={
-        "name": "七年级1班", "grade_level": 7, "academic_year": "2026",
+        "name": "七年级1班", "academic_year": "2026",
     }, headers=headers)
     assert dup.status_code == 409
     assert dup.json()["detail"] == "该学年已存在同名班级"
 
-    bad_teacher = client.post("/api/classes", json={
-        "name": "七年级2班", "grade_level": 7, "academic_year": "2026",
-        "homeroom_teacher_id": str(student.id),  # a student is not a teacher
-    }, headers=headers)
-    assert bad_teacher.status_code == 400
-    assert bad_teacher.json()["detail"] == "teacher not found"
-
     _enroll(db, student, db.get(Class, uuid.UUID(data["id"])))
     db.commit()
     patched = client.patch(f"/api/classes/{data['id']}", json={
-        "name": "七年级1班", "grade_level": 8, "academic_year": "2026",
+        "name": "七年级1班", "academic_year": "2026/2027",
     }, headers=headers)
     assert patched.status_code == 200
-    assert patched.json()["grade_level"] == 8
+    assert patched.json()["academic_year"] == "2026/2027"
     assert patched.json()["student_count"] == 1
 
     conflict = client.delete(f"/api/classes/{data['id']}", headers=headers)
@@ -564,7 +572,7 @@ def test_class_crud_contract(make_client, db, headers):
     assert conflict.json()["detail"] == "班级内仍有学生或历史记录，无法删除"
 
     empty = client.post("/api/classes", json={
-        "name": "七年级3班", "grade_level": 7, "academic_year": "2026",
+        "name": "七年级3班", "academic_year": "2026",
     }, headers=headers)
     assert empty.status_code == 201
     gone = client.delete(f"/api/classes/{empty.json()['id']}", headers=headers)
@@ -583,8 +591,7 @@ def test_class_crud_contract(make_client, db, headers):
 def test_calendar_range_and_kinds(graded, db):
     ctx = graded
     a = ctx["students"][0]
-    _manual_event(db, a, "home_visited", "6月家访", datetime(2026, 6, 5, 10, 0),
-                  follow_up="需要二次跟进")
+    _manual_event(db, a, "home_visited", "6月家访", datetime(2026, 6, 5, 10, 0))
     _manual_event(db, a, "talk", "七月谈话", datetime(2026, 7, 1, 9, 0))
     db.commit()
 
@@ -603,9 +610,9 @@ def test_calendar_range_and_kinds(graded, db):
     assert visit["event_type"] == "home_visited"
     assert visit["student_id"] == str(a.id)
     assert visit["student_name"] == "张一"
-    assert visit["payload"] == {"summary": "6月家访", "follow_up": "需要二次跟进"}
-    # the old calendar carried no birthdays — none projected here either
-    assert all(i["kind"] != "birthday" for i in items)
+    assert visit["payload"] == {"summary": "6月家访"}
+    # graded fixture students have no birth_date, so June calendar has no birthdays
+    assert all(i.get("event_type") != "birthday" for i in items)
 
     bad = ctx["client"].get("/api/calendar", params={"year": 2026, "month": 13},
                             headers=ctx["headers"])
@@ -616,8 +623,7 @@ def test_calendar_range_and_kinds(graded, db):
 def test_dashboard_summary_counts_and_panels(graded, db):
     ctx = graded
     client, a, b = ctx["client"], ctx["students"][0], ctx["students"][1]
-    _manual_event(db, a, "home_visited", "家访甲", datetime(2026, 6, 5, 10, 0),
-                  follow_up="需要二次跟进")
+    _manual_event(db, a, "home_visited", "家访甲", datetime(2026, 6, 5, 10, 0))
     _manual_event(db, a, "home_visited", "家访乙", datetime(2026, 6, 6, 10, 0))
     _manual_event(db, b, "note_added", "课堂随笔", datetime(2026, 6, 7, 10, 0))
     # the recording teacher attends the visit too — digest rows stay
@@ -626,7 +632,7 @@ def test_dashboard_summary_counts_and_panels(graded, db):
     eventing.create_event(
         db, event_type="home_visited", title="家访丙",
         start_time=datetime(2026, 6, 8, 10, 0),
-        payload={"summary": "有老师同行的家访", "follow_up": "两周后回访"},
+        payload={"summary": "有老师同行的家访"},
         attendee_ids=[b.id, teacher.id],
     )
     db.commit()  # release the write lock before the API session writes
@@ -646,16 +652,6 @@ def test_dashboard_summary_counts_and_panels(graded, db):
 
     assert [e["name"] for e in data["upcoming_exams"]] == ["十月月考", "十一月月考"]
     assert data["upcoming_exams"][0]["exam_date"] == (date.today() + timedelta(days=30)).isoformat()
-
-    # follow_ups: only home visits with a follow-up note; purpose has no slot.
-    # 家访丙 has the teacher attending, yet the row is the student's alone.
-    assert [f["summary"] for f in data["follow_ups"]] == ["有老师同行的家访", "家访甲"]
-    assert [f["student_name"] for f in data["follow_ups"]] == ["李二", "张一"]
-    assert data["follow_ups"][0]["follow_up_note"] == "两周后回访"
-    assert data["follow_ups"][0]["purpose"] is None
-    assert data["follow_ups"][1]["follow_up_note"] == "需要二次跟进"
-    assert data["follow_ups"][1]["purpose"] is None
-    assert data["follow_ups"][1]["student_name"] == "张一"
 
     # recent events: one row per Event with its student roster (score/exam
     # rows are not digest items; the attending teacher never surfaces)

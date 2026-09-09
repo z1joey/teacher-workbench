@@ -1,44 +1,49 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from ..display_name import teacher_display_name
 from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import MANUAL_EVENT_TYPES
 from ..models import Class, Enrollment, Event, Person
 from ..payloads import validate_person_payload
-from ..semesters import default_semesters, ensure_teacher_semesters
+from ..unassigned import is_unassigned_class
+from ..workspace import classes_query
 
 router = APIRouter(tags=["profile"])
 
 
-def _semesters_out(payload: dict | None) -> list[dict]:
-    return list((payload or {}).get("semesters") or [])
-
-
-def _semesters_for_person(person: Person) -> list[dict]:
-    payload = person.payload or {}
-    if payload.get("role", "teacher") != "teacher":
-        return []
-    if payload.get("semesters"):
-        return _semesters_out(payload)
-    return default_semesters()
-
-
 def user_out(u: Person) -> dict:
     payload = u.payload or {}
-    return {
+    role = payload.get("role")
+    name = u.name
+    out = {
         "id": str(u.id),
-        "name": u.name,
+        "name": name,
         "phone": u.phone,
         "email": u.email,
-        "role": payload.get("role"),
+        "role": role,
+    }
+    if role == "teacher":
+        out["display_name"] = teacher_display_name(name)
+    else:
+        out["display_name"] = name or ""
+    return out
+
+
+def settings_out(payload: dict) -> dict:
+    return {
+        "auto_tags": payload.get("auto_tags", True),
+        "calendar_birthdays": payload.get("calendar_birthdays", True),
     }
 
 
 class ProfileIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     email: str | None = None
+    auto_tags: bool | None = None
+    calendar_birthdays: bool | None = None
 
 
 @router.get("/profile")
@@ -46,14 +51,11 @@ def get_profile(
     db: Session = Depends(get_db),
     person: Person = Depends(get_current_person),
 ):
-    classes = (
-        db.query(Class)
-        .filter(Class.homeroom_person_id == person.id)
-        .order_by(Class.name)
-        .all()
-    )
-    out_classes = []
-    for c in classes:
+    payload = dict(person.payload or {})
+    classes = []
+    for c in classes_query(db, person).order_by(Class.name).all():
+        if is_unassigned_class(c):
+            continue
         students = (
             db.query(Person)
             .join(Enrollment, Enrollment.person_id == Person.id)
@@ -61,7 +63,7 @@ def get_profile(
             .order_by(Person.payload["admission_no"].as_string())
             .all()
         )
-        out_classes.append(
+        classes.append(
             {
                 "id": str(c.id),
                 "name": c.name,
@@ -93,9 +95,9 @@ def get_profile(
     }
     return {
         "user": user_out(person),
-        "classes": out_classes,
+        "settings": settings_out(payload),
+        "classes": classes,
         "stats": stats,
-        "semesters": _semesters_for_person(person),
     }
 
 
@@ -108,41 +110,10 @@ def update_profile(
     payload = dict(person.payload or {})
     person.name = body.name.strip()
     person.email = (body.email or "").strip() or None
-    person.payload = payload  # reassign: JSON columns don't see in-place mutation
+    if "auto_tags" in body.model_fields_set and body.auto_tags is not None:
+        payload["auto_tags"] = body.auto_tags
+    if "calendar_birthdays" in body.model_fields_set and body.calendar_birthdays is not None:
+        payload["calendar_birthdays"] = body.calendar_birthdays
+    person.payload = validate_person_payload("teacher", payload)
     db.commit()
-    return user_out(person)
-
-
-class SemesterIn(BaseModel):
-    id: str = Field(min_length=1, max_length=40)
-    name: str = Field(min_length=1, max_length=100)
-    start_date: str
-    end_date: str
-
-
-class SemestersIn(BaseModel):
-    semesters: list[SemesterIn] = Field(default_factory=list)
-
-    @field_validator("semesters")
-    @classmethod
-    def _unique_ids(cls, rows: list[SemesterIn]) -> list[SemesterIn]:
-        ids = [row.id for row in rows]
-        if len(ids) != len(set(ids)):
-            raise ValueError("semester ids must be unique")
-        return rows
-
-
-@router.patch("/profile/semesters")
-def update_semesters(
-    body: SemestersIn,
-    db: Session = Depends(get_db),
-    person: Person = Depends(get_current_person),
-):
-    payload = dict(person.payload or {})
-    payload["semesters"] = [row.model_dump() for row in body.semesters]
-    try:
-        person.payload = validate_person_payload(payload.get("role", "teacher"), payload)
-    except (ValueError, ValidationError) as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    db.commit()
-    return {"semesters": _semesters_out(person.payload)}
+    return {**user_out(person), "settings": settings_out(person.payload or {})}

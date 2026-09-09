@@ -1,16 +1,17 @@
 <script setup>
 // 新建考试：常用科目一点即加，每科可改名称 / 满分 / 颜色；也可自行添加。
-import { computed, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import FormField from "../components/FormField.vue"
 import api from "../api"
-import { COMMON_SUBJECTS, friendlyError, subject, t } from "../strings"
+import { COMMON_SUBJECTS, friendlyError, subject, t, todayStr } from "../strings"
 
 const router = useRouter()
 
 let nextRowId = 1
+
 function presetRow(p) {
   return {
     id: nextRowId++,
@@ -24,16 +25,36 @@ function presetRow(p) {
 
 const form = ref({
   name: "",
-  exam_date: "",
+  // 默认今天：不选日期直接创建时，考试落在当天（结束日期留空即单日考试）
+  exam_date: todayStr(),
   end_date: "",
   subjects: [
     presetRow(COMMON_SUBJECTS.find((s) => s.key === "math")),
     presetRow(COMMON_SUBJECTS.find((s) => s.key === "english")),
   ],
+  class_ids: [],
 })
 const busy = ref(false)
 const error = ref("")
 const errors = ref({})
+
+// 参加班级：以班级为单位圈定参加考试的学生；不选 = 全校在读学生
+const classes = ref([])
+const selectedClassCount = computed(() => form.value.class_ids.length)
+
+function toggleClass(id) {
+  const idx = form.value.class_ids.indexOf(id)
+  if (idx >= 0) form.value.class_ids.splice(idx, 1)
+  else form.value.class_ids.push(id)
+}
+
+onMounted(async () => {
+  try {
+    classes.value = await api.get("/classes")
+  } catch {
+    classes.value = [] // 拉不到班级也不阻塞创建，仍可全校范围
+  }
+})
 
 function catalogOf(key) {
   return COMMON_SUBJECTS.find((s) => s.key === key)
@@ -102,6 +123,7 @@ async function submit() {
         full_score: Number(row.full_score),
         color: row.color,
       })),
+      class_ids: form.value.class_ids,
     })
     router.push(`/exams/${res.id}`)
   } catch (e) {
@@ -216,6 +238,9 @@ function removeRow(id) {
             <Icon v-if="isPresetSelected(p.key)" name="check" :size="13" />
             {{ p.label }}
           </button>
+          <button type="button" class="chip" @click="addCustom">
+            <Icon name="plus" :size="13" /> {{ t("examnew.addSubject") }}
+          </button>
         </div>
         <div class="stack" style="gap: 8px; margin-top: 12px">
           <div
@@ -259,15 +284,35 @@ function removeRow(id) {
             </button>
           </div>
         </div>
-        <div style="margin-top: 8px">
-          <button type="button" class="btn btn--sm" @click="addCustom">
-            <Icon name="plus" :size="13" /> {{ t("examnew.addSubject") }}
-          </button>
-        </div>
         <span v-if="errors.subjects" class="field__error">
           <Icon name="alert-circle" :size="12" /> {{ errors.subjects }}
         </span>
         <span v-else class="field__hint">{{ t("examnew.subjectsHint") }}</span>
+      </div>
+
+      <div class="field">
+        <span class="field__label">
+          {{ t("examnew.classes") }}
+          <span v-if="selectedClassCount" class="field__opt">
+            {{ t("examnew.classesSelected", { n: selectedClassCount }) }}
+          </span>
+        </span>
+        <div class="row-wrap" style="margin-top: 4px">
+          <button
+            v-for="c in classes"
+            :key="c.id"
+            type="button"
+            class="chip"
+            :class="{ 'chip--selected': form.class_ids.includes(c.id) }"
+            :aria-pressed="form.class_ids.includes(c.id)"
+            @click="toggleClass(c.id)"
+          >
+            <Icon v-if="form.class_ids.includes(c.id)" name="check" :size="13" />
+            {{ c.name }}
+            <span class="muted tnum" style="font-size: 12px">{{ c.student_count }}</span>
+          </button>
+        </div>
+        <span class="field__hint">{{ t("examnew.classesHint") }}</span>
       </div>
 
       <p v-if="error" class="field__error" style="margin-bottom: 12px">

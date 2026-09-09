@@ -10,11 +10,11 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
+    JSON,
     Date,
     DateTime,
     ForeignKey,
     Index,
-    Integer,
     String,
     UniqueConstraint,
     text,
@@ -29,19 +29,32 @@ class Class(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(50))
-    grade_level: Mapped[int] = mapped_column(Integer)
     academic_year: Mapped[str] = mapped_column(String(20))
-    homeroom_person_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("person.id"))
+    teacher_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("person.id"), index=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
-    homeroom_person = relationship("Person")
     enrollments = relationship("Enrollment", back_populates="class_")
 
     __table_args__ = (
         UniqueConstraint("name", "academic_year", name="uq_class_name_year"),
     )
+
+
+class ClassSeating(Base):
+    """班级座位表：一个班一份最新布局。seats 是 {座位序号: 学生 id}，
+    序号按行优先从 0 开始；行列变了序号含义跟着变，超界座位在保存时校验。"""
+
+    __tablename__ = "class_seating"
+
+    class_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("class.id"), primary_key=True)
+    rows: Mapped[int] = mapped_column()
+    cols: Mapped[int] = mapped_column()
+    seats: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class Enrollment(Base):

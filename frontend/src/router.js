@@ -3,6 +3,7 @@ import { getToken } from "./api"
 import { loadMe, me } from "./auth"
 import HomeView from "./views/HomeView.vue"
 import LoginView from "./views/LoginView.vue"
+import SignupView from "./views/SignupView.vue"
 import ProfileView from "./views/ProfileView.vue"
 import EventsView from "./views/EventsView.vue"
 import HomeVisitsView from "./views/HomeVisitsView.vue"
@@ -40,6 +41,7 @@ export const router = createRouter({
   routes: [
     { path: "/", name: "home", component: HomeView, meta: { title: "首页" } },
     { path: "/login", name: "login", component: LoginView, meta: { title: "登录" } },
+    { path: "/signup", name: "signup", component: SignupView, meta: { title: "注册" } },
     { path: "/profile", name: "profile", component: ProfileView, meta: { title: "个人中心" } },
     {
       path: "/events",
@@ -154,15 +156,20 @@ export const router = createRouter({
   ],
 })
 
+// 免登录页 —— 路由守卫与 App 外壳（是否渲染导航）共用同一份口径
+export const AUTH_PATHS = new Set(["/login", "/signup"])
+
 router.beforeEach(async (to) => {
   const loggedIn = !!getToken()
-  if (!loggedIn && to.path !== "/login") return "/login"
-  if (loggedIn && to.path === "/login") {
+  if (!loggedIn) {
+    return AUTH_PATHS.has(to.path) ? true : "/login"
+  }
+  if (AUTH_PATHS.has(to.path)) {
     if (!me.value) await loadMe()
     return me.value?.role === "admin" ? "/admin" : "/"
   }
   if (!me.value) await loadMe()
-  if (!me.value) return // auth failed, api layer will bounce to /login
+  if (!me.value) return "/login"
 
   // Admin gate #1 — teacher-role users who guess /admin get bounced.
   if (to.path.startsWith("/admin") && me.value.role !== "admin") return "/"

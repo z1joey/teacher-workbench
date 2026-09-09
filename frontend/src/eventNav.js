@@ -1,6 +1,12 @@
 /** Resolve a detail/edit route for a timeline or feed event row. */
 
-const SYSTEM_TYPES = new Set(["enrolled", "class_moved", "exam_taken", "result_changed"])
+const SYSTEM_TYPES = new Set([
+  "birthday",
+  "enrolled",
+  "class_moved",
+  "exam_taken",
+  "result_changed",
+])
 
 export function eventStudentId(e) {
   if (e.student_id) return e.student_id
@@ -11,7 +17,7 @@ export function eventStudentId(e) {
 
 export function eventRoute(e) {
   const id = e?.id
-  if (!id || String(id).startsWith("birthday-")) return null
+  if (!id || e?.event_type === "birthday") return null
   const type = e.event_type
   if (type === "activity") return `/events/${id}`
   if (type === "exam") return `/exams/${id}`
@@ -26,7 +32,6 @@ export function isEventClickable(e) {
 }
 
 export function isEventEditable(e) {
-  if (String(e?.id || "").startsWith("birthday-")) return false
   if (e?.is_system === true || SYSTEM_TYPES.has(e?.event_type)) return false
   return isEventClickable(e)
 }

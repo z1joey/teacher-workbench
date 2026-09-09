@@ -11,13 +11,21 @@ defineProps({
 <template>
   <header class="page-head">
     <div class="page-head__main">
-      <h1 class="page-title">{{ title }}</h1>
+      <!-- #title 允许把标题位换成控件（如班级切换下拉框），替代纯文本 h1 -->
+      <h1 v-if="$slots.title" class="page-title page-title--loose">
+        <slot name="title" />
+      </h1>
+      <h1 v-else class="page-title">{{ title }}</h1>
       <p v-if="subtitle" class="page-sub">{{ subtitle }}</p>
 
-      <div v-if="meta.length" class="row-wrap" style="margin-top: 12px">
-        <span v-for="m in meta" :key="m.label" class="pill pill--outline">
-          {{ m.label }} <b class="tnum">{{ m.value }}</b>
-        </span>
+      <div v-if="meta.length || $slots.meta" class="page-head__meta-wrap">
+        <slot name="meta">
+          <div class="row-wrap">
+            <span v-for="m in meta" :key="m.label" class="pill pill--outline">
+              {{ m.label }} <b class="tnum">{{ m.value }}</b>
+            </span>
+          </div>
+        </slot>
       </div>
     </div>
 

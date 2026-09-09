@@ -5,9 +5,9 @@ column and the per-student attributes (admission_no, gender, birth_date,
 address) live in the JSONB payload — see app.models.payloads. A student's
 guardians are Person rows of role "guardian" linked through student_guardians
 (no flattened guardian_name/phone on the student anymore). Every
-history/timeline item is an Event row linked through person_events; birthdays
-are NOT persisted anymore — the timeline projects the next occurrence from
-payload["birth_date"] (see student_timeline).
+history/timeline item is an Event row linked through person_events. Each active
+student with a birth_date gets one system-managed birthday Event (yearly, removed
+when the student becomes inactive).
 
 Score "results" are per-student per-subject Events of type "score" whose title
 is "<exam name>·<subject>" (the prefix groups a sitting; subject/score/
@@ -27,10 +27,10 @@ from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import (
     MANUAL_EVENT_TYPES,
-    RECORD_EVENT_TYPES,
     SYSTEM_EVENT_TYPES,
     create_event,
     next_birthday_date,
+    sync_birthday_event,
 )
 from ..models import (
     Class,
@@ -46,6 +46,12 @@ from ..models._common import utcnow
 from ..payloads import validate_event_payload, validate_person_payload
 from ..security import hash_password
 from ..unassigned import class_for_api, ensure_unassigned_class, is_unassigned_class
+from ..workspace import (
+    require_class_in_workspace,
+    require_student_in_workspace,
+    students_query,
+    tag_student_workspace,
+)
 
 router = APIRouter(
     tags=["students"],
@@ -53,6 +59,9 @@ router = APIRouter(
 )
 
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+AUTO_HOME_VISIT_TAG_NAME = "已家访"
+AUTO_HOME_VISIT_TAG_COLOR = "#2f7d4f"
+DEFAULT_HOME_VISIT_PURPOSE = "例行家访"
 
 # display titles for the events this router writes (Event.title is NOT NULL;
 # the old StudentEvent rows had no title, so these are new-schema labels)
@@ -65,13 +74,11 @@ _RECORD_TITLES = {
     "comment": "评语",
     "birthday": "生日",
     "enrolled": "入学",
-    "class_moved": "调班",
+    "class_moved": "转班",
 }
 
 # event types a teacher may create/edit through the generic record endpoints
-# (the old "custom event type" feature is gone: event.type has a CHECK
-# constraint over the fixed vocabulary, so only the manual set + birthday pass)
-_RECORDABLE_TYPES = MANUAL_EVENT_TYPES | {"birthday"}
+_RECORDABLE_TYPES = MANUAL_EVENT_TYPES
 
 
 def _record_title(event_type: str) -> str:
@@ -79,19 +86,33 @@ def _record_title(event_type: str) -> str:
 
 
 def _record_payload(event_type: str, summary: str, purpose: str | None,
-                    follow_up_needed: bool, follow_up_note: str | None,
-                    old_payload: dict | None = None) -> dict:
-    """Map the old record body onto the per-type payload schemas.
+                    old_payload: dict | None = None,
+                    *, done: bool | None = None) -> dict:
+    """Map the record body onto the per-type payload schemas.
 
     talk/tutoring/parent_call/note_added carry {"notes"}; home_visited carries
-    {"summary","follow_up"} (follow_up needed+note collapse into follow_up);
-    a patched-to-birthday event keeps its birth_date.
+    {"summary","purpose","done"}; a patched-to-birthday event keeps birth_date.
     """
     if event_type == "home_visited":
-        return {
-            "summary": summary,
-            "follow_up": follow_up_note if follow_up_needed else None,
+        old = old_payload or {}
+        purpose_text = (
+            (purpose or "").strip()
+            or old.get("purpose")
+            or DEFAULT_HOME_VISIT_PURPOSE
+        )
+        out: dict = {
+            "purpose": purpose_text,
+            "summary": summary.strip() or None,
         }
+        if old.get("guardian"):
+            out["guardian"] = old["guardian"]
+        if done is True:
+            out["done"] = True
+        elif done is False:
+            pass
+        elif old.get("done"):
+            out["done"] = True
+        return out
     if event_type == "birthday":
         return {"birth_date": (old_payload or {}).get("birth_date")}
     if event_type == "comment":
@@ -140,6 +161,29 @@ def _find_or_create_tag(db: Session, name: str, color: str) -> Tag:
     return tag
 
 
+def _teacher_auto_tags_enabled(teacher: Person) -> bool:
+    return (teacher.payload or {}).get("auto_tags", True)
+
+
+def _attach_tag_if_missing(db: Session, student_id: uuid.UUID, name: str, color: str) -> None:
+    tag = _find_or_create_tag(db, name, color)
+    exists = (
+        db.query(person_tags)
+        .filter(person_tags.c.person_id == student_id, person_tags.c.tag_id == tag.id)
+        .first()
+    )
+    if exists is None:
+        db.execute(person_tags.insert().values(person_id=student_id, tag_id=tag.id))
+
+
+def _maybe_apply_home_visit_tag(db: Session, student_id: uuid.UUID, teacher: Person) -> None:
+    if not _teacher_auto_tags_enabled(teacher):
+        return
+    _attach_tag_if_missing(
+        db, student_id, AUTO_HOME_VISIT_TAG_NAME, AUTO_HOME_VISIT_TAG_COLOR
+    )
+
+
 def current_class(db: Session, person_id: uuid.UUID) -> Class | None:
     return (
         db.query(Class)
@@ -154,6 +198,18 @@ def current_class(db: Session, person_id: uuid.UUID) -> Class | None:
 
 def _status_of(person: Person) -> str:
     return "active" if (person.payload or {}).get("is_active", True) else "inactive"
+
+
+def _admission_no_in_use(
+    db: Session, admission_no: str, *, exclude_id: uuid.UUID | None = None,
+) -> bool:
+    q = db.query(Person.id).filter(
+        Person.payload["role"].as_string() == "student",
+        Person.payload["admission_no"].as_string() == admission_no,
+    )
+    if exclude_id is not None:
+        q = q.filter(Person.id != exclude_id)
+    return q.first() is not None
 
 
 def _guardians_of(db: Session, student_id: uuid.UUID):
@@ -395,6 +451,29 @@ def _subject_color_of_exam(
     return color if isinstance(color, str) and color else None
 
 
+def last_event_summary(db: Session, person_id: uuid.UUID) -> dict | None:
+    """Most recent comment (老师评语)、home visit (家访) or birthday for list
+    views. Other event types live in their own cards — the list card only
+    surfaces these."""
+    ev = (
+        db.query(Event)
+        .filter(
+            Event.attendees.any(Person.id == person_id),
+            Event.type.in_(["comment", "home_visited", "birthday"]),
+        )
+        .order_by(Event.start_time.desc(), Event.created_at.desc())
+        .first()
+    )
+    if ev is None:
+        return None
+    return {
+        "id": str(ev.id),
+        "event_type": ev.type,
+        "occurred_at": ev.start_time.isoformat(),
+        "payload": ev.payload or {},
+    }
+
+
 def last_exam_summary(db: Session, person_id: uuid.UUID) -> dict | None:
     """The student's most recent graded exam: name + per-subject scores.
 
@@ -431,13 +510,33 @@ def last_exam_summary(db: Session, person_id: uuid.UUID) -> dict | None:
 
 
 @router.get("/students")
-def list_students(db: Session = Depends(get_db)):
+def list_students(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
     students = (
-        db.query(Person)
-        .filter(Person.payload["role"].as_string() == "student")
+        students_query(db, user)
         .order_by(Person.payload["admission_no"].as_string())
         .all()
     )
+    # 监护人一次取全（避免逐生查询），供顶栏搜索按监护人姓名/电话命中
+    guardians_by_student: dict = {}
+    if students:
+        for sid, g, rel in (
+            db.query(student_guardians.c.student_id, Person, student_guardians.c.relationship)
+            .join(Person, Person.id == student_guardians.c.guardian_id)
+            .filter(student_guardians.c.student_id.in_([s.id for s in students]))
+            .order_by(Person.created_at)
+            .all()
+        ):
+            guardians_by_student.setdefault(sid, []).append(
+                {
+                    "id": str(g.id),
+                    "name": g.name,
+                    "phone": (g.payload or {}).get("phone"),
+                    "relationship": rel,
+                }
+            )
     out = []
     for s in students:
         cls = current_class(db, s.id)
@@ -449,7 +548,9 @@ def list_students(db: Session = Depends(get_db)):
                 "gender": (s.payload or {}).get("gender"),
                 "status": _status_of(s),
                 "class": class_for_api(cls),
+                "guardians": guardians_by_student.get(s.id, []),
                 "last_exam": last_exam_summary(db, s.id),
+                "last_event": last_event_summary(db, s.id),
                 "tags": _tags_for_student(db, s.id),
             }
         )
@@ -536,12 +637,11 @@ class StudentIn(BaseModel):
 def create_student(
     body: StudentIn,
     db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
 ):
     cls = None
     if body.class_id is not None:
-        cls = db.get(Class, body.class_id)
-        if cls is None or is_unassigned_class(cls):
-            raise HTTPException(status_code=400, detail="class not found")
+        cls = require_class_in_workspace(db, user, body.class_id)
     else:
         cls = ensure_unassigned_class(db)
     max_no = 0
@@ -571,6 +671,7 @@ def create_student(
     )
     db.add(person)
     db.flush()
+    tag_student_workspace(person, user)
     _set_primary_guardian(db, person.id, body.guardian_name, body.guardian_phone)
     db.add(Enrollment(person_id=person.id, class_id=cls.id,
                       valid_from=date.today(), reason="admitted"))
@@ -578,17 +679,19 @@ def create_student(
         {} if is_unassigned_class(cls) else {"class_name": cls.name}
     )
     create_event(db, event_type="enrolled", title="入学", start_time=utcnow(),
-                 payload=enrolled_payload, attendee_ids=[person.id])
-    # no persisted birthday event: the timeline projects it from birth_date
+                 payload=enrolled_payload, attendee_ids=[person.id, user.id])
+    sync_birthday_event(db, person)
     db.commit()
     return {"id": str(person.id), "admission_no": admission_no, "name": person.name}
 
 
 @router.get("/students/{student_id}")
-def get_student(student_id: uuid.UUID, db: Session = Depends(get_db)):
-    s = db.get(Person, student_id)
-    if s is None or s.role != "student":
-        raise HTTPException(status_code=404, detail="student not found")
+def get_student(
+    student_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    s = require_student_in_workspace(db, user, student_id)
     cls = current_class(db, s.id)
     exam_id_cache: dict = {}
     subject_colors_cache: dict[str, dict] = {}
@@ -655,33 +758,15 @@ def student_timeline(student_id: uuid.UUID, db: Session = Depends(get_db)):
         .all()
     )
     out = [_event_to_dict(e) for e in rows]
-    # projected birthday: identical shape to a serialized birthday event,
-    # dated the next occurrence, never persisted (old rows were recurring
-    # StudentEvents; the payload's birth_date is the single source now)
-    birth_date = (person.payload or {}).get("birth_date")
-    if birth_date:
-        bday = next_birthday_date(date.fromisoformat(birth_date))
-        out.append(
-            {
-                "id": f"birthday-{person.id}",
-                "event_type": "birthday",
-                "occurred_at": datetime.combine(bday, time(9, 0)).isoformat(),
-                "actor": None,
-                "payload": {"birth_date": birth_date},
-                "actor_teacher_id": None,
-                "is_system": False,
-            }
-        )
     return out
 
 
 class EventRecordIn(BaseModel):
     event_type: str = Field(min_length=1, max_length=40)
-    summary: str = Field(min_length=1, max_length=2000)
+    summary: str = Field(default="", max_length=2000)
     purpose: str | None = None
-    follow_up_needed: bool = False
-    follow_up_note: str | None = None
     occurred_at: datetime | None = None
+    done: bool | None = None  # home_visited: mark the visit completed
     # home visits: the guardian persons who attended. Absent (old clients)
     # falls back to the student's guardian of record; present-but-empty means
     # no guardian attended.
@@ -700,8 +785,13 @@ def create_event_record(
         raise HTTPException(status_code=404, detail="student not found")
     if body.event_type not in _RECORDABLE_TYPES:
         raise HTTPException(status_code=400, detail="不支持的事件类型")
-    payload = _record_payload(body.event_type, body.summary, body.purpose,
-                              body.follow_up_needed, body.follow_up_note)
+    if body.event_type != "home_visited" and not body.summary.strip():
+        raise HTTPException(status_code=400, detail="请填写说明")
+    done = body.done if body.event_type == "home_visited" else None
+    payload = validate_event_payload(
+        body.event_type,
+        _record_payload(body.event_type, body.summary, body.purpose, done=done),
+    )
     guardian_people: list[Person] = []
     if body.event_type == "home_visited":
         # a visit involves the guardians who were there: selected guardian
@@ -729,6 +819,8 @@ def create_event_record(
         # and the teacher who made it
         attendee_ids=[person.id, *[g.id for g in guardian_people], user.id],
     )
+    if body.event_type == "home_visited" and (payload or {}).get("done"):
+        _maybe_apply_home_visit_tag(db, person.id, user)
     db.commit()
     return {"id": str(event.id), "status": "created"}
 
@@ -895,6 +987,35 @@ def list_events(
             .all()
         ):
             students.setdefault(event_id, []).append(person)
+
+    # 班级覆盖：活动动态里「全班参加」时直接显示班级名。
+    # class_of: 学生 → 当前班级；class_size: 班级当前在读人数
+    class_of: dict[uuid.UUID, tuple[uuid.UUID, str]] = {}
+    class_size: dict[uuid.UUID, int] = {}
+    for class_id, class_name, person_id in (
+        db.query(Enrollment.class_id, Class.name, Enrollment.person_id)
+        .join(Class, Class.id == Enrollment.class_id)
+        .filter(Enrollment.valid_to.is_(None))
+        .all()
+    ):
+        class_of[person_id] = (class_id, class_name)
+        class_size[class_id] = class_size.get(class_id, 0) + 1
+
+    def whole_classes(roster: list[Person]) -> list[dict]:
+        """参与学生恰好覆盖了某个班当前全部在读学生 → 视为整班参加。"""
+        covered: dict[uuid.UUID, set] = {}
+        names: dict[uuid.UUID, str] = {}
+        for s in roster:
+            if s.id in class_of:
+                cid, cname = class_of[s.id]
+                covered.setdefault(cid, set()).add(s.id)
+                names[cid] = cname
+        return [
+            {"id": str(cid), "name": names[cid]}
+            for cid, ids in covered.items()
+            if class_size.get(cid, 0) > 0 and len(ids) == class_size[cid]
+        ]
+
     out = []
     for ev in rows:
         roster = students.get(ev.id, [])
@@ -908,9 +1029,14 @@ def list_events(
                 "student_id": str(student.id) if student else None,
                 "student_name": student.name if student else None,
                 "students": [
-                    {"id": str(s.id), "name": s.name}
+                    {
+                        "id": str(s.id),
+                        "name": s.name,
+                        "class_name": class_of.get(s.id, (None, None))[1],
+                    }
                     for s in roster
                 ],
+                "whole_classes": whole_classes(roster),
                 "event_type": ev.type,
                 "occurred_at": ev.start_time.isoformat(),
                 "actor": None,
@@ -1113,12 +1239,21 @@ def my_event_types(db: Session = Depends(get_db)):
 def _event_to_dict(e: Event) -> dict:
     # Event has no actor column in the new schema, so actor/actor_teacher_id
     # are always None (keys kept for API-shape stability)
+    payload = e.payload or {}
+    occurred_at = e.start_time
+    if e.type == "birthday":
+        birth_raw = payload.get("birth_date")
+        if birth_raw:
+            occurred_at = datetime.combine(
+                next_birthday_date(date.fromisoformat(birth_raw)),
+                time(9, 0),
+            )
     return {
         "id": str(e.id),
         "event_type": e.type,
-        "occurred_at": e.start_time.isoformat(),
+        "occurred_at": occurred_at.isoformat(),
         "actor": None,
-        "payload": e.payload or {},
+        "payload": payload,
         "actor_teacher_id": None,
         "is_system": e.type in SYSTEM_EVENT_TYPES,
     }
@@ -1143,12 +1278,28 @@ def get_event(
     return _event_to_dict(e)
 
 
+def _update_system_event_meta(ev: Event, body: EventRecordIn) -> None:
+    """Allow date + free-text notes on auto-generated events; type is fixed."""
+    if body.event_type != ev.type:
+        raise HTTPException(status_code=400, detail="cannot change system event type")
+    payload = dict(ev.payload or {})
+    if body.occurred_at is not None:
+        ev.start_time = body.occurred_at
+    notes = body.summary.strip()
+    if notes:
+        payload["notes"] = notes
+    else:
+        payload.pop("notes", None)
+    ev.payload = validate_event_payload(ev.type, payload)
+
+
 @router.patch("/students/{student_id}/events/{event_id}")
 def update_event(
     student_id: uuid.UUID,
     event_id: uuid.UUID,
     body: EventRecordIn,
     db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
 ):
     ev = db.get(Event, event_id)
     if (
@@ -1160,18 +1311,33 @@ def update_event(
         is None
     ):
         raise HTTPException(status_code=404, detail="event not found")
+    if ev.type == "birthday":
+        raise HTTPException(status_code=400, detail="生日由系统自动管理")
     if ev.type in SYSTEM_EVENT_TYPES:
-        raise HTTPException(status_code=400, detail="system events cannot be modified")
+        _update_system_event_meta(ev, body)
+        db.commit()
+        db.refresh(ev)
+        return {"id": str(ev.id), "status": "updated"}
+    old_payload = dict(ev.payload or {})
     if body.event_type not in _RECORDABLE_TYPES:
         raise HTTPException(status_code=400, detail="不支持的事件类型")
-    old_payload = ev.payload or {}
+    if ev.type != "home_visited" and not body.summary.strip():
+        raise HTTPException(status_code=400, detail="请填写说明")
+    was_done = old_payload.get("done") is True
+    done = body.done if ev.type == "home_visited" and "done" in body.model_fields_set else None
     ev.type = body.event_type
     ev.title = _record_title(body.event_type)
     ev.start_time = body.occurred_at or ev.start_time
     # copy-modify-reassign: JSON columns don't see in-place mutation
-    ev.payload = _record_payload(body.event_type, body.summary, body.purpose,
-                                 body.follow_up_needed, body.follow_up_note,
-                                 old_payload)
+    ev.payload = validate_event_payload(
+        body.event_type,
+        _record_payload(
+            body.event_type, body.summary, body.purpose,
+            old_payload, done=done,
+        ),
+    )
+    if ev.type == "home_visited" and not was_done and (ev.payload or {}).get("done"):
+        _maybe_apply_home_visit_tag(db, student_id, user)
     db.commit()
     db.refresh(ev)
     return {"id": str(ev.id), "status": "updated"}
@@ -1254,6 +1420,7 @@ def update_result(
 
 class StudentUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
+    admission_no: str | None = Field(default=None, min_length=1, max_length=40)
     gender: str | None = None
     birth_date: date | None = None
     guardian_name: str | None = None
@@ -1277,6 +1444,16 @@ def update_student(
     payload = dict(s.payload or {})
     if body.name is not None:
         s.name = body.name.strip()
+    if body.admission_no is not None:
+        admission_no = body.admission_no.strip()
+        if not admission_no:
+            raise HTTPException(status_code=400, detail="请填写学号")
+        current_no = (payload.get("admission_no") or "").strip()
+        if admission_no != current_no and _admission_no_in_use(
+            db, admission_no, exclude_id=student_id,
+        ):
+            raise HTTPException(status_code=400, detail="学号已被使用")
+        payload["admission_no"] = admission_no
     if body.gender is not None:
         payload["gender"] = body.gender or None
     if body.birth_date is not None:
@@ -1327,12 +1504,13 @@ def update_student(
                 create_event(
                     db,
                     event_type="class_moved",
-                    title="调班",
+                    title="加入班级" if old_name is None else "转班",
                     start_time=utcnow(),
                     payload={"from_class": old_name, "to_class": new_name},
                     attendee_ids=[s.id],
                 )
 
+    sync_birthday_event(db, s)
     db.commit()
     cls = current_class(db, s.id)
     return {
@@ -1383,6 +1561,7 @@ def delete_student(
             e.valid_to = date.today()
         create_event(db, event_type="note_added", title="随笔", start_time=utcnow(),
                      payload={"notes": "账号停用"}, attendee_ids=[s.id])
+        sync_birthday_event(db, s)
         db.commit()
         return {"ok": True, "action": "deactivated"}
 

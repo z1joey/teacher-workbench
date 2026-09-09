@@ -208,8 +208,7 @@ def upgrade() -> None:
         class_remap[cid] = uuid.uuid4()
         class_rows.append({
             "id": class_remap[cid], "name": c["name"],
-            "grade_level": c["grade_level"], "academic_year": c["academic_year"],
-            "homeroom_person_id": user_person.get(c["homeroom_teacher_id"]),
+            "academic_year": c["academic_year"],
             "created_at": now, "updated_at": now,
         })
 
@@ -306,9 +305,7 @@ def upgrade() -> None:
                sa.column("color", sa.String(20)), sa.column("created_at", sa.DateTime),
                sa.column("updated_at", sa.DateTime))
     t_class = _t("class", sa.column("id", sa.Uuid()), sa.column("name", sa.String(50)),
-                 sa.column("grade_level", sa.Integer),
                  sa.column("academic_year", sa.String(20)),
-                 sa.column("homeroom_person_id", sa.Uuid()),
                  sa.column("created_at", sa.DateTime), sa.column("updated_at", sa.DateTime))
     t_enrollment = _t("enrollment", sa.column("id", sa.Uuid()),
                       sa.column("person_id", sa.Uuid()), sa.column("class_id", sa.Uuid()),

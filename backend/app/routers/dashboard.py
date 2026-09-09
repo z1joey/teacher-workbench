@@ -9,8 +9,7 @@ The summary recomputes counts over the new tables: students = active student
 Persons, exams = sitting Events, interactions = manual record Events. Score
 Events are per-student-per-subject rows with no old-world counterpart in the
 recent-events digest, so they (and multi-attendee sitting Events) are skipped
-there; follow-ups are home visits whose payload follow_up note is set (the
-old follow_up_needed flag collapsed into it — see students.py).
+there.
 """
 from calendar import monthrange
 from datetime import date, datetime, time, timedelta
@@ -19,11 +18,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from ..display_name import teacher_display_name
 from ..database import get_db
 from ..deps import get_current_person
-from ..eventing import MANUAL_EVENT_TYPES, RECORD_EVENT_TYPES
+from ..eventing import MANUAL_EVENT_TYPES, birthday_in_month
 from ..models import Class, Event, Person, person_events
 from ..unassigned import is_unassigned_class
+from ..workspace import classes_query, students_query, workspace_id
 
 router = APIRouter(
     tags=["dashboard"],
@@ -55,11 +56,13 @@ def month_calendar(
     items = []
     lo = datetime.combine(first, time.min)
     hi = datetime.combine(last, time.max)
+    wid = workspace_id(user)
     # multi-day sittings appear on every day of their span (中考/高考 style)
     for e in (
         db.query(Event)
         .filter(
             Event.type == "exam",
+            Event.attendees.any(Person.id == user.id),
             Event.start_time <= hi,
             func.coalesce(Event.end_time, Event.start_time) >= lo,
         )
@@ -76,8 +79,9 @@ def month_calendar(
         .join(person_events, person_events.c.event_id == Event.id)
         .join(Person, Person.id == person_events.c.person_id)
         .filter(
-            Event.type.in_(list(RECORD_EVENT_TYPES)),
+            Event.type.in_(list(MANUAL_EVENT_TYPES)),
             _STUDENT_ATTENDEE,
+            Person.payload["workspace_id"].as_string() == wid,
             Event.start_time >= lo,
             Event.start_time <= hi,
         )
@@ -98,6 +102,40 @@ def month_calendar(
             "actor": None,  # the actor column is gone (see students.py)
             "payload": ev.payload or {},
         })
+    user_payload = user.payload or {}
+    if user_payload.get("role") == "teacher" and user_payload.get("calendar_birthdays", True):
+        seen_birthday_students: set = set()
+        for ev, student in (
+            db.query(Event, Person)
+            .join(person_events, person_events.c.event_id == Event.id)
+            .join(Person, Person.id == person_events.c.person_id)
+            .filter(
+                Event.type == "birthday",
+                _STUDENT_ATTENDEE,
+                Person.payload["workspace_id"].as_string() == wid,
+            )
+            .order_by(Event.created_at.asc(), Event.id.asc())
+            .all()
+        ):
+            if student.id in seen_birthday_students:
+                continue
+            seen_birthday_students.add(student.id)
+            birth_raw = (ev.payload or {}).get("birth_date")
+            if not birth_raw:
+                continue
+            bday = birthday_in_month(date.fromisoformat(birth_raw), year, month)
+            if bday is None:
+                continue
+            items.append({
+                "date": bday.isoformat(),
+                "kind": "record",
+                "id": str(ev.id),
+                "event_type": "birthday",
+                "student_id": str(student.id),
+                "student_name": student.name,
+                "actor": None,
+                "payload": ev.payload or {},
+            })
     items.sort(key=lambda i: i["date"])
     return {"year": year, "month": month, "items": items}
 
@@ -111,40 +149,40 @@ def dashboard(
         Person.payload["is_active"].as_boolean().is_(None),
         Person.payload["is_active"].as_boolean().is_not(False),
     )
+    wid = workspace_id(user)
+    student_q = students_query(db, user).filter(active)
     counts = {
-        "students": (
-            db.query(Person)
-            .filter(Person.payload["role"].as_string() == "student", active)
+        "students": student_q.count(),
+        "classes": classes_query(db, user).count(),
+        "exams": (
+            db.query(Event)
+            .filter(Event.type == "exam", Event.attendees.any(Person.id == user.id))
             .count()
         ),
-        "classes": sum(1 for _ in db.query(Class).all() if not is_unassigned_class(_)),
-        "exams": db.query(Event).filter(Event.type == "exam").count(),
-        # 跟进记录: every teacher-written record Event (visits, talks, notes, …)
         "interactions": (
-            db.query(Event).filter(Event.type.in_(list(MANUAL_EVENT_TYPES))).count()
+            db.query(Event)
+            .filter(
+                Event.type.in_(list(MANUAL_EVENT_TYPES)),
+                Event.attendees.any(
+                    Person.id.in_(
+                        db.query(Person.id).filter(
+                            Person.payload["role"].as_string() == "student",
+                            Person.payload["workspace_id"].as_string() == wid,
+                        )
+                    )
+                ),
+            )
+            .count()
         ),
     }
-    follow_ups = (
-        db.query(Event, Person)
-        .join(person_events, person_events.c.event_id == Event.id)
-        .join(Person, Person.id == person_events.c.person_id)
-        .filter(
-            Event.type == "home_visited",
-            _STUDENT_ATTENDEE,
-            # follow_up_needed collapsed into the follow_up note (students.py);
-            # as_string() keeps the NULL compare a plain SQL NULL (a bare
-            # JSON-path IS (NOT) NULL binds JSON 'null', matching every row)
-            Event.payload["follow_up"].as_string().is_not(None),
-        )
-        .order_by(Event.start_time.desc())
-        .limit(5)
-        .all()
-    )
     recent = (
         db.query(Event)
-        .filter(Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)))
+        .filter(
+            Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)),
+            Event.attendees.any(Person.id == user.id),
+        )
         .order_by(Event.start_time.desc(), Event.created_at.desc())
-        .limit(8)
+        .limit(24)
         .all()
     )
     # one row per Event with its student roster — teacher/guardian attendees
@@ -162,11 +200,26 @@ def dashboard(
             .all()
         ):
             roster_by_event.setdefault(event_id, []).append(person)
+    workspace_student_ids = {
+        row.id for row in students_query(db, user).with_entities(Person.id).all()
+    }
+    digest = []
+    for event in recent:
+        roster = [
+            s for s in roster_by_event.get(event.id, [])
+            if s.id in workspace_student_ids
+        ]
+        if not roster:
+            continue
+        digest.append(event)
+        if len(digest) >= 8:
+            break
     today = date.today()
     upcoming = (
         db.query(Event)
         .filter(
             Event.type == "exam",
+            Event.attendees.any(Person.id == user.id),
             Event.start_time >= datetime.combine(today, time.min),
         )
         .order_by(Event.start_time)
@@ -174,7 +227,11 @@ def dashboard(
         .all()
     )
     return {
-        "user": {"id": str(user.id), "name": user.name},
+        "user": {
+            "id": str(user.id),
+            "name": user.name,
+            "display_name": teacher_display_name(user.name),
+        },
         "counts": counts,
         "upcoming_exams": [
             {
@@ -184,19 +241,6 @@ def dashboard(
                 "end_date": (exam.end_time.date().isoformat() if exam.end_time else None),
             }
             for exam in upcoming
-        ],
-        "follow_ups": [
-            {
-                "id": str(ev.id),
-                "student_id": str(person.id),
-                "student_name": person.name,
-                "event_type": ev.type,
-                "occurred_at": ev.start_time.isoformat(),
-                "purpose": None,  # no payload slot anymore (see students.py)
-                "summary": (ev.payload or {}).get("summary"),
-                "follow_up_note": (ev.payload or {}).get("follow_up"),
-            }
-            for ev, person in follow_ups
         ],
         "recent_events": [
             {
@@ -210,6 +254,6 @@ def dashboard(
                     for s in roster_by_event.get(event.id, [])
                 ],
             }
-            for event in recent
+            for event in digest
         ],
     }

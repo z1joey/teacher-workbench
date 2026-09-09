@@ -36,8 +36,7 @@ def client(make_client, db):
     teacher = seed_person(db, "13600000001", name="陈老师")
     teacher2 = seed_person(db, "13600000002", name="赵老师")
 
-    klass = Class(name="七年级1班", grade_level=7, academic_year="2025/2026",
-                  homeroom_person_id=teacher.id)
+    klass = Class(name="七年级1班", academic_year="2025/2026")
     db.add(klass)
     db.flush()
     student = Person(
@@ -132,11 +131,10 @@ def test_admin_cannot_deactivate_self(client):
 
 def test_delete_referenced_user_409_and_clean_user_ok(client, db):
     tc, ids = client
-    r = tc.delete(f"/api/admin/users/{ids['teacher']}")  # homeroom + enrollment
-    assert r.status_code == 409
-    # The 409 guard must leave the person intact.
+    # Homeroom links are gone — a teacher with only a class on file can be removed.
+    assert tc.delete(f"/api/admin/users/{ids['teacher']}").json() == {"ok": True}
     db.expire_all()
-    assert db.get(Person, uuid.UUID(ids["teacher"])) is not None
+    assert db.get(Person, uuid.UUID(ids["teacher"])) is None
 
     r = tc.delete(f"/api/admin/users/{ids['teacher2']}")  # profile-bearing, evidence-free
     assert r.json() == {"ok": True}

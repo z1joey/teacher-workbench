@@ -1,6 +1,5 @@
 <script setup>
-// 记录 / 编辑事件：类型用中文下拉而不是代码输入框，
-// 需要「事由」和「跟进」的类型会自动展开对应字段（防错 + 低记忆负担）。
+// 记录 / 编辑事件：新建固定为家访；编辑时类型不可改，只编辑内容。
 import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import api from "../api"
@@ -10,7 +9,7 @@ import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
 import { ask } from "../confirm"
 import { notify, runUndoable } from "../feedback"
-import { describeEvent, friendlyError, recordableEventOptions, eventTypeLabel, t } from "../strings"
+import { describeEvent, friendlyError, eventTypeLabel, t } from "../strings"
 
 const props = defineProps({
   studentId: { type: String, required: true },
@@ -19,13 +18,10 @@ const props = defineProps({
 const router = useRouter()
 
 const isCreate = computed(() => !props.eventId)
-const readOnly = computed(() => !isCreate.value && event.value?.is_system === true)
-
-const CUSTOM_VALUE = "__custom__"
+const isSystemEdit = computed(() => !isCreate.value && event.value?.is_system === true)
 
 const student = ref(null)
 const event = ref(null)
-const customEventTypes = ref([])
 const loading = ref(true)
 const saving = ref(false)
 const error = ref("")
@@ -45,11 +41,9 @@ function toggleGuardian(id) {
 function emptyForm() {
   return {
     event_type: "home_visited",
-    custom_type: "",
     summary: "",
     purpose: "",
-    follow_up_needed: false,
-    follow_up_note: "",
+    done: false,
     occurred_at: "",
   }
 }
@@ -58,37 +52,32 @@ onMounted(async () => {
   loading.value = true
   error.value = ""
   try {
-    const tasks = [
-      api.get(`/students/${props.studentId}`),
-      api.get("/teachers/me/event-types").catch(() => []),
-    ]
+    const tasks = [api.get(`/students/${props.studentId}`)]
     if (!isCreate.value) {
       tasks.push(api.get(`/students/${props.studentId}/events/${props.eventId}`))
     }
     const res = await Promise.all(tasks)
     student.value = res[0]
-    customEventTypes.value = res[1] || []
     if (isCreate.value) {
       // 家访默认所有登记监护人都到场
       selectedGuardians.value = new Set((student.value.guardians ?? []).map((g) => g.id))
     }
     if (!isCreate.value) {
-      const ev = res[2]
+      const ev = res[1]
       if (ev.event_type === "comment") {
         router.replace(`/comments/${props.eventId}`)
         return
       }
       event.value = ev
       const p = ev.payload || {}
-      const known = [...PRESET_VALUES, ...customEventTypes.value]
-      const isCustom = !known.includes(ev.event_type)
       form.value = {
-        event_type: isCustom ? CUSTOM_VALUE : ev.event_type,
-        custom_type: isCustom ? ev.event_type : "",
-        summary: p.summary || p.notes || "",
+        event_type: ev.event_type,
+        summary:
+          p.notes ||
+          p.summary ||
+          (ev.is_system ? describeEvent(ev.event_type, p) : ""),
         purpose: p.purpose || "",
-        follow_up_needed: !!p.follow_up_needed,
-        follow_up_note: p.follow_up_note || "",
+        done: !!p.done,
         occurred_at: ev.occurred_at ? ev.occurred_at.slice(0, 16) : "",
       }
     }
@@ -100,36 +89,28 @@ onMounted(async () => {
   }
 })
 
-const presets = recordableEventOptions()
-const PRESET_VALUES = presets.map((o) => o.value)
-
-// 新建只开放家访；下拉仅编辑旧记录时出现，用于回显暂时关闭的类型
-// （家长沟通/谈心/辅导/教师备注），不再提供「自定义类型」新入口。
-const typeOptions = computed(() => {
-  if (isCreate.value) return presets
-  const extras = customEventTypes.value
-    .filter((x) => !PRESET_VALUES.includes(x))
-    .map((x) => ({ value: x, label: eventTypeLabel(x) }))
-  return [...presets, ...extras, { value: CUSTOM_VALUE, label: "自定义类型" }]
-})
-
-// 自定义类型时真正提交给后端的名字
-const resolvedType = computed(() =>
-  form.value.event_type === CUSTOM_VALUE ? form.value.custom_type.trim() : form.value.event_type
+// 编辑时类型固定，不可改；新建固定为家访
+const effectiveEventType = computed(() =>
+  isCreate.value ? form.value.event_type : (event.value?.event_type ?? form.value.event_type),
 )
 
-// 家访和家长沟通要说清「为什么」；家访常常需要后续跟进
+// 自定义类型时真正提交给后端的名字（仅新建）
+const resolvedType = computed(() => form.value.event_type)
+
+// 家访和家长沟通要说清「为什么」
 function typeNeedsPurpose(type) {
   return type === "home_visited" || type === "parent_call"
 }
-function typeNeedsFollowUp(type) {
-  return type === "home_visited"
-}
+
+const isHomeVisit = computed(
+  () => effectiveEventType.value === "home_visited",
+)
 
 function validate() {
   const e = {}
-  if (!form.value.summary.trim()) e.summary = t("event.summaryRequired")
-  if (!resolvedType.value) e.event_type = "请填写事件类型"
+  if (!isSystemEdit.value && !isHomeVisit.value && !form.value.summary.trim()) {
+    e.summary = t("event.summaryRequired")
+  }
   errors.value = e
   return !Object.keys(e).length
 }
@@ -140,12 +121,11 @@ async function save() {
   saving.value = true
   try {
     const payload = {
-      event_type: resolvedType.value,
+      event_type: isCreate.value ? resolvedType.value : event.value.event_type,
       summary: form.value.summary.trim(),
       purpose: form.value.purpose.trim() || null,
-      follow_up_needed: form.value.follow_up_needed,
-      follow_up_note: form.value.follow_up_note.trim() || null,
     }
+    if (isHomeVisit.value) payload.done = form.value.done
     if (form.value.occurred_at) {
       payload.occurred_at = new Date(form.value.occurred_at).toISOString()
     }
@@ -181,10 +161,8 @@ async function remove() {
 }
 
 function eventTypeLabelSafe() {
-  if (!form.value.event_type) return "事件"
-  const found = typeOptions.value.find((o) => o.value === form.value.event_type)
-  if (!found) return form.value.event_type
-  return found.value === CUSTOM_VALUE ? form.value.custom_type || "自定义事件" : found.label
+  const type = effectiveEventType.value
+  return type ? eventTypeLabel(type, event.value?.payload) : ""
 }
 
 function goBack() {
@@ -209,57 +187,27 @@ function goBack() {
 
   <template v-else>
     <PageHeader
-      :title="isCreate ? '记录家访' : readOnly ? eventTypeLabelSafe() : `编辑${eventTypeLabelSafe()}`"
+      :title="isCreate ? '记录家访' : eventTypeLabelSafe()"
       :subtitle="student ? student.name : ''"
     />
 
     <AsyncState :loading="loading" :error="error" :rows="4" @retry="router.go(0)">
-      <div v-if="readOnly" class="card" style="max-width: 620px">
-        <div class="card__body">
-          <p class="field__hint" style="margin-bottom: 12px">{{ t("event.systemReadOnly") }}</p>
-          <p class="section-title">{{ eventTypeLabelSafe() }}</p>
-          <p v-if="form.occurred_at" class="stat__sub" style="margin-top: 6px">{{ form.occurred_at.slice(0, 16).replace("T", " ") }}</p>
-          <p v-if="describeEvent(event?.event_type, event?.payload)" class="feed__desc" style="margin-top: 12px">
-            {{ describeEvent(event?.event_type, event?.payload) }}
-          </p>
-          <div class="form-actions" style="margin-top: 16px">
-            <button type="button" class="btn btn--ghost" @click="goBack">{{ t("action.back") }}</button>
-          </div>
-        </div>
-      </div>
-
-      <div v-else class="card" style="max-width: 620px">
+      <div class="card" style="max-width: 620px">
         <form class="card__body" @submit.prevent="save" novalidate>
-          <!-- 新建固定为家访，不再选类型；类型下拉只在编辑历史记录时出现 -->
           <FormField
-            v-if="!isCreate"
-            :label="t('event.type')"
-            :error="errors.event_type || ''"
-          >
-            <select
-              v-model="form.event_type"
-              class="select"
-              :aria-invalid="!!errors.event_type"
-            >
-              <option v-for="o in typeOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-            </select>
-          </FormField>
-
-          <FormField
-            v-if="!isCreate && form.event_type === '__custom__'"
-            label="自定义类型名称"
-            required
-          >
-            <input v-model="form.custom_type" class="input" type="text" maxlength="20" />
-          </FormField>
-
-          <FormField
-            v-if="typeNeedsPurpose(form.event_type)"
-            :label="t('event.purpose')"
-            optional
+            v-if="typeNeedsPurpose(effectiveEventType)"
+            :label="isHomeVisit ? t('event.homeVisitPurpose') : t('event.purpose')"
+            :optional="true"
             :hint="t('event.purposeHint')"
+            :error="errors.purpose || ''"
           >
-            <input v-model="form.purpose" class="input" type="text" />
+            <input
+              v-model="form.purpose"
+              class="input"
+              type="text"
+              :placeholder="isHomeVisit ? t('event.defaultPurpose') : undefined"
+              :aria-invalid="!!errors.purpose"
+            />
           </FormField>
 
           <!-- 记录家访时勾选到场的监护人：他们和学生会一起成为事件参与者 -->
@@ -284,7 +232,12 @@ function goBack() {
             </div>
           </FormField>
 
-          <FormField :label="t('event.summary')" required :error="errors.summary || ''">
+          <FormField
+            :label="isSystemEdit ? t('event.description') : t('event.summary')"
+            :required="!isSystemEdit && !isHomeVisit"
+            :optional="isSystemEdit || isHomeVisit"
+            :error="errors.summary || ''"
+          >
             <textarea
               v-model="form.summary"
               class="textarea"
@@ -293,22 +246,13 @@ function goBack() {
             />
           </FormField>
 
-          <template v-if="typeNeedsFollowUp(form.event_type)">
-            <div class="field">
-              <label class="check">
-                <input v-model="form.follow_up_needed" type="checkbox" />
-                <span>{{ t("event.followUp") }}</span>
-              </label>
-              <span class="field__hint">{{ t("event.followUpHint") }}</span>
-            </div>
-            <FormField
-              v-if="form.follow_up_needed"
-              :label="t('event.followUpNote')"
-              optional
-            >
-              <input v-model="form.follow_up_note" class="input" type="text" />
-            </FormField>
-          </template>
+          <div v-if="isHomeVisit" class="field">
+            <label class="check">
+              <input v-model="form.done" type="checkbox" />
+              <span>{{ t("event.homeVisitDone") }}</span>
+            </label>
+            <span class="field__hint">{{ t("event.homeVisitDoneHint") }}</span>
+          </div>
 
           <FormField :label="t('event.occurredAt')" optional :hint="t('event.occurredAtHint')">
             <input v-model="form.occurred_at" class="input" type="datetime-local" />
@@ -327,7 +271,7 @@ function goBack() {
 
             <span class="form-actions__spacer" />
             <button
-              v-if="!isCreate"
+              v-if="!isCreate && !isSystemEdit"
               type="button"
               class="btn btn--danger"
               :disabled="saving"

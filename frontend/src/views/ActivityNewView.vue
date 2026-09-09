@@ -7,7 +7,7 @@ import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import FormField from "../components/FormField.vue"
 import api from "../api"
-import { friendlyError, t } from "../strings"
+import { friendlyError, t, todayStr } from "../strings"
 
 const router = useRouter()
 
@@ -17,7 +17,8 @@ const props = defineProps({
 })
 const isEdit = computed(() => !!props.eventId)
 
-const today = new Date().toISOString().slice(0, 10)
+// 本地时区的今天；toISOString 会用 UTC，凌晨 0-8 点会错成昨天
+const today = todayStr()
 const form = ref({
   title: "",
   date: today,
@@ -150,7 +151,8 @@ async function submit() {
           />
         </FormField>
 
-        <div class="form-grid">
+        <!-- 日期栅格后面还有字段：补回 .form-grid .field 被清掉的下边距 -->
+        <div class="form-grid" style="margin-bottom: var(--sp-4)">
           <FormField :label="t('eventNew.dateLabel')" optional>
             <input v-model="form.date" class="input" type="date" />
           </FormField>
@@ -162,7 +164,8 @@ async function submit() {
 
         <FormField :label="t('eventNew.studentsLabel')" optional :hint="t('eventNew.studentsHint')">
           <div>
-            <div v-if="classGroups.length > 1" class="row-wrap" style="margin-bottom: 10px">
+            <!-- 班级芯片与「指定学生」入口始终可用：只有一个班时也得能选人 -->
+            <div class="row-wrap" style="margin-bottom: 10px">
               <button
                 v-for="c in classGroups"
                 :key="c.key"

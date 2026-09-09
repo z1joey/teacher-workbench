@@ -8,6 +8,8 @@ role-specific attributes stay here.
 import re
 from typing import Literal
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..gender import GENDER_CODES, parse_gender
@@ -23,6 +25,7 @@ class StudentPayload(_Strict):
     gender: Literal["F", "M", "O"] | None = None
     birth_date: str | None = None  # ISO "YYYY-MM-DD"
     address: str | None = None
+    workspace_id: str | None = None
     is_active: bool = True
 
     @field_validator("gender", mode="before")
@@ -35,32 +38,12 @@ class StudentPayload(_Strict):
         return parse_gender(value if isinstance(value, str) else str(value))
 
 
-class SemesterEntry(_Strict):
-    id: str = Field(min_length=1, max_length=40)
-    name: str = Field(min_length=1, max_length=100)
-    start_date: str  # ISO "YYYY-MM-DD"
-    end_date: str
-
-    @field_validator("start_date", "end_date")
-    @classmethod
-    def _iso_date(cls, value: str) -> str:
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-            raise ValueError("date must be YYYY-MM-DD")
-        return value
-
-    @field_validator("end_date")
-    @classmethod
-    def _end_on_or_after_start(cls, end: str, info) -> str:
-        start = info.data.get("start_date")
-        if start and end < start:
-            raise ValueError("end_date must be on or after start_date")
-        return end
-
-
 class TeacherPayload(_Strict):
     role: str = "teacher"
+    workspace_id: str | None = None
     is_active: bool = True
-    semesters: list[SemesterEntry] = Field(default_factory=list)
+    auto_tags: bool = True
+    calendar_birthdays: bool = True
 
 
 class AdminPayload(_Strict):
@@ -111,7 +94,8 @@ class CommentPayload(_Strict):
 
 class HomeVisitPayload(_Strict):
     summary: str | None = None
-    follow_up: str | None = None
+    purpose: str | None = None
+    done: bool | None = None
     # guardian of record at visit time (snapshots the student payload;
     # guardians are student attributes, not accounts)
     guardian: str | None = None
@@ -150,12 +134,14 @@ class ActivityPayload(_Strict):
 
 class EnrolledPayload(_Strict):
     class_name: str | None = None
+    notes: str | None = None
 
 
 class ClassMovedPayload(_Strict):
     from_class: str | None = None
     to_class: str | None = None
     reason: str | None = None
+    notes: str | None = None
 
 
 EVENT_PAYLOAD_SCHEMAS = {
@@ -175,6 +161,15 @@ EVENT_PAYLOAD_SCHEMAS = {
 
 
 def validate_person_payload(role: str, data: dict) -> dict:
+    data = dict(data)
+    if role == "teacher":
+        for key in ("semesters", "name", "subject", "name_display"):
+            data.pop(key, None)
+    elif role == "admin":
+        data.pop("name", None)
+    elif role == "student":
+        for key in ("name", "guardian_name", "guardian_phone"):
+            data.pop(key, None)
     schema = PERSON_PAYLOAD_SCHEMAS.get(role)
     if schema is None:
         raise ValueError(f"unknown person role: {role!r}")

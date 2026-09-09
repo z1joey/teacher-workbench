@@ -12,6 +12,7 @@ import HelpDrawer from "./components/HelpDrawer.vue"
 import CommandPalette from "./components/CommandPalette.vue"
 import AppMeta from "./components/AppMeta.vue"
 import api, { getToken, setToken } from "./api"
+import { AUTH_PATHS } from "./router"
 import { clearMe, loadMe, me } from "./auth"
 import { clearSearch } from "./search"
 import { ADMIN_NAV, TEACHER_NAV, isNavActive } from "./nav"
@@ -29,7 +30,7 @@ const paletteOpen = ref(false)
 const searchRef = ref(null)
 const loggingOut = ref(false)
 
-const isLogin = computed(() => route.path === "/login")
+const isAuthPage = computed(() => AUTH_PATHS.has(route.path))
 const isAdmin = computed(() => me.value?.role === "admin")
 const navItems = computed(() => (isAdmin.value ? ADMIN_NAV : TEACHER_NAV))
 // 面包屑：父级 + 当前页（详情页会把真实名字写进 pageTitle）
@@ -67,7 +68,7 @@ async function logout() {
   clearSearch()
   clearAll()
   loggingOut.value = false
-  router.replace("/login")
+  await router.replace("/login")
 }
 
 async function onLogout() {
@@ -77,7 +78,7 @@ async function onLogout() {
     confirmLabel: "退出登录",
     tone: "warn",
   })
-  if (ok) logout()
+  if (ok) await logout()
 }
 
 // -------------------------------------------------------- 命令面板数据源
@@ -134,7 +135,7 @@ function onKeydown(e) {
     return
   }
 
-  if (isLogin.value || e.metaKey || e.ctrlKey || e.altKey) return
+  if (isAuthPage.value || e.metaKey || e.ctrlKey || e.altKey) return
 
   if (e.key === "?") {
     e.preventDefault()
@@ -178,8 +179,8 @@ watch(paletteOpen, (v) => {
 <template>
   <a class="skip-link" href="#main">跳到主要内容</a>
 
-  <!-- 登录页独立呈现，不带导航 -->
-  <router-view v-if="isLogin" />
+  <!-- 认证页（登录/注册）独立呈现，不带导航 -->
+  <router-view v-if="isAuthPage" />
 
   <div v-else class="shell">
     <!-- 移动端抽屉遮罩 -->
@@ -218,7 +219,7 @@ watch(paletteOpen, (v) => {
         <router-link v-if="!isAdmin && me" to="/profile" class="sidebar-user" @click="drawerOpen = false">
           <span class="avatar">{{ me.name.charAt(0) }}</span>
           <span class="sidebar-user__meta">
-            <span class="sidebar-user__name">{{ me.name }}</span>
+            <span class="sidebar-user__name">{{ me.display_name || me.name }}</span>
             <span class="sidebar-user__role">{{ t("nav.profile") }}</span>
           </span>
         </router-link>

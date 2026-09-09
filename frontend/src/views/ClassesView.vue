@@ -1,22 +1,21 @@
 <script setup>
-// 班级列表：班均摘要 + 最近事件，点卡片进详情看完整名单。
+// 班级首页：一个下拉框选班，选中班直接显示详情（含座位表）。
+// 只有一个班时只显示班级名称；没有班时保留建班入口。
 import { computed, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
+import ClassDetailContent from "../components/ClassDetailContent.vue"
 import api from "../api"
 import { notify } from "../feedback"
-import { eventTypeLabel, friendlyError, subject, COMMON_SUBJECT_KEYS, t } from "../strings"
-import { openEvent } from "../eventNav"
+import { friendlyError, t } from "../strings"
 
 const route = useRoute()
 const router = useRouter()
 
 const classes = ref([])
-const unassigned = ref([])
-const teachers = ref([])
 const loading = ref(true)
 const error = ref("")
 
@@ -25,11 +24,8 @@ const creating = ref(false)
 const createError = ref("")
 const createForm = ref(emptyForm())
 
-const EVENTS_VISIBLE = 3
-const expandedEvents = ref({})
-
 function emptyForm() {
-  return { name: "", grade_level: 7, academic_year: defaultYear(), homeroom_teacher_id: null }
+  return { name: "", academic_year: defaultYear() }
 }
 
 function defaultYear() {
@@ -42,14 +38,7 @@ async function load() {
   loading.value = true
   error.value = ""
   try {
-    const [cs, ts, students] = await Promise.all([
-      api.get("/classes"),
-      api.get("/teachers"),
-      api.get("/students"),
-    ])
-    classes.value = cs
-    teachers.value = ts
-    unassigned.value = students.filter((s) => s.status === "active" && !s.class)
+    classes.value = await api.get("/classes")
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -65,6 +54,22 @@ watch(() => route.query.create, (v) => {
   if (v === "1") showCreate.value = true
 })
 
+// 选中班：URL ?class= 优先（须仍存在），否则第一个班
+const selectedId = computed(() => {
+  const raw = route.query.class
+  const wanted = Array.isArray(raw) ? raw[0] : raw
+  if (wanted && classes.value.some((c) => c.id === wanted)) return wanted
+  return classes.value[0]?.id
+})
+
+function switchClass(id) {
+  router.replace({ query: { ...route.query, class: id } })
+}
+
+function onClassChanged() {
+  load()
+}
+
 async function createClass() {
   createError.value = ""
   if (!createForm.value.name.trim()) {
@@ -73,68 +78,28 @@ async function createClass() {
   }
   creating.value = true
   try {
-    await api.post("/classes", {
+    const created = await api.post("/classes", {
       name: createForm.value.name.trim(),
-      grade_level: Number(createForm.value.grade_level),
       academic_year: createForm.value.academic_year.trim(),
-      homeroom_teacher_id: createForm.value.homeroom_teacher_id || null,
     })
     createForm.value = emptyForm()
     showCreate.value = false
     notify({ tone: "ok", title: "班级已创建", timeout: 2600 })
     await load()
+    if (created?.id) switchClass(created.id)
   } catch (e) {
     createError.value = friendlyError(e)
   } finally {
     creating.value = false
   }
 }
-
-function avgSummary(c) {
-  const trend = c.avg_trend || []
-  if (!trend.length) return []
-  const last = trend[trend.length - 1]
-  const prev = trend.length > 1 ? trend[trend.length - 2] : null
-  const subs = Object.keys(last.averages).sort((a, b) => {
-    const ia = COMMON_SUBJECT_KEYS.indexOf(a)
-    const ib = COMMON_SUBJECT_KEYS.indexOf(b)
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
-  })
-  return subs.map((sub) => {
-    const avg = last.averages[sub]
-    const p = prev ? prev.averages[sub] : null
-    const delta = p != null && avg != null ? Math.round((avg - p) * 10) / 10 : null
-    return { sub, label: subject(sub), avg, delta }
-  })
-}
-
-function visitedCount(c) {
-  return (c.students || []).filter((s) => s.home_visited).length
-}
-
-function shortDate(ts) {
-  return new Date(ts).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" })
-}
-
-function visibleEvents(c) {
-  const evs = c.recent_events || []
-  return expandedEvents.value[c.id] ? evs : evs.slice(0, EVENTS_VISIBLE)
-}
-
-const totalStudents = computed(() =>
-  classes.value.reduce((n, c) => n + (c.student_count || 0), 0) + unassigned.value.length
-)
-const hasContent = computed(() => classes.value.length > 0 || unassigned.value.length > 0)
 </script>
 
 <template>
+  <!-- 没有班级时保留页头与建班入口；有班级时页头由班级内容自己提供 -->
   <PageHeader
+    v-if="!loading && !error && !classes.length"
     :title="t('classes.title')"
-    :subtitle="t('classes.subtitle')"
-    :meta="hasContent ? [
-      { label: '班级', value: classes.length },
-      { label: '学生', value: totalStudents },
-    ] : []"
   >
     <template #actions>
       <button class="btn btn--primary" @click="showCreate = !showCreate">
@@ -144,166 +109,52 @@ const hasContent = computed(() => classes.value.length > 0 || unassigned.value.l
     </template>
   </PageHeader>
 
+  <!-- 创建表单放在状态容器之外：空列表时也要能随页头按钮展开 -->
+  <div v-if="showCreate" class="card" style="max-width: 620px; margin-bottom: var(--sp-5)">
+    <div class="card__head">
+      <h2 class="card__title"><Icon name="building" :size="16" /> {{ t("classes.create") }}</h2>
+    </div>
+    <form class="card__body" @submit.prevent="createClass">
+      <div class="form-grid">
+        <FormField :label="t('classes.name')" required>
+          <input v-model="createForm.name" class="input" type="text" maxlength="60" />
+        </FormField>
+        <FormField :label="t('classes.year')" hint="跨年的学年，比如 2025/2026">
+          <input v-model="createForm.academic_year" class="input" type="text" />
+        </FormField>
+      </div>
+
+      <p v-if="createError" class="field__error" style="margin-bottom: 12px">
+        <Icon name="alert-circle" :size="13" /> {{ createError }}
+      </p>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary" :disabled="creating">
+          <span v-if="creating" class="spinner" />
+          {{ creating ? t("classes.creating") : t("classes.create") }}
+        </button>
+        <button type="button" class="btn btn--ghost" @click="showCreate = false">
+          {{ t("action.cancel") }}
+        </button>
+      </div>
+    </form>
+  </div>
+
   <AsyncState
     :loading="loading"
     :error="error"
-    :empty="!loading && !hasContent"
+    :empty="!loading && !error && !classes.length"
     :empty-title="t('classes.emptyTitle')"
     :empty-desc="t('classes.emptyDesc')"
     empty-icon="building"
     @retry="load"
   >
-    <template #emptyAction>
-      <button class="btn btn--primary" @click="showCreate = true">
-        <Icon name="plus" :size="15" /> {{ t("classes.create") }}
-      </button>
-    </template>
-
-    <div v-if="showCreate" class="card" style="max-width: 620px">
-      <div class="card__head">
-        <h2 class="card__title"><Icon name="building" :size="16" /> {{ t("classes.create") }}</h2>
-      </div>
-      <form class="card__body" @submit.prevent="createClass">
-        <div class="form-grid">
-          <FormField :label="t('classes.name')" required>
-            <input v-model="createForm.name" class="input" type="text" maxlength="60" />
-          </FormField>
-          <FormField :label="t('classes.grade')">
-            <input
-              v-model="createForm.grade_level"
-              class="input"
-              type="number"
-              min="1"
-              max="12"
-            />
-          </FormField>
-          <FormField :label="t('classes.year')" hint="跨年的学年，比如 2025/2026">
-            <input v-model="createForm.academic_year" class="input" type="text" />
-          </FormField>
-          <FormField :label="t('classes.homeroom')" optional>
-            <select v-model="createForm.homeroom_teacher_id" class="select">
-              <option :value="null">{{ t("common.none") }}</option>
-              <option v-for="teacher in teachers" :key="teacher.id" :value="teacher.id">
-                {{ teacher.name }}
-              </option>
-            </select>
-          </FormField>
-        </div>
-
-        <p v-if="createError" class="field__error" style="margin-bottom: 12px">
-          <Icon name="alert-circle" :size="13" /> {{ createError }}
-        </p>
-
-        <div class="form-actions">
-          <button type="submit" class="btn btn--primary" :disabled="creating">
-            <span v-if="creating" class="spinner" />
-            {{ creating ? t("classes.creating") : t("classes.create") }}
-          </button>
-          <button type="button" class="btn btn--ghost" @click="showCreate = false">
-            {{ t("action.cancel") }}
-          </button>
-        </div>
-      </form>
-    </div>
-
-    <div class="grid grid--2">
-      <router-link
-        v-for="c in classes"
-        :key="c.id"
-        :to="`/classes/${c.id}`"
-        class="card card--link"
-      >
-        <div class="card__head">
-          <div class="grow">
-            <h2 class="card__title" style="font-size: 16px">{{ c.name }}</h2>
-            <p class="card__desc">
-              {{ c.academic_year }}
-              · {{ t("profile.studentsCount", { n: c.student_count }) }}
-              <template v-if="c.student_count">
-                · {{ t("classes.visitedSummary", { n: visitedCount(c), total: c.student_count }) }}
-              </template>
-            </p>
-          </div>
-          <Icon name="chevron-right" :size="16" style="color: var(--muted); flex-shrink: 0" />
-        </div>
-
-        <div class="card__body">
-          <div v-if="avgSummary(c).length" class="stack" style="gap: 8px">
-            <span class="field__hint">{{ t("classes.avgLabel") }}</span>
-            <div class="row-wrap">
-              <span v-for="a in avgSummary(c)" :key="a.sub" class="pill pill--outline">
-                {{ a.label }}
-                <b class="tnum">{{ a.avg }}</b>
-                <span
-                  v-if="a.delta !== null"
-                  class="tnum"
-                  :style="{ color: a.delta >= 0 ? 'var(--ok)' : 'var(--warn)' }"
-                >
-                  {{ a.delta > 0 ? "↑" : "↓" }}{{ Math.abs(a.delta) }}
-                </span>
-              </span>
-            </div>
-          </div>
-          <p v-else class="state__desc" style="margin: 0">{{ t("classdetail.noScores") }}</p>
-
-          <div
-            v-if="(c.recent_events || []).length"
-            class="stack"
-            style="gap: 4px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line)"
-          >
-            <span class="field__hint">{{ t("classes.recentEvents") }}</span>
-            <div
-              v-for="ev in visibleEvents(c)"
-              :key="`e${ev.id}`"
-              class="row muted feed__item--inline"
-              style="font-size: 13px; cursor: pointer"
-              @click.stop.prevent="openEvent(router, ev)"
-            >
-              <span class="stat__sub nowrap">{{ shortDate(ev.occurred_at) }}</span>
-              <span>{{ ev.student_name }}</span>
-              <span>· {{ eventTypeLabel(ev.event_type) }}</span>
-              <span v-if="ev.recurrence === 'yearly'" class="pill pill--muted">↻ 每年</span>
-            </div>
-            <button
-              v-if="(c.recent_events || []).length > EVENTS_VISIBLE || expandedEvents[c.id]"
-              type="button"
-              class="btn btn--sm btn--quiet"
-              style="align-self: flex-start"
-              @click.prevent="expandedEvents[c.id] = !expandedEvents[c.id]"
-            >
-              {{ expandedEvents[c.id] ? t("action.collapse") : t("classes.showAllEvents") }}
-            </button>
-          </div>
-        </div>
-      </router-link>
-    </div>
-
-    <section v-if="unassigned.length" class="card class-unassigned" style="margin-top: var(--sp-5)">
-      <div class="card__head">
-        <div class="grow">
-          <h2 class="card__title" style="font-size: 16px">{{ t("students.ungrouped") }}</h2>
-          <p class="card__desc">
-            {{ t("profile.studentsCount", { n: unassigned.length }) }}
-            · {{ t("classes.unassignedHint") }}
-          </p>
-        </div>
-        <router-link to="/students" class="btn btn--sm btn--ghost">
-          {{ t("classes.viewUnassigned") }}
-        </router-link>
-      </div>
-      <div class="card__body card__body--tight">
-        <div class="chips">
-          <router-link
-            v-for="s in unassigned"
-            :key="s.id"
-            :to="`/students/${s.id}`"
-            class="chip"
-          >
-            {{ s.name }}
-            <span class="muted tnum" style="font-size: 12px">{{ s.admission_no }}</span>
-          </router-link>
-        </div>
-      </div>
-    </section>
+    <ClassDetailContent
+      v-if="selectedId"
+      :class-id="selectedId"
+      @switch="switchClass"
+      @create="showCreate = true"
+      @changed="onClassChanged"
+    />
   </AsyncState>
 </template>

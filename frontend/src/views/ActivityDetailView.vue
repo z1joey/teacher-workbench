@@ -10,9 +10,6 @@ import { ask } from "../confirm"
 import { notify, runUndoable } from "../feedback"
 import {
   dateLocale,
-  eventTypeColor,
-  eventTypeIcon,
-  eventTypeLabel,
   friendlyError,
   t,
 } from "../strings"
@@ -84,10 +81,7 @@ async function remove() {
   </div>
 
   <template v-else>
-    <PageHeader
-      :title="event?.title ?? ''"
-      :subtitle="eventTypeLabel(event?.event_type)"
-    >
+    <PageHeader :title="event?.title ?? ''">
       <template #actions>
         <router-link :to="`/events/${props.id}/edit`">
           <button class="btn btn--sm"><Icon name="pencil" :size="13" /> {{ t("action.edit") }}</button>
@@ -99,48 +93,32 @@ async function remove() {
     </PageHeader>
 
     <AsyncState :loading="loading" :error="error" :rows="3" @retry="load">
+      <!-- 单容器布局：日期、说明、参与学生收在一张卡片里 -->
       <div class="card" style="max-width: 620px">
         <div class="card__body">
-          <div class="row" style="gap: 12px; align-items: center">
-            <span
-              class="feed__dot"
-              style="background: #0e7490; width: 30px; height: 30px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center"
+          <p class="stat__sub">
+            <Icon name="calendar" :size="13" />
+            {{ fmtDate(event?.occurred_at) }}
+          </p>
+
+          <template v-if="event?.notes">
+            <p class="section-title" style="margin-top: 16px">说明</p>
+            <p class="feed__desc">{{ event.notes }}</p>
+          </template>
+
+          <p class="section-title" style="margin-top: 16px">
+            参与学生 <span class="muted">（{{ event?.students.length }} 人）</span>
+          </p>
+          <p v-if="!event?.students.length" class="stat__sub">没有学生参与</p>
+          <div v-else class="row-wrap" style="margin-top: 8px">
+            <router-link
+              v-for="s in event.students"
+              :key="s.id"
+              :to="`/students/${s.id}`"
+              class="chip"
             >
-              <Icon :name="eventTypeIcon(event?.event_type)" :size="16" />
-            </span>
-            <div>
-              <div class="row-wrap">
-                <span class="pill pill--outline">{{ eventTypeLabel(event?.event_type) }}</span>
-              </div>
-              <p class="stat__sub" style="margin-top: 6px">
-                <Icon name="calendar" :size="13" />
-                {{ fmtDate(event?.occurred_at) }}
-              </p>
-            </div>
-          </div>
-
-          <div v-if="event?.notes" class="card card--nested" style="margin-top: 16px">
-            <div class="card__body card__body--tight">
-              <p class="section-title">说明</p>
-              <p class="feed__desc">{{ event.notes }}</p>
-            </div>
-          </div>
-
-          <div style="margin-top: 16px">
-            <p class="section-title">
-              参与学生 <span class="muted">（{{ event?.students.length }} 人）</span>
-            </p>
-            <p v-if="!event?.students.length" class="stat__sub">没有学生参与</p>
-            <div v-else class="row-wrap" style="margin-top: 8px">
-              <router-link
-                v-for="s in event.students"
-                :key="s.id"
-                :to="`/students/${s.id}`"
-                class="chip"
-              >
-                {{ s.name }}
-              </router-link>
-            </div>
+              {{ s.name }}
+            </router-link>
           </div>
         </div>
       </div>

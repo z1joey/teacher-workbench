@@ -2,48 +2,66 @@
 
 Roster (POST /data/import/roster, GET /data/export/roster[/-template]) moves
 student rows through .xlsx in the format schools actually hand out: an optional
-merged title row ("…班花名册"), a header row (学号/姓名/性别[/出生日期/…]) and
-one student per row. Import creates or updates students only — it never
-creates classes. New rows land in the system unassigned class unless an
-existing class_id is supplied; re-import without class_id updates fields in
-place without moving enrollments.
+merged title row ("…班花名册"), a header row (学号/姓名/性别[/出生日期/家庭住址/
+监护人姓名/监护人电话/监护人关系]) and one student per row. Import creates or
+updates students only — it never creates classes. New rows land in the system
+unassigned class unless an class_id is supplied; re-import without class_id
+updates fields in place without moving enrollments. Guardian columns link (or
+merge, by phone/name) the guardian onto the student; they never unlink an
+existing guardian.
 """
 from __future__ import annotations
 
 import datetime as dt
 import io
+import re
 import uuid as uuid_mod
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from sqlalchemy.orm import Session
 
-from ..database import get_db
+from ..database import Base, engine, get_db
 from ..deps import get_current_person
 from ..eventing import create_event
 from ..gender import gender_label, parse_gender
-from ..models import Class, Enrollment, Person
+from ..models import AuthSession, Class, Enrollment, Person
 from ..models._common import utcnow
 from ..payloads import validate_person_payload
 from ..security import hash_password
+from ..seed import seed
 from ..unassigned import class_for_api, ensure_unassigned_class, is_unassigned_class
+from ..workspace import tag_student_workspace
+from .students import _find_or_create_guardian, _guardian_link, _guardians_of
 
 router = APIRouter(
     tags=["data"],
     dependencies=[Depends(get_current_person)],
 )
 
+_bearer = HTTPBearer(auto_error=False)
+
 _HEADER_ALIASES = {
     "admission_no": {"学号", "学籍号", "学籍编号", "学籍辅号", "学籍"},
     "name": {"姓名", "名字", "学生姓名"},
     "gender": {"性别"},
     "birth_date": {"出生日期", "出生年月", "生日"},
+    "address": {"家庭住址", "家庭地址", "住址", "地址"},
+    "guardian_name": {"监护人姓名", "监护人", "家长姓名", "家长"},
+    "guardian_phone": {"监护人电话", "监护人手机", "监护人手机号", "家长电话", "家长手机号"},
+    "guardian_relation": {"监护人关系", "与学生关系", "家长关系", "关系"},
 }
 _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-_ROSTER_HEADERS = ["学号", "姓名", "性别"]
+# 导入/导出/模板共用同一套列，顺序即导出顺序
+_ROSTER_HEADERS = [
+    "学号", "姓名", "性别", "出生日期", "家庭住址", "监护人姓名", "监护人电话", "监护人关系",
+]
+# 成绩表（如「英语(满分120)」）混进花名册导入会静默改掉真实学生资料，直接拒收
+_SCORE_COLUMN_HINT = re.compile(r"满分|成绩|分数|得分|绩点")
 
 
 def _cell_str(value) -> str:
@@ -86,11 +104,14 @@ def _locate_header(rows) -> tuple[int, dict[str, int]]:
     raise HTTPException(status_code=400, detail="未找到表头行（需同时包含“学号”和“姓名”列）")
 
 
-def _resolve_target_class(db: Session, class_id: uuid_mod.UUID | None) -> Class:
+def _resolve_target_class(db: Session, class_id: uuid_mod.UUID | None, user: Person) -> Class:
     if class_id is None:
         return ensure_unassigned_class(db)
     cls = db.get(Class, class_id)
+    # 工作区班级只允许归属教师导入；无主班级（历史数据/夹具）保持兼容。
     if cls is None or is_unassigned_class(cls):
+        raise HTTPException(status_code=404, detail="class not found")
+    if cls.teacher_id is not None and cls.teacher_id != user.id:
         raise HTTPException(status_code=404, detail="class not found")
     return cls
 
@@ -124,6 +145,99 @@ def _move_student(
     )
 
 
+def _wipe_db(bind=engine) -> None:
+    Base.metadata.drop_all(bind=bind)
+    Base.metadata.create_all(bind=bind)
+
+
+def _require_teacher(user: Person) -> None:
+    if not user.is_teacher:
+        raise HTTPException(status_code=403, detail="仅教师账号可使用演示数据功能")
+
+
+def _teacher_snapshot(user: Person) -> dict:
+    payload = dict(user.payload or {})
+    payload.pop("semesters", None)
+    return {
+        "name": user.name,
+        "phone": user.phone,
+        "email": user.email,
+        "password_hash": user.password_hash,
+        "payload": validate_person_payload("teacher", payload),
+    }
+
+
+def _rebind_teacher_workspace(
+    db: Session,
+    user: Person,
+    token: str,
+    *,
+    load_seed: bool,
+) -> Person:
+    """Wipe business data, keep the current teacher account and bearer session."""
+    teacher_snap = _teacher_snapshot(user)
+    _wipe_db(db.get_bind())
+    db.rollback()
+    db.expire_all()
+    db.expunge(user)
+    ensure_unassigned_class(db)
+    teacher = Person(**teacher_snap)
+    db.add(teacher)
+    db.flush()
+    if load_seed:
+        seed(db, teacher=teacher, include_admin=False)
+    db.add(AuthSession(token=token, person_id=teacher.id))
+    return teacher
+
+
+@router.post("/data/demo/seed")
+def load_demo_data(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+):
+    """Wipe app data and load demo content bound to the current teacher."""
+    _require_teacher(user)
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    try:
+        teacher = _rebind_teacher_workspace(
+            db, user, credentials.credentials, load_seed=True
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"加载演示数据失败: {exc}") from exc
+    return {
+        "ok": True,
+        "teacher": {"name": teacher.name, "phone": teacher.phone},
+    }
+
+
+@router.post("/data/demo/reset")
+def reset_app_data(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
+):
+    """Clear all business data but keep the current teacher signed in."""
+    _require_teacher(user)
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    try:
+        teacher = _rebind_teacher_workspace(
+            db, user, credentials.credentials, load_seed=False
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"重置失败: {exc}") from exc
+    return {
+        "ok": True,
+        "teacher": {"name": teacher.name, "phone": teacher.phone},
+    }
+
+
 @router.post("/data/import/roster")
 async def import_roster(
     file: UploadFile = File(...),
@@ -150,9 +264,16 @@ async def import_roster(
         {_cell_str(c) for row in rows[header_idx : header_idx + 1] for c in row if _cell_str(c)}
         - set().union(*_HEADER_ALIASES.values())
     )
+    score_columns = [c for c in ignored if _SCORE_COLUMN_HINT.search(c)]
+    if score_columns:
+        shown = "、".join(f"「{c}」" for c in score_columns[:3])
+        raise HTTPException(
+            status_code=400,
+            detail=f"这像是成绩表格而不是花名册（检测到列：{shown}）。请选择花名册文件（学号/姓名/性别）导入",
+        )
 
     assign_class = class_id is not None
-    target_cls = _resolve_target_class(db, class_id)
+    target_cls = _resolve_target_class(db, class_id, user)
     today = dt.date.today()
     report: list[dict] = []
     seen_in_file: set[str] = set()
@@ -188,6 +309,10 @@ async def import_roster(
                 item["message"] = None
             except ValueError as exc:
                 birth_date, item["message"] = None, str(exc)
+            address = (values.get("address") or "").strip() or None
+            guardian_name = (values.get("guardian_name") or "").strip()
+            guardian_phone = (values.get("guardian_phone") or "").strip() or None
+            guardian_relation = (values.get("guardian_relation") or "").strip() or None
 
             person_row = (
                 db.query(Person)
@@ -204,6 +329,7 @@ async def import_roster(
                         "admission_no": admission_no,
                         "gender": gender,
                         "birth_date": birth_date.isoformat() if birth_date else None,
+                        "address": address,
                     },
                 )
                 person_row = Person(
@@ -213,6 +339,7 @@ async def import_roster(
                 )
                 db.add(person_row)
                 db.flush()
+                tag_student_workspace(person_row, user)
                 _move_student(db, person_row, target_cls, reason="admitted", today=today)
                 create_event(
                     db,
@@ -228,17 +355,40 @@ async def import_roster(
                 created += 1
                 item["status"] = "created"
             else:
+                # 更新 = 按学号匹配已有学生并覆盖资料；把改了什么写进报告，
+                # 否则「更新 N 人」对老师来说等于黑箱
+                changes: list[str] = []
+                old_payload = dict(person_row.payload or {})
+                if person_row.name != name:
+                    changes.append(f"姓名 {person_row.name} → {name}")
                 person_row.name = name
-                payload = dict(person_row.payload or {})
+                if gender is not None and old_payload.get("gender") != gender:
+                    changes.append("性别")
+                if birth_date and old_payload.get("birth_date") != birth_date.isoformat():
+                    changes.append("出生日期")
+                if address and old_payload.get("address") != address:
+                    changes.append("家庭住址")
+                payload = old_payload
                 if gender is not None:
                     payload["gender"] = gender
                 if birth_date:
                     payload["birth_date"] = birth_date.isoformat()
+                if address:
+                    payload["address"] = address
                 person_row.payload = validate_person_payload("student", payload)
                 if assign_class:
                     _move_student(db, person_row, target_cls, reason="moved", today=today)
                 updated += 1
                 item["status"] = "updated"
+                if changes:
+                    item["changes"] = "；".join(changes)
+
+            # 监护人列：给了姓名或电话就把该监护人挂到学生上（按电话/姓名合并），
+            # 已有的其他监护人不改动；三列都为空则完全跳过
+            if guardian_name or guardian_phone:
+                guardian = _find_or_create_guardian(db, guardian_name, guardian_phone)
+                _guardian_link(db, person_row.id, guardian, guardian_relation)
+                item["guardian"] = guardian.name
         except ValueError as exc:
             item["status"] = "error"
             item["message"] = str(exc)
@@ -256,7 +406,9 @@ async def import_roster(
     }
 
 
-def _roster_workbook(cls: Class, students: list[Person]) -> Workbook:
+def _roster_workbook(db: Session, cls: Class, students: list[Person]) -> Workbook:
+    """导出与导入同格式的花名册：学号/姓名/性别/出生日期/家庭住址 + 首位
+    监护人（姓名/电话/关系）；一名学生有多位监护人时只导出第一位。"""
     wb = Workbook()
     ws = wb.active
     ws.title = "花名册"
@@ -264,14 +416,22 @@ def _roster_workbook(cls: Class, students: list[Person]) -> Workbook:
     ws.append(_ROSTER_HEADERS)
     for s in students:
         payload = s.payload or {}
+        guardians = _guardians_of(db, s.id)
+        guardian, relationship = guardians[0] if guardians else (None, None)
+        g_payload = guardian.payload or {} if guardian else {}
         ws.append([
             payload.get("admission_no") or "",
             s.name,
             gender_label(payload.get("gender")),
+            payload.get("birth_date") or "",
+            payload.get("address") or "",
+            guardian.name if guardian else "",
+            g_payload.get("phone") or "",
+            relationship or "",
         ])
-    ws.column_dimensions["A"].width = 16
-    ws.column_dimensions["B"].width = 12
-    ws.column_dimensions["C"].width = 8
+    widths = {"A": 16, "B": 12, "C": 8, "D": 14, "E": 24, "F": 14, "G": 16, "H": 12}
+    for col, width in widths.items():
+        ws.column_dimensions[col].width = width
     bold = Font(bold=True)
     ws.cell(row=1, column=1).font = bold
     for col in range(1, len(_ROSTER_HEADERS) + 1):
@@ -305,7 +465,7 @@ def export_roster(class_id: uuid_mod.UUID, db: Session = Depends(get_db)):
         .all()
     )
     return _xlsx_response(
-        _roster_workbook(cls, students),
+        _roster_workbook(db, cls, students),
         f"{cls.academic_year}级{cls.name}花名册.xlsx",
     )
 
@@ -318,6 +478,12 @@ def export_roster_template():
     ws.title = "花名册"
     ws.append(["班级花名册"])
     ws.append(_ROSTER_HEADERS)
-    ws.append(["2025070701", "张三", "男"])
-    ws.append(["2025070702", "李四", "女"])
+    ws.append([
+        "2025070701", "张三", "男", "2012-05-14", "解放路100号",
+        "张丽", "13900000001", "母亲",
+    ])
+    ws.append([
+        "2025070702", "李四", "女", "2012-11-02", "解放路101号",
+        "李强", "13900000002", "父亲",
+    ])
     return _xlsx_response(wb, "花名册模板.xlsx")

@@ -571,6 +571,19 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 搜索命中片段：柔黄底、不抢正文颜色 */
+mark.hl {
+  background: var(--warn-soft);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+/* 下拉结果里的监护人行：允许多个监护人时换行，不省略 */
+.search-results__guardians {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
 .search-results__foot {
   padding: var(--sp-2) var(--sp-3) var(--sp-1);
   border-top: 1px solid var(--line);
@@ -643,10 +656,65 @@ code {
   font-weight: 700;
   letter-spacing: 0.005em;
 }
+.page-title--loose {
+  display: inline-flex;
+  margin-left: -12px; /* 抵消 select 自身内边距，与纯文本标题左对齐 */
+}
 .page-sub {
   margin-top: 4px;
   color: var(--muted);
   font-size: var(--fs-sm);
+}
+/* 标题位班级切换：下拉框伪装成页面标题，悬停/聚焦才露出控件感 */
+.class-switcher {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.class-switcher__select {
+  appearance: none;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  letter-spacing: 0.005em;
+  color: var(--ink);
+  line-height: 1.3;
+  padding: 2px 30px 2px 12px;
+  max-width: 100%;
+  cursor: pointer;
+}
+.class-switcher__select:hover {
+  background: var(--primary-soft);
+}
+.class-switcher__select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.class-switcher__chevron {
+  position: absolute;
+  right: 9px;
+  pointer-events: none;
+  color: var(--muted);
+}
+.page-head__meta-wrap {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.page-head__meta-row {
+  align-items: center;
+}
+.page-head__tag-row {
+  align-items: center;
+  margin-top: var(--sp-2);
+}
+.page-head__tag-form {
+  max-width: 520px;
 }
 .page-head__actions {
   display: flex;
@@ -903,6 +971,57 @@ code {
   background-repeat: no-repeat;
   background-position: right 9px center;
 }
+
+/* 弹窗内考试选择：自绘下拉列表（原生 select 弹出层在嵌入式 WebView
+   里会被定位到屏幕底部，无法用样式修正） */
+.exam-picker__trigger {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 7px var(--sp-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+}
+.exam-picker__trigger.is-placeholder {
+  color: var(--muted);
+}
+.exam-picker__menu {
+  margin-top: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+}
+.exam-picker__option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px var(--sp-3);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.exam-picker__option:hover {
+  background: var(--surface-sunken);
+}
+.exam-picker__option.is-active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+}
 .input:focus,
 .select:focus,
 .textarea:focus {
@@ -926,6 +1045,40 @@ code {
   background: var(--surface-sunken);
   color: var(--muted);
   cursor: not-allowed;
+}
+.password-input {
+  position: relative;
+  width: 100%;
+}
+.password-input__field {
+  padding-right: 38px;
+}
+.password-input__field.input--sm {
+  padding-right: 34px;
+}
+.password-input__toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.password-input__toggle:hover {
+  color: var(--ink);
+  background: var(--surface-sunken);
+}
+.password-input__toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
 }
 .input--sm {
   height: 28px;
@@ -960,6 +1113,25 @@ code {
   accent-color: var(--primary);
   cursor: pointer;
 }
+.choice-list {
+  display: grid;
+  gap: 8px;
+}
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.choice input {
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+  flex: 0 0 auto;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
 
 .form-grid {
   display: grid;
@@ -981,6 +1153,11 @@ code {
 }
 .form-actions__spacer {
   margin-left: auto;
+}
+.form-actions--danger {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
 }
 
 /* 分段选择（替代多选/下拉的可见控件） */
@@ -1114,6 +1291,113 @@ code {
 }
 .student-group.is-collapsed .student-group__toggle {
   border-radius: inherit;
+}
+
+.student-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+}
+.student-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.student-card.is-clickable {
+  cursor: pointer;
+}
+.student-card.is-clickable:hover {
+  background: var(--surface-hover);
+  border-color: var(--line-strong);
+}
+.student-card.is-clickable:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.student-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+/* 搜索时展示的监护人行：紧贴姓名/学号下方 */
+.student-card__guardians {
+  margin: 0;
+  font-size: var(--fs-xs);
+}
+.student-card__identity {
+  min-width: 0;
+}
+.student-card__name {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.student-card__no {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+}
+.student-card__chevron {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.student-card__tags {
+  flex-wrap: wrap;
+}
+.student-card__tags .tag {
+  font-size: var(--fs-xs);
+  padding: 1px 7px;
+}
+.student-card__event {
+  margin-top: auto;
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--line);
+}
+.student-card__event-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: var(--fs-sm);
+}
+.student-card__event-type {
+  font-weight: 600;
+}
+.student-card__event-time {
+  font-size: var(--fs-xs);
+}
+.student-card__event-desc {
+  margin: 4px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.student-card__empty {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
 }
 
 .class-unassigned {
@@ -1283,6 +1567,15 @@ code {
   border: 1px solid var(--line-strong);
   color: var(--ink-soft);
 }
+button.pill {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+}
+button.pill.pill--outline:hover {
+  background: var(--surface-sunken);
+}
 
 .pill--beta {
   background: rgba(180, 83, 9, 0.14);
@@ -1309,12 +1602,11 @@ code {
 }
 .app-meta--login {
   justify-content: center;
-  margin: -4px 0 var(--sp-2);
+  margin: var(--sp-2) 0 var(--sp-5);
 }
 .app-meta--login .app-meta__version {
   color: var(--muted);
 }
-
 .pill--count {
   min-width: 20px;
   justify-content: center;
@@ -1342,6 +1634,50 @@ a.chip:hover {
 }
 .chip--static {
   cursor: default;
+}
+
+/* 拖拽学生转班：chip 可抓取，卡片是投放目标 */
+.chip[draggable="true"] {
+  cursor: grab;
+}
+.card--drop {
+  outline: 2px dashed var(--primary);
+  outline-offset: -3px;
+  background: var(--primary-soft);
+}
+
+/* 座位表：网格座位 + 未安排池，互相拖拽 */
+.seating-grid {
+  display: grid;
+  gap: 8px;
+}
+.seat {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: 1.5px dashed var(--line);
+  border-radius: var(--r-sm);
+}
+.seat--filled {
+  border-style: solid;
+  background: var(--surface-sunken);
+}
+.seat__chip {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: 1.25;
+  cursor: grab;
+}
+.seat__gender {
+  font-size: 12px;
+  color: var(--muted);
 }
 .chip--active {
   background: var(--primary);
@@ -1385,6 +1721,29 @@ a.chip:hover {
   border-radius: 50%;
   background: var(--tag-color);
   flex: 0 0 auto;
+}
+/* 「添加标签」按钮复用标签外观：虚线空底，展开时转为实线主色。
+   放在 .tag 之后：border 走 shorthand，后写的选择器才能覆盖成 dashed */
+.tag--add {
+  border-style: dashed;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  appearance: none;
+  font-family: inherit; /* 尺寸/字重沿用 .tag 的 12px/600，不用 shorthand 以免重置 */
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.tag--add::before {
+  display: none; /* 自带 tag 图标，不重复显示色点 */
+}
+.tag--add:hover,
+.tag--add.is-open {
+  color: var(--primary);
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+.tag--add.is-open {
+  border-style: solid;
 }
 .tag__x {
   display: grid;
@@ -2046,6 +2405,38 @@ a.chip:hover {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+.timeline__day {
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.timeline__day + .timeline__day {
+  margin-top: var(--sp-3);
+}
+/* 今天的容器整组强调 */
+.timeline__day--today {
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--line));
+}
+.timeline__day-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.timeline__day-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.timeline__day--today .timeline__day-label {
+  color: var(--primary);
+}
+.timeline__day-count {
+  font-size: 12px;
+  color: var(--muted);
+}
 
 /* 事件摘要行（首页 / 跟进记录共用） */
 .feed {
@@ -2054,7 +2445,7 @@ a.chip:hover {
 }
 .feed__item {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-3) 0;
   border-bottom: 1px solid var(--line);
@@ -2082,6 +2473,7 @@ a.chip:hover {
   width: 26px;
   height: 26px;
   flex: 0 0 auto;
+  align-self: center;
   border-radius: 50%;
   color: #fff;
 }
@@ -2106,6 +2498,9 @@ a.chip:hover {
   font-size: var(--fs-sm);
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+.feed__done {
+  margin-left: 8px;
 }
 
 /* ==========================================================================
@@ -2188,6 +2583,7 @@ a.chip:hover {
 .cal-legend {
   display: flex;
   flex-wrap: wrap;
+  justify-content: center;
   gap: var(--sp-1) var(--sp-4);
   margin-top: var(--sp-3);
   font-size: var(--fs-xs);
@@ -2227,10 +2623,6 @@ a.chip:hover {
   font-size: var(--fs-sm);
   font-weight: 600;
 }
-.cal-notify__when {
-  color: var(--muted);
-  white-space: nowrap;
-}
 .cal-notify__list {
   display: flex;
   flex-direction: column;
@@ -2238,10 +2630,11 @@ a.chip:hover {
 }
 .cal-notify__item {
   display: flex;
-  align-items: flex-start;
-  gap: var(--sp-2);
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 8px 10px;
+  min-height: 44px;
+  padding: 8px 12px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   background: var(--surface-sunken);
@@ -2259,18 +2652,41 @@ a.chip:hover {
   cursor: default;
 }
 .cal-notify__dot {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
-  margin-top: 1px;
+  margin: 0;
 }
 .cal-notify__text {
   flex: 1;
   min-width: 0;
-  line-height: 1.45;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.cal-notify__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  line-height: 1.35;
+}
+.cal-notify__when {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.cal-notify__sep {
+  color: var(--muted);
 }
 .cal-notify__sub {
   color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ==========================================================================
@@ -2285,6 +2701,8 @@ a.chip:hover {
 }
 .chart {
   position: relative;
+  /* 图表按 1:1 绘制；容器更宽时居中，更窄时回到左对齐并横向滚动 */
+  margin-inline: auto;
 }
 .chart svg {
   display: block;
@@ -2697,49 +3115,6 @@ a.chip:hover {
   flex: 0 0 auto;
 }
 
-/* 成绩明细：每场考试独立一块，科目胶囊对齐图例样式 */
-.exam-group__head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-2);
-}
-.exam-group__title {
-  margin: 0;
-  font-size: var(--fs-md);
-  font-weight: 600;
-}
-.exam-group__range {
-  margin: 4px 0 0;
-  font-size: var(--fs-sm);
-  color: var(--muted);
-}
-
-.semester-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: var(--sp-2);
-  align-items: end;
-  padding-bottom: var(--sp-3);
-  margin-bottom: var(--sp-3);
-  border-bottom: 1px solid var(--line);
-}
-.semester-row:last-of-type {
-  margin-bottom: var(--sp-2);
-}
-.semester-row__remove {
-  margin-bottom: 2px;
-}
-@media (max-width: 720px) {
-  .semester-row {
-    grid-template-columns: 1fr 1fr;
-  }
-  .semester-row__remove {
-    grid-column: 2;
-    justify-self: end;
-  }
-}
-
 .score-exams {
   display: flex;
   flex-direction: column;
@@ -2896,6 +3271,24 @@ a.chip:hover {
   border-bottom: 1px solid var(--line);
   cursor: pointer;
   font-size: var(--fs-sm);
+}
+button.mention-picker__row {
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  font: inherit;
+  color: inherit;
+}
+button.mention-picker__row:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+button.mention-picker__row:not(:disabled):hover {
+  background: var(--surface-sunken);
 }
 .mention-picker__row:last-child {
   border-bottom: 0;

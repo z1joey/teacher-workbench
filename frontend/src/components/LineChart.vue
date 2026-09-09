@@ -82,12 +82,22 @@ const ticks = computed(() =>
   })
 )
 
-const lines = computed(() => {
-  const out = []
+const lineData = computed(() => {
+  // covered 记录已连进折线段的点；落单的点（只有一场考试、或前后缺考成
+  // 孤岛）由 isolatedDots 补一个常驻圆点，否则图表整块空白
+  const segments = []
+  const covered = new Set()
   for (const s of visibleSeries.value) {
     let run = []
     const flush = () => {
-      if (run.length > 1) out.push({ key: s.key, color: s.color, points: run.join(" ") })
+      if (run.length > 1) {
+        segments.push({
+          key: s.key,
+          color: s.color,
+          points: run.map((p) => `${p.x},${p.y}`).join(" "),
+        })
+        run.forEach((p) => covered.add(`${s.key}:${p.i}`))
+      }
       run = []
     }
     s.values.forEach((v, i) => {
@@ -95,9 +105,25 @@ const lines = computed(() => {
         flush()
         return
       }
-      run.push(`${xFor(i)},${yFor(v)}`)
+      run.push({ i, x: xFor(i), y: yFor(v) })
     })
     flush()
+  }
+  return { segments, covered }
+})
+
+const lines = computed(() => lineData.value.segments)
+
+// 孤立数据点的常驻圆点（与悬停圆点同一样式，保证任何情况下都可见）。
+// 悬停/高亮列的点位由 dots 负责，这里跳过以免节点重叠。
+const isolatedDots = computed(() => {
+  const out = []
+  for (const s of visibleSeries.value) {
+    s.values.forEach((v, i) => {
+      if (v != null && i !== activeIndex.value && !lineData.value.covered.has(`${s.key}:${i}`)) {
+        out.push({ key: `iso-${s.key}-${i}`, color: s.color, x: xFor(i), y: yFor(v) })
+      }
+    })
   }
   return out
 })
@@ -231,7 +257,8 @@ const xLabels = computed(() => {
 <template>
   <div>
     <div class="chart__viewport">
-      <div class="chart" :style="{ minWidth: `${layout.W}px` }">
+      <!-- 宽度锁定为绘制宽度：SVG 若跟随容器拉伸，高度会等比膨胀（考试少时尤甚） -->
+      <div class="chart" :style="{ width: `${layout.W}px` }">
         <svg
           :viewBox="`0 0 ${layout.W} ${layout.H}`"
           class="chart__svg"
@@ -296,6 +323,17 @@ const xLabels = computed(() => {
             class="chart__line"
             :stroke="seg.color"
             :stroke-width="lineStroke"
+          />
+
+          <circle
+            v-for="d in isolatedDots"
+            :key="`iso-${d.key}`"
+            :cx="d.x"
+            :cy="d.y"
+            r="4.5"
+            :fill="d.color"
+            stroke="#fff"
+            stroke-width="2"
           />
 
           <circle

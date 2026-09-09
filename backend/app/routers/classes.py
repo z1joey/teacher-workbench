@@ -21,9 +21,11 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_person
-from ..eventing import RECORD_EVENT_TYPES
+from ..eventing import RECORD_EVENT_TYPES, create_event
+from ..models._common import utcnow
 from ..unassigned import is_unassigned_class
-from ..models import Class, Enrollment, Event, Person, person_events
+from ..workspace import classes_query, require_class_in_workspace
+from ..models import Class, ClassSeating, Enrollment, Event, Person, person_events
 from .exams import exam_events, find_exam_event, subject_averages
 
 router = APIRouter(
@@ -34,17 +36,13 @@ router = APIRouter(
 
 def class_out(
     c: Class,
-    teacher: Person | None,
     students: list[Person],
     visited: set[uuid.UUID] | None = None,
 ) -> dict:
     return {
         "id": str(c.id),
         "name": c.name,
-        "grade_level": c.grade_level,
         "academic_year": c.academic_year,
-        "homeroom_teacher_id": str(c.homeroom_person_id) if c.homeroom_person_id else None,
-        "homeroom_teacher": teacher.name if teacher else None,
         "student_count": len(students),
         "students": [
             {
@@ -175,17 +173,7 @@ def current_students(db: Session, class_id: uuid.UUID) -> list[Person]:
 
 class ClassIn(BaseModel):
     name: str = Field(min_length=1, max_length=50)
-    grade_level: int = Field(ge=1, le=12)
     academic_year: str = Field(min_length=4, max_length=20)
-    homeroom_teacher_id: uuid.UUID | None = None
-
-
-def _validate_homeroom(db: Session, teacher_id: uuid.UUID | None) -> None:
-    if teacher_id is None:
-        return
-    u = db.get(Person, teacher_id)
-    if u is None or u.role != "teacher":
-        raise HTTPException(status_code=400, detail="teacher not found")
 
 
 def _check_duplicate(db: Session, name: str, academic_year: str,
@@ -198,16 +186,16 @@ def _check_duplicate(db: Session, name: str, academic_year: str,
 
 
 @router.get("/classes")
-def list_classes(db: Session = Depends(get_db)):
+def list_classes(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
     out = []
-    for c in db.query(Class).order_by(Class.grade_level, Class.name).all():
-        if is_unassigned_class(c):
-            continue
-        teacher = db.get(Person, c.homeroom_person_id) if c.homeroom_person_id else None
+    for c in classes_query(db, user).order_by(Class.name).all():
         students = current_students(db, c.id)
         ids = [s.id for s in students]
         visited = _visited_ids(db, ids)
-        base = class_out(c, teacher, students, visited)
+        base = class_out(c, students, visited)
         base["avg_trend"] = _avg_trend(db, c.id)
         base["recent_events"] = _recent_events(db, ids)
         out.append(base)
@@ -220,26 +208,24 @@ def create_class(
     db: Session = Depends(get_db),
     current: Person = Depends(get_current_person),
 ):
-    _validate_homeroom(db, body.homeroom_teacher_id)
     _check_duplicate(db, body.name.strip(), body.academic_year.strip())
     c = Class(
         name=body.name.strip(),
-        grade_level=body.grade_level,
         academic_year=body.academic_year.strip(),
-        homeroom_person_id=body.homeroom_teacher_id,
+        teacher_id=current.id,
     )
     db.add(c)
     db.commit()
-    teacher = db.get(Person, c.homeroom_person_id) if c.homeroom_person_id else None
-    return class_out(c, teacher, [])
+    return class_out(c, [])
 
 
 @router.get("/classes/{class_id}")
-def get_class(class_id: uuid.UUID, db: Session = Depends(get_db)):
-    c = db.get(Class, class_id)
-    if c is None or is_unassigned_class(c):
-        raise HTTPException(status_code=404, detail="class not found")
-    teacher = db.get(Person, c.homeroom_person_id) if c.homeroom_person_id else None
+def get_class(
+    class_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    c = require_class_in_workspace(db, user, class_id)
 
     # per-sitting, per-subject class averages; roster attribution uses the
     # enrollment valid at each exam date (same rule as the exam averages page)
@@ -273,10 +259,7 @@ def get_class(class_id: uuid.UUID, db: Session = Depends(get_db)):
         "class": {
             "id": str(c.id),
             "name": c.name,
-            "grade_level": c.grade_level,
             "academic_year": c.academic_year,
-            "homeroom_teacher_id": str(c.homeroom_person_id) if c.homeroom_person_id else None,
-            "homeroom_teacher": teacher.name if teacher else None,
         },
         "students": [
             {"id": str(s.id), "name": s.name,
@@ -310,6 +293,89 @@ def get_class(class_id: uuid.UUID, db: Session = Depends(get_db)):
     }
 
 
+class SeatingIn(BaseModel):
+    rows: int = Field(ge=1, le=20)
+    cols: int = Field(ge=1, le=12)
+    # {座位序号(行优先从0起): 学生 id}
+    seats: dict[str, uuid.UUID] = Field(default_factory=dict)
+
+
+@router.get("/classes/{class_id}/seating")
+def get_seating(
+    class_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    require_class_in_workspace(db, user, class_id)
+    row = db.get(ClassSeating, class_id)
+    if row is None:
+        return {"rows": 0, "cols": 0, "seats": {}}
+    return {"rows": row.rows, "cols": row.cols, "seats": row.seats or {}}
+
+
+def _seat_label(pos: int | None, cols: int) -> str | None:
+    """座位序号 → 「第X排第Y列」；None（无座位）原样返回。"""
+    if pos is None:
+        return None
+    return f"第{pos // cols + 1}排第{pos % cols + 1}列"
+
+
+@router.put("/classes/{class_id}/seating")
+def save_seating(
+    class_id: uuid.UUID,
+    body: SeatingIn,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """保存座位表。只校验「座位属于本班、一人一座、位置在格内」；学生转班后
+    旧座位保留原序号，由前端在名单变化时清掉失效座位。
+    任一学生的座位发生变化（首次安排/移动/移出）都会留一条 seat_changed 事件。"""
+    require_class_in_workspace(db, user, class_id)
+    member_ids = {str(s.id) for s in current_students(db, class_id)}
+    seen: set[str] = set()
+    for pos, sid in body.seats.items():
+        if not pos.isdigit() or int(pos) < 0 or int(pos) >= body.rows * body.cols:
+            raise HTTPException(status_code=400, detail="座位位置超出表格范围")
+        if str(sid) not in member_ids:
+            raise HTTPException(status_code=400, detail="有学生不属于这个班级，不能安排座位")
+        if str(sid) in seen:
+            raise HTTPException(status_code=400, detail="一个学生只能有一个座位")
+        seen.add(str(sid))
+
+    row = db.get(ClassSeating, class_id)
+    old_seats = dict(row.seats or {}) if row is not None else {}
+    old_cols = row.cols if row is not None else body.cols
+    seats = {pos: str(sid) for pos, sid in body.seats.items()}
+    if row is None:
+        row = ClassSeating(
+            class_id=class_id, rows=body.rows, cols=body.cols, seats=seats
+        )
+        db.add(row)
+    else:
+        row.rows = body.rows
+        row.cols = body.cols
+        row.seats = seats
+
+    for sid in sorted(set(old_seats.values()) | set(seats.values())):
+        old_pos = next((int(p) for p, v in old_seats.items() if v == sid), None)
+        new_pos = next((int(p) for p, v in seats.items() if v == sid), None)
+        if old_pos == new_pos:
+            continue
+        create_event(
+            db,
+            event_type="seat_changed",
+            title="换座位",
+            start_time=utcnow(),
+            payload={
+                "from": _seat_label(old_pos, old_cols),
+                "to": _seat_label(new_pos, body.cols),
+            },
+            attendee_ids=[uuid.UUID(sid)],
+        )
+    db.commit()
+    return {"rows": row.rows, "cols": row.cols, "seats": row.seats or {}}
+
+
 @router.patch("/classes/{class_id}")
 def update_class(
     class_id: uuid.UUID,
@@ -320,15 +386,11 @@ def update_class(
     c = db.get(Class, class_id)
     if c is None or is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
-    _validate_homeroom(db, body.homeroom_teacher_id)
     _check_duplicate(db, body.name.strip(), body.academic_year.strip(), exclude_id=class_id)
     c.name = body.name.strip()
-    c.grade_level = body.grade_level
     c.academic_year = body.academic_year.strip()
-    c.homeroom_person_id = body.homeroom_teacher_id
     db.commit()
-    teacher = db.get(Person, c.homeroom_person_id) if c.homeroom_person_id else None
-    return class_out(c, teacher, current_students(db, class_id))
+    return class_out(c, current_students(db, class_id))
 
 
 @router.delete("/classes/{class_id}")

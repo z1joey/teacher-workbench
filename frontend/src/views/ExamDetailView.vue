@@ -3,7 +3,7 @@
 // 让用户一眼看出自己看的是哪一场（状态可见）。
 import { computed, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
-import api from "../api"
+import api, { downloadFile, triggerDownload, uploadFile } from "../api"
 import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
@@ -93,6 +93,52 @@ async function saveEdit() {
   }
 }
 
+// --- 成绩 Excel 导入 ---
+const scoreFileInput = ref(null)
+const scoreFile = ref(null)
+const importingScores = ref(false)
+const scoreResult = ref(null)
+
+function onScoreFile(e) {
+  scoreFile.value = e.target.files[0] || null
+  if (scoreFile.value) importScores()
+  e.target.value = "" // 同一文件可重复选择
+}
+
+async function downloadScoreTemplate() {
+  try {
+    const { blob, filename } = await downloadFile(`/exams/${props.id}/scores/import-template`)
+    triggerDownload(blob, filename)
+  } catch (e) {
+    notify({ tone: "error", title: "下载失败", detail: friendlyError(e) })
+  }
+}
+
+async function importScores() {
+  if (!scoreFile.value) {
+    notify({ tone: "warn", title: t("exam.scoreImportPick") })
+    return
+  }
+  importingScores.value = true
+  scoreResult.value = null
+  try {
+    const r = await uploadFile(`/exams/${props.id}/scores/import`, scoreFile.value)
+    scoreResult.value = r
+    scoreFile.value = null
+    notify({
+      tone: r.errors.length ? "warn" : "ok",
+      title: t("exam.scoreImportDone"),
+      detail: `${t("exam.scoreImportOk")} ${r.imported_students} · ${t("exam.scoreImportError")} ${r.errors.length}`,
+      timeout: 4000,
+    })
+    await load() // 平均分、趋势图立即反映新成绩
+  } catch (e) {
+    notify({ tone: "error", title: t("exam.scoreImportFail"), detail: friendlyError(e) })
+  } finally {
+    importingScores.value = false
+  }
+}
+
 async function removeExam() {
   const name = exam.value.name
   const ok = await ask({
@@ -134,6 +180,9 @@ const trendChart = computed(() => {
 
 const subjects = computed(() => (averages.value ? averages.value.school.map((s) => s.subject) : []))
 
+// 这场考试还没有录入任何成绩时，趋势图没有可画的内容，不显示
+const hasExamScores = computed(() => (averages.value?.school ?? []).length > 0)
+
 const classRows = computed(() => {
   if (!averages.value) return []
   const byClass = {}
@@ -150,18 +199,35 @@ function pct(score, full) {
 </script>
 
 <template>
-  <AsyncState :loading="loading" :error="error" :rows="4" @retry="load">
-    <template v-if="averages && exam">
+  <AsyncState
+    :loading="loading"
+    :error="error"
+    :empty="!loading && !error && !(averages && exam)"
+    empty-title="考试详情没能加载"
+    :rows="4"
+    @retry="load"
+  >
       <PageHeader
         :title="exam.name"
         :subtitle="`${formatDateRange(exam.exam_date, exam.end_date)} · ${t('exam.attributionNote')}`"
       >
         <template #actions>
-          <button class="btn" @click="startEdit">
-            <Icon name="pencil" :size="15" /> {{ t("action.edit") }}
+          <button v-if="!editing" class="btn" @click="downloadScoreTemplate">
+            <Icon name="download" :size="15" /> {{ t("exam.scoreTemplate") }}
           </button>
-          <button class="btn btn--danger" @click="removeExam">
-            <Icon name="trash" :size="15" /> {{ t("action.delete") }}
+          <button v-if="!editing" class="btn btn--primary" :disabled="importingScores" @click="scoreFileInput?.click()">
+            <span v-if="importingScores" class="spinner" />
+            <Icon name="upload" :size="15" /> {{ t("exam.scoreImport") }}
+          </button>
+          <input
+            ref="scoreFileInput"
+            type="file"
+            accept=".xlsx"
+            class="sr-only"
+            @change="onScoreFile"
+          />
+          <button v-if="!editing" class="btn" @click="startEdit">
+            <Icon name="pencil" :size="15" /> {{ t("action.edit") }}
           </button>
         </template>
       </PageHeader>
@@ -175,6 +241,45 @@ function pct(score, full) {
           <span class="subject-dot" :style="{ background: subjectColor(s.subject, s.color) }" />
           {{ subject(s.subject) }} · {{ t("exams.fullScore") }} {{ s.full_score }}
         </span>
+      </div>
+
+      <!-- 成绩导入结果：哪些学生成功、哪些没有 -->
+      <div v-if="scoreResult" class="card" style="margin-bottom: 20px">
+        <div class="card__head">
+          <div>
+            <h2 class="card__title"><Icon name="upload" :size="16" /> {{ t("exam.scoreImportTitle") }}</h2>
+            <p class="card__desc">{{ t("exam.scoreImportDone") }} {{ scoreResult.imported_students }} 人 · 登记成绩 {{ scoreResult.entered_scores }} 条<template v-if="scoreResult.absent_scores">（含缺考 {{ scoreResult.absent_scores }}）</template></p>
+          </div>
+          <button class="btn btn--sm" @click="scoreResult = null">{{ t("action.close") }}</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr><th>行号</th><th>学号</th><th>姓名</th><th>导入科目</th><th>结果</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in scoreResult.rows" :key="r.row">
+                <td class="tnum">{{ r.row }}</td>
+                <td class="tnum">{{ r.admission_no || "—" }}</td>
+                <td>{{ r.name || "—" }}</td>
+                <td>
+                  <template v-if="r.subjects.length">{{ r.subjects.map(subject).join("、") }}</template>
+                  <template v-else-if="r.absent_subjects.length">缺考：{{ r.absent_subjects.map(subject).join("、") }}</template>
+                  <template v-else>—</template>
+                </td>
+                <td>
+                  <span v-if="r.status === 'ok'" class="pill pill--outline">{{ t("exam.scoreImportOk") }}</span>
+                  <span v-else-if="r.status === 'partial'" class="pill pill--outline" :title="r.message">
+                    {{ t("exam.scoreImportPartial") }} · {{ r.message }}
+                  </span>
+                  <span v-else class="pill pill--outline" style="color: var(--danger)">
+                    {{ t("exam.scoreImportError") }} · {{ r.message }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- 就地编辑 -->
@@ -216,6 +321,15 @@ function pct(score, full) {
             <button type="button" class="btn btn--ghost" @click="cancelEdit">
               {{ t("action.cancel") }}
             </button>
+            <span class="form-actions__spacer" />
+            <button
+              type="button"
+              class="btn btn--danger"
+              :disabled="editSaving"
+              @click="removeExam"
+            >
+              <Icon name="trash" :size="14" /> {{ t("action.delete") }}
+            </button>
           </div>
         </form>
       </div>
@@ -245,13 +359,16 @@ function pct(score, full) {
         </div>
         <div class="card__body">
           <LineChart
-            v-if="trendChart"
+            v-if="trendChart && hasExamScores"
             :labels="trendChart.labels"
             :dates="trendChart.dates"
             :series="trendChart.series"
             :y-max="trendChart.yMax"
             :highlight-index="trendChart.highlightIndex"
           />
+          <p v-else class="muted" style="padding: var(--sp-2) var(--sp-5)">
+            还没有成绩录入，录入后这里会显示全校平均分趋势。
+          </p>
         </div>
       </div>
 
@@ -261,7 +378,10 @@ function pct(score, full) {
           <h2 class="card__title"><Icon name="building" :size="16" /> {{ t("exam.perClass") }}</h2>
         </div>
         <div class="table-wrap">
-          <table class="table table--stack">
+          <p v-if="!classRows.length" class="muted" style="padding: var(--sp-2) var(--sp-5)">
+            {{ t("exam.perClassEmpty") }}
+          </p>
+          <table v-else class="table table--stack">
             <thead>
               <tr>
                 <th>{{ t("th.class") }}</th>
@@ -290,6 +410,5 @@ function pct(score, full) {
           </table>
         </div>
       </div>
-    </template>
   </AsyncState>
 </template>

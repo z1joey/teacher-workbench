@@ -1,11 +1,12 @@
 <script setup>
 // 登录：错误就地说明怎么改，而不是弹出一个看不懂的提示。
-// 单教师应用：账号来自初始化数据，不提供自助注册。
-import { ref } from "vue"
+// 空库时可一键初始化演示环境；新用户请前往注册页。
+import { onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import AppMeta from "../components/AppMeta.vue"
 import Icon from "../components/Icon.vue"
 import FormField from "../components/FormField.vue"
+import PasswordInput from "../components/PasswordInput.vue"
 import api, { setToken } from "../api"
 import { loadMe } from "../auth"
 import { friendlyError, t } from "../strings"
@@ -14,7 +15,15 @@ const router = useRouter()
 const form = ref({ phone: "", password: "" })
 const error = ref("")
 const busy = ref(false)
-const showPassword = ref(false)
+const setup = ref(null)
+
+onMounted(async () => {
+  try {
+    setup.value = await api.get("/auth/setup")
+  } catch {
+    setup.value = null
+  }
+})
 
 async function submit() {
   error.value = ""
@@ -34,9 +43,19 @@ async function submit() {
   }
 }
 
-function fillDemo() {
-  form.value.phone = "13800000001"
-  form.value.password = "123456"
+async function bootstrap() {
+  error.value = ""
+  busy.value = true
+  try {
+    const res = await api.post("/auth/bootstrap")
+    setToken(res.token)
+    await loadMe()
+    router.push("/")
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -46,7 +65,6 @@ function fillDemo() {
       <div class="auth-mark"><Icon name="board" :size="24" /></div>
       <h1 class="auth-title">{{ t("app.title") }}</h1>
       <AppMeta layout="login" />
-      <p class="auth-sub">{{ t("login.subtitle") }}</p>
 
       <form @submit.prevent="submit" novalidate>
         <FormField :label="t('login.phone')" required :error="''">
@@ -65,24 +83,11 @@ function fillDemo() {
           required
           :error="''"
         >
-          <div class="row" style="gap: 8px">
-            <input
-              v-model="form.password"
-              class="input"
-              :type="showPassword ? 'text' : 'password'"
-              autocomplete="current-password"
-              required
-            />
-            <button
-              type="button"
-              class="btn btn--icon"
-              :aria-label="showPassword ? '隐藏密码' : '显示密码'"
-              :title="showPassword ? '隐藏密码' : '显示密码'"
-              @click="showPassword = !showPassword"
-            >
-              <Icon :name="showPassword ? 'eye-off' : 'eye'" :size="15" />
-            </button>
-          </div>
+          <PasswordInput
+            v-model="form.password"
+            autocomplete="current-password"
+            required
+          />
         </FormField>
 
         <p v-if="error" class="field__error" style="margin-bottom: 12px">
@@ -95,14 +100,25 @@ function fillDemo() {
         </button>
       </form>
 
-      <div class="auth-note">
-        <span class="row nowrap" style="gap: 6px">
-          <Icon name="info" :size="14" />
-          {{ t("login.needHelp") }}
-        </span>
-        <button class="btn btn--sm nowrap" @click="fillDemo">
-          {{ t("login.demoHint") }}：13800000001 / 123456
-        </button>
+      <div class="auth-note stack" style="gap: 10px">
+        <template v-if="setup?.needs_bootstrap">
+          <p class="muted" style="margin: 0">
+            {{ t("login.emptyDb") }}
+          </p>
+          <router-link to="/signup" class="btn btn--sm btn--block">{{ t("login.goSignup") }}</router-link>
+          <button
+            type="button"
+            class="btn btn--primary btn--sm btn--block"
+            :disabled="busy"
+            @click="bootstrap"
+          >
+            <Icon name="refresh" :size="14" /> {{ t("login.bootstrap") }}
+          </button>
+        </template>
+        <p v-else class="muted" style="margin: 0">
+          {{ t("login.noAccount") }}
+          <router-link to="/signup">{{ t("login.goSignup") }}</router-link>
+        </p>
       </div>
     </div>
   </div>

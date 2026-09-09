@@ -25,10 +25,16 @@ rather than duplicating the aggregation.
 """
 from __future__ import annotations
 
+import io
+import re
 import uuid
 from datetime import date, datetime, time, timedelta
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
@@ -203,12 +209,13 @@ def exam_out(exam: Event) -> dict:
     }
 
 
-def _attendee_ids(db: Session, class_id: uuid.UUID | None) -> list[uuid.UUID]:
-    if class_id is not None:
+def _attendee_ids(db: Session, class_ids: list[uuid.UUID] | None) -> list[uuid.UUID]:
+    """给了班级列表就取这些班的在读学生并集；空列表 = 全校在读学生参加。"""
+    if class_ids:
         return [
             row[0]
             for row in db.query(Enrollment.person_id)
-            .filter(Enrollment.class_id == class_id, Enrollment.valid_to.is_(None))
+            .filter(Enrollment.class_id.in_(class_ids), Enrollment.valid_to.is_(None))
             .all()
         ]
     # school-wide sitting: the active student body attends
@@ -235,7 +242,7 @@ class ExamIn(BaseModel):
     exam_date: date
     end_date: date | None = None  # last day of a multi-day sitting
     subjects: list[SubjectIn] = Field(min_length=1)
-    class_id: uuid.UUID | None = None  # scope attendees to one class
+    class_ids: list[uuid.UUID] = Field(default_factory=list)  # 按班级圈定参加者；空 = 全校
     term: str | None = None
 
 
@@ -262,8 +269,11 @@ def create_exam(
     )
     if overlap is not None:
         raise HTTPException(status_code=409, detail="该日期已存在同名考试")
-    if body.class_id is not None and db.get(Class, body.class_id) is None:
-        raise HTTPException(status_code=400, detail="class not found")
+    # 按班级圈定参加者：去重、校验班级存在；名单取各班当前在读学生并集
+    class_ids = list(dict.fromkeys(body.class_ids))
+    for cid in class_ids:
+        if db.get(Class, cid) is None:
+            raise HTTPException(status_code=400, detail="class not found")
     exam = create_event(
         db,
         event_type="exam",
@@ -272,7 +282,7 @@ def create_exam(
         end_time=datetime.combine(body.end_date, time.max) if body.end_date else None,
         payload=exam_config_payload(body.subjects, body.term),
         # the sitting involves the teacher arranging it plus its students
-        attendee_ids=[user.id, *_attendee_ids(db, body.class_id)],
+        attendee_ids=[user.id, *_attendee_ids(db, class_ids)],
     )
     db.commit()
     return {"id": str(exam.id), "name": exam.title,
@@ -490,3 +500,424 @@ def delete_exam(
     db.delete(e)
     db.commit()
     return {"ok": True}
+
+
+# --- 成绩 Excel 批量导入 -----------------------------------------------------
+#
+# 模板与导入共用一套列头约定：学号、姓名（仅作人工核对），之后每门科目一列，
+# 列头写「数学(满分120)」或直接「数学」。单元格里数字为成绩，「缺考」记为缺考，
+# 留空跳过该科目。导入按学号匹配学生，逐格 upsert 成绩 Events（与手动录入
+# 同一约定），并为每位有成绩的学生维护一条 exam_taken 时间线事件（同一场
+# 考试重复导入时原地更新，不产生重复行）。
+#
+# 考试 payload 里的科目是稳定 key（math/english/…，与前端 COMMON_SUBJECTS
+# 一致），界面显示中文名。模板列头用中文名；导入时中文名与 key 都能对上，
+# 但落库一律归一化回 key，平均分才不会按两个名字分组成两组。
+
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_ABSENT_WORDS = {"缺考", "旷考", "absent"}
+_SUBJECT_FULL_RE = re.compile(r"^(.*?)[\(（]\s*满分\s*([0-9.]+)\s*[\)）]\s*$")
+_SUBJECT_LABELS = {
+    "chinese": "语文",
+    "math": "数学",
+    "english": "英语",
+    "politics": "道德与法治",
+    "history": "历史",
+    "geography": "地理",
+    "biology": "生物",
+    "physics": "物理",
+    "chemistry": "化学",
+}
+
+
+def subject_label(key: str) -> str:
+    return _SUBJECT_LABELS.get(key, key)
+
+
+def _subject_column_alias(cell: str, subjects: list[str]) -> str | None:
+    """Header cell → the sitting subject key it refers to, or None."""
+    bare = _SUBJECT_FULL_RE.match(cell)
+    name = (bare.group(1) if bare else cell).strip()
+    if name in subjects:
+        return name
+    for key in subjects:
+        if subject_label(key) == name:
+            return key
+    return None
+
+
+def _cell_str(value) -> str:
+    """Excel cells arrive typed: 2025070701 as float, scores as int/float."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _full_label(full) -> str:
+    return str(int(full)) if isinstance(full, float) and full.is_integer() else str(full)
+
+
+def _load_xlsx_rows(content: bytes) -> list[list]:
+    try:
+        wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+    except Exception:
+        raise HTTPException(status_code=400, detail="无法解析该 Excel 文件，请提供 .xlsx 格式")
+    try:
+        return [list(r) for r in wb.worksheets[0].iter_rows(values_only=True)]
+    finally:
+        wb.close()
+
+
+def _locate_score_header(
+    rows: list[list], subjects: list[str]
+) -> tuple[int, int, str | None, dict[str, int]]:
+    """Find the header row: 学号 column plus at least one subject column.
+    Returns (row_index, admission_no_column, name_column, {subject: column})."""
+    for idx, row in enumerate(rows[:10]):
+        cells = [_cell_str(c) for c in row]
+        no_col = cells.index("学号") if "学号" in cells else None
+        if no_col is None:
+            continue
+        name_col = cells.index("姓名") if "姓名" in cells else None
+        columns: dict[str, int] = {}
+        for col, cell in enumerate(cells):
+            if col == no_col or col == name_col or not cell:
+                continue
+            key = _subject_column_alias(cell, subjects)
+            if key is not None and key not in columns:
+                columns[key] = col
+        if columns:
+            return idx, no_col, name_col, columns
+    raise HTTPException(
+        status_code=400,
+        detail="未找到表头行（需包含「学号」列和至少一门考试科目列，如「数学(满分120)」）",
+    )
+
+
+def _active_students(db: Session) -> list[Person]:
+    active = or_(
+        Person.payload["is_active"].as_boolean().is_(None),
+        Person.payload["is_active"].as_boolean().is_not(False),
+    )
+    return (
+        db.query(Person)
+        .filter(Person.payload["role"].as_string() == "student", active)
+        .order_by(Person.payload["admission_no"].as_string())
+        .all()
+    )
+
+
+def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    quoted = quote(filename)
+    return StreamingResponse(
+        buf,
+        media_type=_XLSX_MIME,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+    )
+
+
+@router.get("/exams/{exam_id}/scores/import-template")
+def score_import_template(exam_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Import template pre-filled with the sitting's subjects and the active
+    students' 学号/姓名 — teachers only type the score cells."""
+    exam = db.get(Event, exam_id)
+    if exam is None or exam.type != "exam":
+        raise HTTPException(status_code=404, detail="exam not found")
+    subjects = subjects_config(exam)
+    if not subjects:
+        raise HTTPException(status_code=400, detail="该考试没有科目配置，无法生成模板")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "成绩导入"
+    ws.append([f"{exam.title}成绩导入（{exam.start_time.date().isoformat()}）"])
+    headers = ["学号", "姓名"] + [
+        f"{subject_label(s['subject'])}(满分{_full_label(s['full_score'])})" for s in subjects
+    ]
+    ws.append(headers)
+    for s in _active_students(db):
+        ws.append([(s.payload or {}).get("admission_no") or "", s.name] + [""] * len(subjects))
+    bold = Font(bold=True)
+    ws.cell(row=1, column=1).font = bold
+    for col in range(1, len(headers) + 1):
+        ws.cell(row=2, column=col).font = bold
+    ws.column_dimensions["A"].width = 16
+    ws.column_dimensions["B"].width = 12
+    return _xlsx_response(wb, f"{exam.title}成绩导入模板.xlsx")
+
+
+def _upsert_score_event(
+    db: Session,
+    exam: Event,
+    subject_name: str,
+    full_score: float,
+    student: Person,
+    score: float | None,
+    absent: bool,
+) -> bool:
+    """Upsert one per-subject score Event; returns True when an existing row
+    was updated (re-import overwrites) rather than created."""
+    lo, hi = day_window(*exam_days(exam))
+    existing = (
+        db.query(Event)
+        .filter(
+            Event.type == "score",
+            Event.title == f"{exam.title}·{subject_name}",
+            Event.start_time >= lo,
+            Event.start_time < hi,
+            Event.attendees.any(Person.id == student.id),
+        )
+        .first()
+    )
+    payload: dict = {"subject": subject_name, "max_score": full_score}
+    if absent:
+        payload["absent"] = True
+    else:
+        payload["score"] = score
+        payload["absent"] = False
+    payload = validate_event_payload("score", payload)
+    if existing is not None:
+        existing.payload = payload
+        return True
+    create_event(
+        db,
+        event_type="score",
+        title=f"{exam.title}·{subject_name}",
+        start_time=datetime.combine(exam.start_time.date(), EXAM_HOUR),
+        payload=payload,
+        attendee_ids=[student.id],
+    )
+    return False
+
+
+def _upsert_exam_taken(
+    db: Session,
+    exam: Event,
+    student: Person,
+    scores: dict[str, float],
+    absent_subjects: list[str],
+) -> None:
+    """The student's per-sitting timeline row (type exam_taken renders as
+    「参加考试 · 九月月考 — 数学 90, 英语 85」); one per (student, sitting)."""
+    existing = (
+        db.query(Event)
+        .filter(
+            Event.type == "exam_taken",
+            Event.title == exam.title,
+            Event.attendees.any(Person.id == student.id),
+        )
+        .first()
+    )
+    payload = validate_event_payload(
+        "exam_taken",
+        {"exam": exam.title, "scores": scores, "absent_subjects": absent_subjects},
+    )
+    if existing is not None:
+        existing.payload = payload
+        return
+    create_event(
+        db,
+        event_type="exam_taken",
+        title=exam.title,
+        start_time=datetime.combine(exam.start_time.date(), EXAM_HOUR),
+        payload=payload,
+        attendee_ids=[student.id],
+    )
+
+
+class StudentScoreIn(BaseModel):
+    subject: str = Field(min_length=1, max_length=50)
+    score: float | None = Field(default=None, ge=0, le=1000)
+    absent: bool = False
+
+
+class StudentScoresIn(BaseModel):
+    student_id: uuid.UUID
+    scores: list[StudentScoreIn] = Field(min_length=1)
+
+
+@router.post("/exams/{exam_id}/scores", status_code=201)
+def add_student_scores(
+    exam_id: uuid.UUID,
+    body: StudentScoresIn,
+    db: Session = Depends(get_db),
+):
+    """Manually record one student's scores for a sitting (the student page's
+    添加成绩 dialog) — same upsert path as the Excel import."""
+    exam = db.get(Event, exam_id)
+    if exam is None or exam.type != "exam":
+        raise HTTPException(status_code=404, detail="exam not found")
+    full_by_subject = {s["subject"]: s["full_score"] for s in subjects_config(exam)}
+    if not full_by_subject:
+        raise HTTPException(status_code=400, detail="该考试没有科目配置，无法录入成绩")
+    student = db.get(Person, body.student_id)
+    if student is None or (student.payload or {}).get("role") != "student":
+        raise HTTPException(status_code=404, detail="student not found")
+
+    seen: set[str] = set()
+    scores: dict[str, float] = {}
+    absent_subjects: list[str] = []
+    for item in body.scores:
+        if item.subject not in full_by_subject:
+            raise HTTPException(status_code=400, detail=f"「{item.subject}」不是这次考试的科目")
+        if item.subject in seen:
+            raise HTTPException(status_code=400, detail=f"科目「{item.subject}」重复")
+        seen.add(item.subject)
+        if item.absent:
+            absent_subjects.append(item.subject)
+            _upsert_score_event(
+                db, exam, item.subject, full_by_subject[item.subject], student, None, True
+            )
+            continue
+        if item.score is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"「{item.subject}」没有分数：请填写分数，或勾选缺考",
+            )
+        if item.score > full_by_subject[item.subject]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"「{item.subject}」成绩需在 0–{_full_label(full_by_subject[item.subject])} 之间",
+            )
+        scores[item.subject] = item.score
+        _upsert_score_event(
+            db, exam, item.subject, full_by_subject[item.subject], student, item.score, False
+        )
+    if not scores and not absent_subjects:
+        raise HTTPException(status_code=400, detail="没有可录入的成绩")
+
+    _upsert_exam_taken(db, exam, student, scores, absent_subjects)
+    db.commit()
+    return {
+        "ok": True,
+        "entered": len(scores) + len(absent_subjects),
+        "scores": scores,
+        "absent_subjects": absent_subjects,
+    }
+
+
+@router.post("/exams/{exam_id}/scores/import")
+async def import_scores(
+    exam_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Bulk-import score rows from xlsx, matched by 学号. Every row reports
+    success (with imported subjects) or failure (with reason)."""
+    exam = db.get(Event, exam_id)
+    if exam is None or exam.type != "exam":
+        raise HTTPException(status_code=404, detail="exam not found")
+    subjects = subjects_config(exam)
+    if not subjects:
+        raise HTTPException(status_code=400, detail="该考试没有科目配置，无法导入成绩")
+    full_by_subject = {s["subject"]: s["full_score"] for s in subjects}
+
+    rows = _load_xlsx_rows(await file.read())
+    header_idx, no_col, name_col, columns = _locate_score_header(rows, list(full_by_subject))
+    ignored = sorted(
+        {
+            _cell_str(c)
+            for row in rows[header_idx : header_idx + 1]
+            for col, c in enumerate(row)
+            if _cell_str(c) and col not in columns.values() and col not in {no_col, name_col}
+        }
+    )
+
+    students_by_no = {
+        (s.payload or {}).get("admission_no"): s for s in _active_students(db)
+    }
+    report: list[dict] = []
+    seen_rows: set[str] = set()
+    imported_students = entered = absent_cells = updated_cells = 0
+    for pos, row in enumerate(rows[header_idx + 1 :], start=header_idx + 2):
+        admission_no = _cell_str(row[no_col]) if no_col < len(row) else ""
+        name = _cell_str(row[name_col]) if name_col is not None and name_col < len(row) else ""
+        if not admission_no and not any(
+            col < len(row) and _cell_str(row[col]) for col in columns.values()
+        ):
+            continue  # 整行为空
+        item = {
+            "row": pos,
+            "admission_no": admission_no,
+            "name": name,
+            "status": "ok",
+            "subjects": [],
+            "absent_subjects": [],
+            "message": None,
+        }
+        try:
+            if not admission_no:
+                raise ValueError("缺少学号")
+            if admission_no in seen_rows:
+                raise ValueError("文件内学号重复")
+            seen_rows.add(admission_no)
+            student = students_by_no.get(admission_no)
+            if student is None:
+                raise ValueError("学号不存在")
+
+            warnings: list[str] = []
+            scores: dict[str, float] = {}
+            absent_subjects: list[str] = []
+            for subject_name, col in columns.items():
+                raw = _cell_str(row[col]) if col < len(row) else ""
+                if not raw:
+                    continue
+                low = raw.lower()
+                if low in _ABSENT_WORDS:
+                    updated = _upsert_score_event(
+                        db, exam, subject_name, full_by_subject[subject_name],
+                        student, None, True,
+                    )
+                    absent_subjects.append(subject_name)
+                    absent_cells += 1
+                    updated_cells += 1 if updated else 0
+                    continue
+                try:
+                    score = float(raw)
+                except ValueError:
+                    warnings.append(f"{subject_label(subject_name)}: 无法识别的成绩「{raw}」")
+                    continue
+                if score < 0 or score > full_by_subject[subject_name]:
+                    warnings.append(
+                        f"{subject_label(subject_name)}: 成绩需在 0–{_full_label(full_by_subject[subject_name])} 之间"
+                    )
+                    continue
+                updated = _upsert_score_event(
+                    db, exam, subject_name, full_by_subject[subject_name],
+                    student, score, False,
+                )
+                scores[subject_name] = score
+                item["subjects"].append(subject_name)
+                entered += 1
+                updated_cells += 1 if updated else 0
+            if not scores and not absent_subjects:
+                raise ValueError("；".join(warnings) or "该行没有可导入的成绩")
+            if warnings:
+                item["status"] = "partial"
+                item["message"] = "；".join(warnings)
+            _upsert_exam_taken(db, exam, student, scores, absent_subjects)
+            item["absent_subjects"] = absent_subjects
+            imported_students += 1
+        except ValueError as exc:
+            item["status"] = "error"
+            item["message"] = str(exc)
+        report.append(item)
+
+    errors = [r for r in report if r["status"] == "error"]
+    db.commit()
+    return {
+        "exam": exam_out(exam),
+        "imported_students": imported_students,
+        "entered_scores": entered,
+        "absent_scores": absent_cells,
+        "updated_cells": updated_cells,
+        "errors": errors,
+        "ignored_columns": ignored,
+        "rows": report,
+    }

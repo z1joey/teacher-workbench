@@ -2,20 +2,16 @@
 // 首页月历：考试与跟进记录放在一起看。
 // 有记录的日期可以点开；弹窗里 Esc / 点遮罩 / 点取消都能安全退出（用户控制与自由）。
 import { computed, nextTick, onMounted, ref } from "vue"
-import { useRouter } from "vue-router"
 import Icon from "./Icon.vue"
+import FeedEventItem from "./FeedEventItem.vue"
 import api from "../api"
 import { ask } from "../confirm"
 import { runUndoable } from "../feedback"
-import { isEventClickable, openEvent } from "../eventNav"
 import {
   dateLocale,
-  describeEvent,
   eventTypeColor,
-  eventTypeIcon,
   eventTypeLabel,
   friendlyError,
-  recordableEventOptions,
   t,
 } from "../strings"
 
@@ -31,26 +27,12 @@ const loading = ref(true)
 const loadError = ref("")
 const selectedDate = ref("")
 
-const modal = ref(null) // { mode: "add" } | { mode: "edit", item } | null
+const modal = ref(null) // { item } | null
 const formSaving = ref(false)
 const formError = ref("")
 const studentOptions = ref([])
-const form = ref(emptyForm())
+const form = ref({ student_id: "", event_type: "", summary: "", purpose: "" })
 const firstFieldEl = ref(null)
-
-function emptyForm() {
-  return {
-    student_id: "",
-    event_type: "home_visited",
-    recurrence: "once",
-    summary: "",
-    purpose: "",
-    follow_up_needed: false,
-    follow_up_note: "",
-  }
-}
-
-const router = useRouter()
 
 function isoOf(y, m, d) {
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`
@@ -169,28 +151,6 @@ const nearTermBlocks = computed(() =>
     .filter((block) => block.items.length > 0)
 )
 
-function notifyDateLabel(iso) {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale(), {
-    month: "numeric",
-    day: "numeric",
-    weekday: "short",
-  })
-}
-
-function calendarItemAsEvent(it) {
-  if (it.kind === "exam") return { id: it.id, event_type: "exam", title: it.name }
-  return {
-    id: it.id,
-    event_type: it.event_type,
-    student_id: it.student_id,
-    payload: it.payload,
-  }
-}
-
-function openCalendarItem(it) {
-  openEvent(router, calendarItemAsEvent(it))
-}
-
 const isCurrentMonth = computed(
   () => year.value === mounted.getFullYear() && month.value === mounted.getMonth() + 1
 )
@@ -228,38 +188,21 @@ function dotColor(it) {
   return it.kind === "exam" ? "#b42318" : eventTypeColor(it.event_type)
 }
 
-const typeOptions = computed(() => recordableEventOptions())
-
 function needsPurpose(type) {
   return type === "home_visited" || type === "parent_call"
 }
-function needsFollowUp(type) {
-  return type === "home_visited"
-}
 
-// ------------------------------------------------------------ 新增 / 编辑
-
-async function openAdd() {
-  modal.value = { mode: "add" }
-  formError.value = ""
-  form.value = emptyForm()
-  await ensureStudents()
-  await nextTick()
-  firstFieldEl.value?.focus()
-}
+// ------------------------------------------------------------ 编辑
 
 async function openEdit(it) {
-  modal.value = { mode: "edit", item: it }
+  modal.value = { item: it }
   formError.value = ""
   const p = it.payload || {}
   form.value = {
     student_id: it.student_id,
     event_type: it.event_type,
-    recurrence: it.recurrence || "once",
     summary: p.summary || "",
     purpose: p.purpose || "",
-    follow_up_needed: !!p.follow_up_needed,
-    follow_up_note: p.follow_up_note || "",
   }
   await ensureStudents()
   await nextTick()
@@ -281,32 +224,20 @@ function closeForm() {
 }
 
 async function saveForm() {
+  const item = modal.value?.item
+  if (!item) return
   formError.value = ""
-  if (!form.value.student_id) {
-    formError.value = t("home.calStudentRequired")
-    return
-  }
   if (!form.value.summary.trim()) {
     formError.value = t("home.calSummaryRequired")
     return
   }
   formSaving.value = true
   try {
-    const body = {
-      event_type: form.value.event_type,
+    await api.patch(`/students/${form.value.student_id}/events/${item.id}`, {
+      event_type: item.event_type,
       summary: form.value.summary.trim(),
       purpose: form.value.purpose.trim() || null,
-      follow_up_needed: form.value.follow_up_needed,
-      follow_up_note: form.value.follow_up_note.trim() || null,
-    }
-    if (modal.value?.mode === "edit") {
-      // keep the original time; only the content is editable here
-      body.occurred_at = modal.value.item.occurred_at
-      await api.patch(`/students/${form.value.student_id}/events/${modal.value.item.id}`, body)
-    } else {
-      body.occurred_at = new Date(`${selectedDate.value}T09:00`).toISOString()
-      await api.post(`/students/${form.value.student_id}/events`, body)
-    }
+    })
     closeForm()
     await load()
   } catch (e) {
@@ -317,13 +248,10 @@ async function saveForm() {
 }
 
 // 每年重复的事件（生日）自动生成的记录只读 —— 直接说明原因，而不是静默禁用
-const readOnlyEvent = computed(
-  () =>
-    modal.value?.mode === "edit" &&
-    (modal.value.item.recurrence === "yearly" || modal.value.item.event_type === "birthday")
-)
+const readOnlyEvent = computed(() => modal.value?.item.event_type === "birthday")
 
 async function deleteRecord(it) {
+  if (it.event_type === "birthday") return
   const ok = await ask({
     title: `删除这条${eventTypeLabel(it.event_type)}记录？`,
     message: `${it.student_name} · ${selectedLabel.value}`,
@@ -334,7 +262,7 @@ async function deleteRecord(it) {
 
   const snapshot = items.value
   items.value = items.value.filter((x) => !(x.kind === it.kind && x.id === it.id))
-  if (modal.value?.mode === "edit") closeForm()
+  if (modal.value) closeForm()
 
   runUndoable({
     title: `已删除「${it.student_name}」的${eventTypeLabel(it.event_type)}记录`,
@@ -352,7 +280,7 @@ async function deleteRecord(it) {
     <div class="card__head">
       <div>
         <h2 class="card__title"><Icon name="calendar" :size="16" /> {{ t("home.calendar") }}</h2>
-        <p class="card__desc">有圆点的日子有记录，点开查看详情或补充</p>
+        <p class="card__desc">有圆点的日子有记录，点开查看详情或编辑</p>
       </div>
       <button v-if="!isCurrentMonth" class="btn btn--sm btn--ghost" @click="goToday">
         {{ t("home.calToday") }}
@@ -422,38 +350,19 @@ async function deleteRecord(it) {
           </span>
         </div>
 
-        <div v-if="nearTermBlocks.length" class="cal-notify">
+        <div v-if="!selectedDate && nearTermBlocks.length" class="cal-notify">
           <section v-for="block in nearTermBlocks" :key="block.key" class="cal-notify__block">
             <header class="cal-notify__head">
               <span class="cal-notify__label">{{ block.label }}</span>
               <span class="pill pill--muted pill--count">{{ block.items.length }}</span>
             </header>
-            <div class="cal-notify__list">
-              <button
+            <div class="feed cal-notify__list">
+              <FeedEventItem
                 v-for="it in block.items"
                 :key="`${it.kind}-${it.id}`"
-                type="button"
-                class="cal-notify__item"
-                :class="{ 'cal-notify__item--static': !isEventClickable(calendarItemAsEvent(it)) }"
-                @click="openCalendarItem(it)"
-              >
-                <span
-                  class="feed__dot cal-notify__dot"
-                  :style="{ background: it.kind === 'exam' ? '#b42318' : eventTypeColor(it.event_type) }"
-                >
-                  <Icon :name="it.kind === 'exam' ? 'clipboard' : eventTypeIcon(it.event_type)" :size="12" />
-                </span>
-                <span class="cal-notify__text">
-                  <span class="cal-notify__when">{{ notifyDateLabel(it.date) }}</span>
-                  <template v-if="it.kind === 'exam'"> · {{ it.name }}</template>
-                  <template v-else>
-                    · {{ it.student_name }} · {{ eventTypeLabel(it.event_type) }}
-                    <span v-if="describeEvent(it.event_type, it.payload)" class="cal-notify__sub">
-                      · {{ describeEvent(it.event_type, it.payload) }}
-                    </span>
-                  </template>
-                </span>
-              </button>
+                :event="it"
+                student-first
+              />
             </div>
           </section>
         </div>
@@ -471,60 +380,44 @@ async function deleteRecord(it) {
             {{ t("home.calNothing") }}
           </p>
 
-          <div v-for="it in selectedItems" :key="`${it.kind}-${it.id}`" class="feed__item">
-            <span
-              class="feed__dot"
-              :style="{ background: it.kind === 'exam' ? '#b42318' : eventTypeColor(it.event_type) }"
+          <div v-else class="feed">
+            <FeedEventItem
+              v-for="it in selectedItems"
+              :key="`${it.kind}-${it.id}`"
+              :event="it"
+              student-first
+              date-format="none"
             >
-              <Icon :name="it.kind === 'exam' ? 'clipboard' : eventTypeIcon(it.event_type)" :size="13" />
-            </span>
-            <div class="feed__body">
-              <div class="feed__head">
-                <span v-if="it.kind === 'exam'">
-                  <router-link :to="`/exams/${it.id}`">{{ it.name }}</router-link>
-                </span>
-                <span v-else>
-                  <router-link :to="`/students/${it.student_id}`">{{ it.student_name }}</router-link>
-                  · {{ eventTypeLabel(it.event_type) }}
-                  <template v-if="it.actor"> · {{ it.actor }}</template>
-                </span>
-              </div>
-              <p v-if="it.kind === 'record'" class="feed__desc">
-                {{ describeEvent(it.event_type, it.payload) }}
-              </p>
-            </div>
-            <button
-              v-if="it.kind === 'record'"
-              class="icon-btn"
-              :aria-label="`编辑这条记录`"
-              @click="openEdit(it)"
-            >
-              <Icon name="dots" :size="16" />
-            </button>
+              <template #actions>
+                <button
+                  v-if="it.kind === 'record' && it.event_type !== 'birthday'"
+                  type="button"
+                  class="icon-btn"
+                  :aria-label="`编辑这条记录`"
+                  @click.stop="openEdit(it)"
+                >
+                  <Icon name="dots" :size="16" />
+                </button>
+              </template>
+            </FeedEventItem>
           </div>
-
-          <button class="btn btn--sm btn--block" style="margin-top: 12px" @click="openAdd">
-            <Icon name="plus" :size="14" /> {{ t("home.calAdd") }}
-          </button>
         </div>
       </template>
     </div>
 
-    <!-- 新增 / 编辑记录 -->
+    <!-- 编辑记录 -->
     <div
       v-if="modal"
       class="overlay"
       role="dialog"
       aria-modal="true"
-      :aria-label="modal.mode === 'edit' ? '编辑记录' : '添加记录'"
+      aria-label="编辑记录"
       @click.self="closeForm"
     >
       <div class="modal">
         <div class="modal__head">
           <div class="grow">
-            <h2 class="modal__title">
-              {{ (modal.mode === "edit" ? t("action.edit") : t("home.calAdd")) + " · " + selectedLabel }}
-            </h2>
+            <h2 class="modal__title">{{ t("action.edit") + " · " + selectedLabel }}</h2>
           </div>
           <button class="icon-btn" :aria-label="t('action.close')" @click="closeForm">
             <Icon name="close" :size="16" />
@@ -546,7 +439,7 @@ async function deleteRecord(it) {
               v-model="form.student_id"
               class="select"
               required
-              :disabled="modal.mode === 'edit' || readOnlyEvent"
+              disabled
             >
               <option value="" disabled>—</option>
               <option v-for="s in studentOptions" :key="s.id" :value="s.id">
@@ -555,29 +448,15 @@ async function deleteRecord(it) {
             </select>
           </div>
 
-          <div class="field">
+          <div v-if="modal.item.event_type !== 'birthday'" class="field">
             <label class="field__label" for="cal-type">{{ t("home.calType") }}</label>
-            <select
+            <input
               id="cal-type"
-              v-model="form.event_type"
-              class="select"
-              :disabled="readOnlyEvent"
-            >
-              <option v-for="ty in typeOptions" :key="ty.value" :value="ty.value">{{ ty.label }}</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label class="field__label" for="cal-recurrence">{{ t("home.calRecurrence") }}</label>
-            <select
-              id="cal-recurrence"
-              v-model="form.recurrence"
-              class="select"
-              :disabled="readOnlyEvent || modal.mode === 'edit'"
-            >
-              <option value="once">{{ t("home.calOnce") }}</option>
-              <option value="yearly">{{ t("home.calYearly") }}</option>
-            </select>
+              class="input"
+              type="text"
+              :value="eventTypeLabel(modal.item.event_type)"
+              disabled
+            />
           </div>
 
           <div class="field">
@@ -600,26 +479,13 @@ async function deleteRecord(it) {
             <input id="cal-purpose" v-model="form.purpose" class="input" type="text" />
           </div>
 
-          <div v-if="needsFollowUp(form.event_type)" class="field">
-            <label class="check">
-              <input v-model="form.follow_up_needed" type="checkbox" />
-              <span>{{ t("home.calFollowUp") }}</span>
-            </label>
-            <span class="field__hint">{{ t("event.followUpHint") }}</span>
-          </div>
-
-          <div v-if="needsFollowUp(form.event_type) && form.follow_up_needed" class="field">
-            <label class="field__label" for="cal-followup">{{ t("home.calFollowUpNote") }}</label>
-            <input id="cal-followup" v-model="form.follow_up_note" class="input" type="text" />
-          </div>
-
           <p v-if="formError" class="field__error" style="margin-bottom: 12px">
             <Icon name="alert-circle" :size="12" /> {{ formError }}
           </p>
 
           <div class="modal__foot" style="padding: 16px 0 0">
             <button
-              v-if="modal.mode === 'edit'"
+              v-if="modal.item.event_type !== 'birthday'"
               type="button"
               class="btn btn--danger"
               :disabled="formSaving"

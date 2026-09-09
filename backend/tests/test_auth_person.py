@@ -1,26 +1,90 @@
-"""Behavior lock for the auth core: login → /me → logout over
+"""Behavior lock for the auth core: register / login → /me → logout over
 app.routers.auth, plus the /profile and /teachers reads that ride on the same
-identity. There is no self-registration: the app has exactly one teacher
-account (the signed-in homeroom teacher), so /auth/register must stay dead."""
+identity."""
 from __future__ import annotations
 
-from app.models import Person
+import uuid
+
+from app.models import AuthSession, Person
 from app.routers import auth, misc, profile
 from tests.conftest import seed_person, seed_token
 
 
+def _register(client, phone: str, password: str = "secret123", **extra):
+    return client.post("/api/auth/register", json={"phone": phone, "password": password, **extra})
+
+
 def _auth_client(make_client):
-    # /login must be open; /me and /logout guard themselves.
+    # /register and /login must be open; /me and /logout guard themselves.
     return make_client(auth.router, auth_dependency=False)
 
 
-def test_register_route_is_gone(make_client):
-    """Single-teacher app: self-registration must never come back — a fresh
-    register endpoint would mint a second teacher with full data access."""
+def test_register_login_me_logout_flow(make_client, db):
     client = _auth_client(make_client)
-    r = client.post("/api/auth/register",
-                    json={"phone": "13800000000", "password": "secret123"})
-    assert r.status_code == 404
+    r = _register(client, "13800000000", name="李老师")
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["user"]["role"] == "teacher"
+    uuid.UUID(body["user"]["id"])
+    assert db.get(AuthSession, body["token"]).person_id == uuid.UUID(body["user"]["id"])
+
+    r = client.post("/api/auth/login", json={"phone": "13800000000", "password": "secret123"})
+    assert r.status_code == 200, r.text
+    headers = {"Authorization": f"Bearer {r.json()['token']}"}
+
+    me = client.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200, me.text
+    assert set(me.json()) == {"id", "name", "phone", "email", "role", "display_name"}
+    assert me.json()["id"] == body["user"]["id"]
+    assert me.json()["name"] == "李老师"
+    assert me.json()["role"] == "teacher"
+
+    assert client.post("/api/auth/logout", headers=headers).json() == {"ok": True}
+    assert client.get("/api/auth/me", headers=headers).status_code == 401
+
+
+def test_register_cannot_mint_admin(make_client):
+    client = _auth_client(make_client)
+    r = _register(client, "13800000002", password="123456", role="admin")
+    assert r.status_code == 201, r.text
+    assert r.json()["user"]["role"] == "teacher"
+
+
+def test_register_without_name_defaults_to_phone(make_client):
+    client = _auth_client(make_client)
+    r = _register(client, "13800000021", password="123456")
+    assert r.json()["user"]["name"] == "13800000021"
+    r = _register(client, "13800000022", password="123456", name="  ")
+    assert r.json()["user"]["name"] == "13800000022"
+
+
+def test_register_duplicate_phone_409(make_client):
+    client = _auth_client(make_client)
+    assert _register(client, "13800000013", password="123456").status_code == 201
+    r = _register(client, "13800000013", password="123456", name="别人")
+    assert r.status_code == 409
+
+
+def test_setup_and_bootstrap_empty_db(make_client, db):
+    client = _auth_client(make_client)
+    status = client.get("/api/auth/setup")
+    assert status.status_code == 200
+    assert status.json()["needs_bootstrap"] is True
+    assert status.json()["has_demo_account"] is False
+
+    boot = client.post("/api/auth/bootstrap")
+    assert boot.status_code == 200, boot.text
+    body = boot.json()
+    assert body["user"]["phone"] == "13800000001"
+    headers = {"Authorization": f"Bearer {body['token']}"}
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+
+    again = client.post("/api/auth/bootstrap")
+    assert again.status_code == 400
+
+    after = client.get("/api/auth/setup")
+    assert after.json()["needs_bootstrap"] is False
+    assert after.json()["has_demo_account"] is True
 
 
 def test_login_me_logout_flow(make_client, db):
@@ -37,7 +101,7 @@ def test_login_me_logout_flow(make_client, db):
 
     me = client.get("/api/auth/me", headers=headers)
     assert me.status_code == 200, me.text
-    assert set(me.json()) == {"id", "name", "phone", "email", "role"}
+    assert set(me.json()) == {"id", "name", "phone", "email", "role", "display_name"}
     assert me.json()["id"] == body["user"]["id"]
     assert me.json()["role"] == "teacher"
 
@@ -73,69 +137,87 @@ def test_profile_patch_get_round_trips_name(make_client, db):
 
     r = client.patch("/api/profile", json={"name": "陈老师"}, headers=headers)
     assert r.status_code == 200, r.text
-    assert set(r.json()) == {"id", "name", "phone", "email", "role"}
+    assert set(r.json()) == {"id", "name", "phone", "email", "role", "settings", "display_name"}
+    assert r.json()["settings"] == {
+        "auto_tags": True,
+        "calendar_birthdays": True,
+    }
     assert r.json()["name"] == "陈老师"
 
     r = client.get("/api/profile", headers=headers)
     assert r.status_code == 200, r.text
-    assert set(r.json()) == {"user", "classes", "stats", "semesters"}
-    assert r.json()["user"]["name"] == "陈老师"
-    semesters = r.json()["semesters"]
-    assert len(semesters) == 6
-    t1 = next(row for row in semesters if row["id"] == "2025-t1")
-    t2 = next(row for row in semesters if row["id"] == "2025-t2")
-    assert t1 == {
-        "id": "2025-t1",
-        "name": "2025-2026 第一学期",
-        "start_date": "2025-09-01",
-        "end_date": "2026-01-31",
+    assert set(r.json()) == {"user", "classes", "stats", "settings"}
+    assert r.json()["settings"] == {
+        "auto_tags": True,
+        "calendar_birthdays": True,
     }
-    assert t2["start_date"] == "2026-02-01"
-    assert t2["end_date"] == "2026-07-31"
-    db.refresh(person)
-    assert not (person.payload or {}).get("semesters")
+    assert r.json()["user"]["name"] == "陈老师"
 
 
-def test_profile_get_does_not_persist_default_semesters(make_client, db):
+def test_profile_name_display_setting(make_client, db):
+    """「首页称呼」偏好已下线：一律展示全名，老 payload 里的 name_display 被忽略并清除。"""
     client = make_client(profile.router)
-    person = seed_person(db, "13800000020", name="陈老师")
-    token = seed_token(db, person, "e" * 64)
+    person = seed_person(db, "13800000022", name="张毅")
+    person.payload = {**(person.payload or {}), "name_display": "teacher"}
+    db.commit()
+    token = seed_token(db, person, "g" * 64)
     headers = {"Authorization": f"Bearer {token}"}
 
     r = client.get("/api/profile", headers=headers)
     assert r.status_code == 200, r.text
-    assert len(r.json()["semesters"]) == 6
+    assert r.json()["user"]["display_name"] == "张毅"
+    assert "name_display" not in r.json()["settings"]
+
+    r = client.patch(
+        "/api/profile",
+        json={"name": person.name, "name_display": "teacher"},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["display_name"] == "张毅"
+    assert "name_display" not in r.json()["settings"]
     db.refresh(person)
-    assert not (person.payload or {}).get("semesters")
+    assert "name_display" not in person.payload
 
 
-def test_profile_semesters_patch_round_trip(make_client, db):
+def test_profile_calendar_birthdays_setting(make_client, db):
     client = make_client(profile.router)
-    person = seed_person(db, "13800000019", name="陈老师")
-    token = seed_token(db, person, "d" * 64)
+    person = seed_person(db, "13800000023", name="陈老师")
+    token = seed_token(db, person, "h" * 64)
     headers = {"Authorization": f"Bearer {token}"}
-    rows = [
-        {
-            "id": "2025-t1",
-            "name": "2025-2026 第一学期",
-            "start_date": "2025-09-01",
-            "end_date": "2026-01-31",
-        },
-        {
-            "id": "2025-t2",
-            "name": "2025-2026 第二学期",
-            "start_date": "2026-02-01",
-            "end_date": "2026-07-31",
-        },
-    ]
 
-    r = client.patch("/api/profile/semesters", json={"semesters": rows}, headers=headers)
+    r = client.patch(
+        "/api/profile",
+        json={"name": person.name, "calendar_birthdays": False},
+        headers=headers,
+    )
     assert r.status_code == 200, r.text
-    assert r.json()["semesters"] == rows
+    assert r.json()["settings"] == {
+        "auto_tags": True,
+        "calendar_birthdays": False,
+    }
+    db.refresh(person)
+    assert person.payload["calendar_birthdays"] is False
 
-    r = client.get("/api/profile", headers=headers)
+
+def test_profile_auto_tags_setting(make_client, db):
+    client = make_client(profile.router)
+    person = seed_person(db, "13800000021", name="陈老师")
+    token = seed_token(db, person, "f" * 64)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    r = client.patch(
+        "/api/profile",
+        json={"name": person.name, "auto_tags": False},
+        headers=headers,
+    )
     assert r.status_code == 200, r.text
-    assert r.json()["semesters"] == rows
+    assert r.json()["settings"] == {
+        "auto_tags": False,
+        "calendar_birthdays": True,
+    }
+    db.refresh(person)
+    assert person.payload["auto_tags"] is False
 
 
 def test_teachers_lists_only_teachers(make_client, db):

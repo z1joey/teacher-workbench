@@ -256,6 +256,99 @@ async function saveEdit(row) {
   }
 }
 
+// ------------------------------------------------------------- 添加成绩弹窗
+
+const scoreDialogOpen = ref(false)
+const scoreDialogError = ref("")
+const scoreSaving = ref(false)
+const examOptions = ref([])
+const examListOpen = ref(false)
+const scoreForm = ref({ examId: "", values: {}, attended: {} })
+
+const chosenExam = computed(
+  () => examOptions.value.find((e) => e.id === scoreForm.value.examId) ?? null
+)
+
+async function openScoreDialog() {
+  scoreDialogOpen.value = true
+  scoreDialogError.value = ""
+  examListOpen.value = false
+  scoreForm.value = { examId: "", values: {}, attended: {} }
+  if (!examOptions.value.length) {
+    try {
+      examOptions.value = await api.get("/exams")
+    } catch (e) {
+      scoreDialogError.value = friendlyError(e)
+    }
+  }
+}
+
+function closeScoreDialog() {
+  scoreDialogOpen.value = false
+  examListOpen.value = false
+}
+
+function pickExam(e) {
+  scoreForm.value.examId = e.id
+  examListOpen.value = false
+  onScoreExamChange()
+}
+
+function onScoreExamChange() {
+  // 换考试就重置：默认全部「参加考试」，取消勾选才记缺考
+  const attended = {}
+  for (const s of chosenExam.value?.subjects ?? []) attended[s.subject] = true
+  scoreForm.value.values = {}
+  scoreForm.value.attended = attended
+}
+
+async function saveScores() {
+  scoreDialogError.value = ""
+  const exam = chosenExam.value
+  if (!exam) {
+    scoreDialogError.value = "请先选择考试"
+    return
+  }
+  const scores = []
+  for (const s of exam.subjects) {
+    const raw = (scoreForm.value.values[s.subject] ?? "").toString().trim()
+    if (scoreForm.value.attended[s.subject] === false) {
+      // 取消了「参加考试」→ 记缺考
+      scores.push({ subject: s.subject, absent: true })
+      continue
+    }
+    if (!raw) continue // 参加了但这科没填分 → 不录入
+    const value = Number(raw)
+    if (Number.isNaN(value)) {
+      scoreDialogError.value = `${subject(s.subject)} 的成绩要填数字`
+      return
+    }
+    if (value < 0 || value > s.full_score) {
+      scoreDialogError.value = `${subject(s.subject)} 的成绩需在 0 到 ${s.full_score} 之间`
+      return
+    }
+    scores.push({ subject: s.subject, score: value })
+  }
+  if (!scores.length) {
+    scoreDialogError.value = "至少填写一科成绩，或勾选缺考"
+    return
+  }
+  scoreSaving.value = true
+  try {
+    await api.post(`/exams/${exam.id}/scores`, {
+      student_id: props.id,
+      scores,
+    })
+    scoreDialogOpen.value = false
+    await load()
+    notify({ tone: "ok", title: t("detail.scoreAdded"), timeout: 3000 })
+  } catch (e) {
+    scoreDialogError.value = friendlyError(e)
+  } finally {
+    scoreSaving.value = false
+  }
+}
+
 // ------------------------------------------------------------------ 标签
 
 const tagSuggestions = computed(() => {
@@ -385,6 +478,7 @@ function startProfileEdit() {
   profileError.value = ""
   profileForm.value = {
     name: student.value.name,
+    admission_no: student.value.admission_no || "",
     gender: student.value.gender || "",
     birth_date: student.value.birth_date || "",
     address: student.value.address || "",
@@ -406,10 +500,15 @@ async function saveProfileEdit() {
     profileError.value = t("detail.nameRequired")
     return
   }
+  if (!profileForm.value.admission_no.trim()) {
+    profileError.value = t("detail.admissionNoRequired")
+    return
+  }
   profileSaving.value = true
   try {
     await api.patch(`/students/${props.id}`, {
       name: profileForm.value.name.trim(),
+      admission_no: profileForm.value.admission_no.trim(),
       gender: profileForm.value.gender || null,
       birth_date: profileForm.value.birth_date || null,
       address: profileForm.value.address.trim() || null,
@@ -461,20 +560,103 @@ function fmtDate(d) {
     ? new Date(d).toLocaleDateString(dateLocale(), { year: "numeric", month: "short", day: "numeric" })
     : "—"
 }
+
+const headerMeta = computed(() => {
+  if (!student.value) return []
+  const s = student.value
+  const rows = [{ label: t("th.status"), value: studentStatusLabel(s.status) }]
+  if (s.gender) rows.push({ label: t("new.gender"), value: genderLabel(s.gender) })
+  if (s.birth_date) rows.push({ label: t("detail.born"), value: fmtDate(s.birth_date) })
+  return rows
+})
 </script>
 
 <template>
-  <AsyncState :loading="loading" :error="error" :rows="5" @retry="load">
-    <template v-if="student">
+  <AsyncState
+    :loading="loading"
+    :error="error"
+    :empty="!loading && !error && !student"
+    empty-title="学生档案没能加载"
+    :rows="5"
+    @retry="load"
+  >
       <PageHeader
         :title="student.name"
         :subtitle="`${student.admission_no} · ${student.class ? student.class.name : t('students.ungrouped')}`"
-        :meta="[
-          { label: t('th.status'), value: studentStatusLabel(student.status) },
-          { label: t('new.gender'), value: genderLabel(student.gender) },
-          { label: t('detail.born'), value: fmtDate(student.birth_date) },
-        ]"
       >
+        <template #meta>
+          <div class="row-wrap page-head__meta-row">
+            <span v-for="m in headerMeta" :key="m.label" class="pill pill--outline">
+              {{ m.label }} <b class="tnum">{{ m.value }}</b>
+            </span>
+          </div>
+
+          <!-- 标签独立一行；「添加标签」复用标签外观（虚线空底） -->
+          <div class="row-wrap page-head__tag-row">
+            <span
+              v-for="tag in student.tags"
+              :key="tag.id"
+              class="tag"
+              :style="tagStyle(tag.color)"
+            >
+              {{ tag.name }}
+              <button class="tag__x" :aria-label="`移除标签 ${tag.name}`" @click="removeTag(tag)">
+                <Icon name="close" :size="10" />
+              </button>
+            </span>
+            <button
+              type="button"
+              class="tag tag--add"
+              :class="{ 'is-open': tagFormOpen }"
+              @click="toggleTagForm"
+            >
+              <Icon name="tag" :size="11" /> {{ t("detail.addTag") }}
+            </button>
+          </div>
+
+          <div v-if="tagFormOpen" class="card card--nested page-head__tag-form">
+            <div class="card__body card__body--tight">
+              <div v-if="tagSuggestions.length" class="row-wrap" style="margin-bottom: 10px">
+                <span class="field__hint">{{ t("detail.tagInUse") }}</span>
+                <button
+                  v-for="s in tagSuggestions"
+                  :key="s.id"
+                  class="chip"
+                  :style="{ borderColor: s.color, color: s.color }"
+                  @click="attachExisting(s)"
+                >
+                  <Icon name="plus" :size="11" /> {{ s.name }}
+                </button>
+              </div>
+              <div class="row">
+                <input
+                  v-model="tagForm.name"
+                  class="input input--sm grow"
+                  type="text"
+                  :placeholder="t('detail.tagName')"
+                  maxlength="40"
+                  :aria-invalid="!!tagError"
+                  @keydown.enter.prevent="addTag"
+                />
+                <input
+                  v-model="tagForm.color"
+                  class="input input--color"
+                  type="color"
+                  aria-label="标签颜色"
+                />
+                <button type="button" class="btn btn--sm" @click="tagFormOpen = false">
+                  {{ t("action.cancel") }}
+                </button>
+                <button class="btn btn--sm btn--primary" :disabled="tagSaving" @click="addTag">
+                  {{ t("action.save") }}
+                </button>
+              </div>
+              <p v-if="tagError" class="field__error" style="margin-top: 8px">
+                <Icon name="alert-circle" :size="12" /> {{ tagError }}
+              </p>
+            </div>
+          </div>
+        </template>
         <template #actions>
           <button class="btn" @click="addComment">
             <Icon name="note" :size="15" /> {{ t("students.addComment") }}
@@ -495,6 +677,9 @@ function fmtDate(d) {
                 <h2 class="card__title"><Icon name="chart" :size="16" /> {{ t("detail.scores") }}</h2>
                 <p class="card__desc">{{ t("detail.scoresHint") }}</p>
               </div>
+              <button class="btn btn--sm" @click="openScoreDialog">
+                <Icon name="plus" :size="14" /> {{ t("detail.addScore") }}
+              </button>
             </div>
 
             <div class="card__body">
@@ -587,9 +772,6 @@ function fmtDate(d) {
                 <h2 class="card__title"><Icon name="note" :size="16" /> {{ t("detail.timeline") }}</h2>
                 <p class="card__desc">{{ t("detail.timelineSub") }}</p>
               </div>
-              <button class="btn btn--sm btn--primary" @click="addEvent">
-                <Icon name="plus" :size="13" /> {{ t("detail.recordEvent") }}
-              </button>
             </div>
             <div class="card__body">
               <Timeline :events="timeline" :student-id="props.id" />
@@ -626,70 +808,6 @@ function fmtDate(d) {
               <h3 class="profile-section__title">{{ t("new.address") }}</h3>
               <p class="profile-text">{{ student.address }}</p>
             </section>
-
-            <section class="profile-section">
-              <div class="profile-section__head">
-                <h3 class="profile-section__title">{{ t("th.tags") }}</h3>
-                <button class="btn btn--sm btn--ghost" @click="toggleTagForm">
-                  <Icon name="tag" :size="11" /> {{ t("detail.addTag") }}
-                </button>
-              </div>
-
-              <div v-if="student.tags.length" class="chips">
-                <span
-                  v-for="tag in student.tags"
-                  :key="tag.id"
-                  class="tag"
-                  :style="tagStyle(tag.color)"
-                >
-                  {{ tag.name }}
-                  <button class="tag__x" :aria-label="`移除标签 ${tag.name}`" @click="removeTag(tag)">
-                    <Icon name="close" :size="10" />
-                  </button>
-                </span>
-              </div>
-              <p v-else class="profile-empty">{{ t("common.none") }}</p>
-
-              <div v-if="tagFormOpen" class="card card--nested" style="margin-top: var(--sp-3)">
-                <div class="card__body card__body--tight">
-                  <div v-if="tagSuggestions.length" class="row-wrap" style="margin-bottom: 10px">
-                    <span class="field__hint">{{ t("detail.tagInUse") }}</span>
-                    <button
-                      v-for="s in tagSuggestions"
-                      :key="s.id"
-                      class="chip"
-                      :style="{ borderColor: s.color, color: s.color }"
-                      @click="attachExisting(s)"
-                    >
-                      <Icon name="plus" :size="11" /> {{ s.name }}
-                    </button>
-                  </div>
-                  <div class="row">
-                    <input
-                      v-model="tagForm.name"
-                      class="input input--sm grow"
-                      type="text"
-                      :placeholder="t('detail.tagName')"
-                      maxlength="40"
-                      :aria-invalid="!!tagError"
-                      @keydown.enter.prevent="addTag"
-                    />
-                    <input
-                      v-model="tagForm.color"
-                      class="input input--color"
-                      type="color"
-                      aria-label="标签颜色"
-                    />
-                    <button class="btn btn--sm btn--primary" :disabled="tagSaving" @click="addTag">
-                      {{ t("action.save") }}
-                    </button>
-                  </div>
-                  <p v-if="tagError" class="field__error" style="margin-top: 8px">
-                    <Icon name="alert-circle" :size="12" /> {{ tagError }}
-                  </p>
-                </div>
-              </div>
-            </section>
           </div>
 
           <!-- 就地编辑资料 -->
@@ -701,6 +819,14 @@ function fmtDate(d) {
               <FormField :label="t('new.name')" required>
                 <input v-model="profileForm.name" class="input" type="text" maxlength="100" />
               </FormField>
+              <FormField :label="t('th.admissionNo')" required>
+                <input
+                  v-model="profileForm.admission_no"
+                  class="input tnum"
+                  type="text"
+                  maxlength="40"
+                />
+              </FormField>
               <FormField :label="t('new.gender')" optional>
                 <select v-model="profileForm.gender" class="select">
                   <option v-for="g in GENDER_OPTIONS" :key="g.value" :value="g.value">{{ g.label }}</option>
@@ -711,7 +837,7 @@ function fmtDate(d) {
                   <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.label }}</option>
                 </select>
               </FormField>
-              <FormField :label="t('new.class')" hint="换班会自动记录一条转班事件">
+              <FormField :label="t('new.class')" hint="分班时会自动记录加入班级或转班">
                 <select v-model="profileForm.class_id" class="select">
                   <option :value="null">{{ t("students.ungrouped") }}</option>
                   <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
@@ -800,7 +926,9 @@ function fmtDate(d) {
               <button type="button" class="btn btn--ghost" @click="cancelProfileEdit">
                 {{ t("action.cancel") }}
               </button>
-              <span class="form-actions__spacer" />
+            </div>
+
+            <div class="form-actions form-actions--danger">
               <button
                 type="button"
                 class="btn btn--danger"
@@ -813,6 +941,120 @@ function fmtDate(d) {
           </form>
         </div>
       </div>
-    </template>
   </AsyncState>
+
+  <!-- 添加成绩弹窗：选考试 → 按科目填分/勾缺考 -->
+  <div
+    v-if="scoreDialogOpen"
+    class="overlay"
+    role="dialog"
+    aria-modal="true"
+    :aria-label="t('detail.addScore')"
+    @click.self="closeScoreDialog"
+  >
+    <div class="modal" style="width: min(480px, 92vw)">
+      <div class="modal__head">
+        <div class="grow">
+          <h2 class="modal__title">{{ t("detail.addScore") }}</h2>
+        </div>
+        <button class="icon-btn" aria-label="关闭" @click="closeScoreDialog">
+          <Icon name="close" :size="16" />
+        </button>
+      </div>
+      <div class="modal__body">
+        <!-- 考试选择用自绘列表：原生 select 弹出层在嵌入式 WebView 里会被
+             定位到屏幕底部，无法用样式修正 -->
+        <div class="field">
+          <span id="exam-picker-label" class="field__label">
+            考试 <span class="field__req" aria-hidden="true">*</span>
+          </span>
+          <div class="exam-picker">
+            <button
+              type="button"
+              class="exam-picker__trigger"
+              :class="{ 'is-placeholder': !chosenExam }"
+              aria-haspopup="listbox"
+              :aria-expanded="examListOpen"
+              aria-labelledby="exam-picker-label"
+              @click="examListOpen = !examListOpen"
+            >
+              <span class="grow">{{ chosenExam ? chosenExam.name : "选择考试" }}</span>
+              <Icon name="chevron-down" :size="14" style="flex-shrink: 0" />
+            </button>
+            <div v-if="examListOpen" class="exam-picker__menu" role="listbox">
+              <button
+                v-for="e in examOptions"
+                :key="e.id"
+                type="button"
+                role="option"
+                :aria-selected="e.id === scoreForm.examId"
+                class="exam-picker__option"
+                :class="{ 'is-active': e.id === scoreForm.examId }"
+                @click="pickExam(e)"
+              >
+                <span class="grow">
+                  {{ e.name }} <span class="muted">（{{ e.exam_date }}）</span>
+                </span>
+                <Icon v-if="e.id === scoreForm.examId" name="check" :size="14" />
+              </button>
+              <p v-if="!examOptions.length" class="muted" style="margin: 0; padding: 10px 12px">
+                还没有可选择的考试
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <template v-if="chosenExam">
+          <div class="stack" style="gap: 8px; margin-top: 4px">
+            <div
+              v-for="s in chosenExam.subjects"
+              :key="s.id"
+              class="row"
+              style="gap: 8px; align-items: center"
+            >
+              <span style="min-width: 4em">{{ subject(s.subject) }}</span>
+              <input
+                v-model="scoreForm.values[s.subject]"
+                class="input input--sm tnum"
+                type="number"
+                step="0.1"
+                min="0"
+                :max="s.full_score"
+                :disabled="!scoreForm.attended[s.subject]"
+                :placeholder="scoreForm.attended[s.subject] ? '' : '缺考'"
+                :aria-label="`${subject(s.subject)} 分数`"
+                style="width: 90px"
+              />
+              <span class="muted">/ {{ s.full_score }}</span>
+              <label class="check" style="margin: 0">
+                <input v-model="scoreForm.attended[s.subject]" type="checkbox" />
+                <span>参加考试</span>
+              </label>
+            </div>
+          </div>
+          <p class="field__hint" style="margin-top: 8px">
+            默认全部参加考试：填了分的科目才会录入；取消勾选记为缺考；已有成绩的科目会被覆盖。
+          </p>
+        </template>
+
+        <p v-if="scoreDialogError" class="field__error" style="margin-top: 10px">
+          <Icon name="alert-circle" :size="12" /> {{ scoreDialogError }}
+        </p>
+      </div>
+      <div class="modal__foot">
+        <button type="button" class="btn btn--ghost" @click="closeScoreDialog">
+          {{ t("action.cancel") }}
+        </button>
+        <button
+          type="button"
+          class="btn btn--primary"
+          :disabled="scoreSaving || !chosenExam"
+          @click="saveScores"
+        >
+          <span v-if="scoreSaving" class="spinner" />
+          {{ scoreSaving ? t("action.saving") : t("action.save") }}
+        </button>
+      </div>
+    </div>
+  </div>
 </template>

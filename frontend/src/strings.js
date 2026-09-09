@@ -90,6 +90,7 @@ const messages = {
   // --- 班级 ---
   "classes.title": "班级",
   "classes.subtitle": "班均与最近动态，点进班级查看完整名单",
+  "classes.seating": "座位表",
   "classes.homeroom": "班主任",
   "classes.noStudents": "这个班级还没有学生",
   "classes.avgLabel": "最近一次班均",
@@ -118,6 +119,11 @@ const messages = {
   "classdetail.trendSub": "各科平均得分率（%）随考试变化，满分不同也可比较 · 悬停查看原始分 · 点击科目名显示/隐藏",
   "classdetail.averages": "各科平均成绩",
   "classdetail.roster": "学生名单",
+  "classdetail.addStudent": "添加学生",
+  "classdetail.addStudentTitle": "从待分配学生中选择",
+  "classdetail.addStudentHint": "只能添加尚未分班的学生",
+  "classdetail.addStudentEmpty": "没有待分配的学生",
+  "classdetail.studentAdded": "已将 {name} 加入班级",
   "classdetail.noScores": "这个班级还没有成绩数据",
 
   // --- 登录 ---
@@ -126,19 +132,33 @@ const messages = {
   "login.password": "密码",
   "login.submit": "登录",
   "login.submitting": "正在登录…",
-  "login.demoHint": "演示账号",
-  "login.subtitle": "学校教学管理，从这里开始",
   "login.needHelp": "忘记密码请联系管理员重置。",
+  "login.noAccount": "还没有账号？",
+  "login.goSignup": "注册",
+  "login.emptyDb": "当前还没有任何教师账号。你可以注册新账号，或一键初始化演示环境。",
+  "login.bootstrap": "初始化演示环境",
+
+  // --- 注册 ---
+  "signup.subtitle": "创建教师账号",
+  "signup.nameRequired": "请填写姓名",
+  "signup.phoneHint": "6-15 位数字，可用空格或短横线分隔",
+  "signup.phoneRequired": "请输入手机号",
+  "signup.phoneInvalid": "手机号格式不正确，请输入 6-15 位数字",
+  "signup.passwordShort": "密码至少 6 位",
+  "signup.password2": "确认密码",
+  "signup.passwordMismatch": "两次输入的密码不一致",
+  "signup.submit": "注册",
+  "signup.submitting": "正在注册…",
+  "signup.success": "注册成功，欢迎加入",
+  "signup.hasAccount": "已有账号？",
+  "signup.goLogin": "去登录",
 
   // --- 首页 ---
   "home.greeting": "你好，{name}",
   "home.today": "今天是 {date}",
   "home.recentEvents": "最新动态",
   "home.recentEventsSub": "全校最近发生的记录",
-  "home.followUps": "待跟进",
-  "home.followUpsSub": "勾选了「需要跟进」的事件，处理完记得回来取消勾选",
-  "home.noFollowUps": "暂时没有需要跟进的事",
-  "home.followUpPrefix": "跟进",
+  "home.noRecentEvents": "最近还没有记录",
   "home.calendar": "日历",
   "home.calPrev": "上个月",
   "home.calNext": "下个月",
@@ -149,22 +169,34 @@ const messages = {
   "home.calStudentRequired": "请先选择学生",
   "home.calType": "类型",
   "home.calSummary": "内容",
-  "home.calRecurrence": "重复",
-  "home.calOnce": "不重复",
-  "home.calYearly": "每年重复",
   "home.calSummaryRequired": "请填写内容",
   "home.calPurpose": "事由",
-  "home.calFollowUp": "需要跟进",
-  "home.calFollowUpNote": "跟进备注",
-  "home.calReadOnly": "生日是每年自动生成的记录，不能编辑；不想要可以直接删除。",
+  "home.calReadOnly": "生日由系统根据学生出生日期每年自动生成，不能编辑或删除。学生离校后会自动移除。",
   "home.calLegendExam": "考试",
   "home.calLegendRecord": "跟进记录",
   "home.calNotifyThisWeek": "本周",
   "home.calNotifyNextWeek": "下周",
 
+  // --- 数据 ---
+  "data.demoTitle": "演示数据",
+  "data.demoSub": "用于本地试用或发布前验收：演示内容绑定当前教师账号，仅教师可操作。",
+  "data.demoBody": "包含两个班级、全年成绩曲线与更正留痕、座位表、家访、谈心、辅导、家长沟通、评语、比赛活动等真实场景。加载或清空后都会保留你当前登录的教师账号，无需重新登录。",
+  "data.demoSeed": "加载演示数据",
+  "data.demoSeedWarn": "这会清空现有业务数据，并写入演示用的班级、学生、考试与跟进记录。",
+  "data.demoSeedDone": "演示数据已加载",
+  "data.demoSeedFail": "加载演示数据失败",
+  "data.demoReset": "清空业务数据",
+  "data.demoResetHint": "注意：「清空业务数据」删除的不只是演示数据——所有真实数据（学生、班级、考试、成绩、跟进记录）都会一并删除，且无法恢复。",
+  "data.demoResetWarn": "这会删除全部数据——不只是演示数据：你真实录入的所有学生、班级、考试、成绩和跟进记录都会被永久删除，回到空白工作台。",
+  "data.demoResetConfirm": "清空数据",
+  "data.demoResetDone": "业务数据已清空",
+  "data.demoResetFail": "清空失败",
+
   // --- 事件（普通事件） ---
   "events.title": "事件",
   "events.subtitle": "共 {count} 条普通事件 · 比赛、活动等",
+  "feed.participants": "参与人：",
+  "feed.participantClasses": "参与班级：",
   "events.emptyTitle": "还没有普通事件",
   "events.emptyDesc": "用「新建事件」记录比赛、活动等；考试和家访有各自的页面。",
   "events.create": "新建事件",
@@ -201,10 +233,9 @@ const messages = {
   "visits.title": "家访",
   "visits.subtitle": "共 {count} 次 · 覆盖 {students} 名学生",
   "visits.emptyTitle": "还没有家访记录",
-  "visits.emptyDesc": "家访记录来自学生档案里的「记录家访」，勾选「需要跟进」的会出现在待跟进里。",
-  "visits.filterAll": "全部",
-  "visits.filterFollowUps": "待跟进",
-  "visits.followUp": "需跟进",
+  "visits.emptyDesc": "在学生档案里点「记录家访」即可添加。",
+  "visits.done": "已完成",
+  "visits.markDone": "标记完成",
   "visits.record": "记录家访",
 
   // --- 新建学生 ---
@@ -235,7 +266,7 @@ const messages = {
   "profile.loginPhone": "登录手机号",
   "profile.email": "邮箱",
   "profile.myClasses": "我的班级",
-  "profile.noClasses": "你还没有担任班主任",
+  "profile.noClasses": "暂时没有班级",
   "profile.activity": "教学足迹",
   "profile.recordsLogged": "跟进记录",
   "profile.resultsEntered": "录入成绩",
@@ -243,17 +274,12 @@ const messages = {
   "profile.editInfo": "编辑资料",
   "profile.saved": "已保存",
   "profile.studentsCount": "{n} 人",
-  "profile.semesters": "学期设置",
-  "profile.semestersHint": "默认按 9–1 月、2–7 月划分两个学期；可按需要修改名称和日期",
-  "profile.semesterName": "学期名称",
-  "profile.semesterStart": "开始日期",
-  "profile.semesterEnd": "结束日期",
-  "profile.addSemester": "添加学期",
-  "profile.semestersSaved": "学期已保存",
-  "profile.semestersEmpty": "保存后会按 9–1 月、2–7 月自动生成默认学期",
-  "profile.semesterNameRequired": "请填写学期名称",
-  "profile.semesterDatesRequired": "请填写起止日期",
-  "profile.semesterEndInvalid": "结束日期不能早于开始日期",
+  "profile.settings": "偏好设置",
+  "profile.autoTags": "家访完成后自动添加「已家访」标签",
+  "profile.autoTagsHint": "关闭后，标记家访完成时不会自动给学生打标签",
+  "profile.calendarBirthdays": "在日历中显示学生生日",
+  "profile.calendarBirthdaysHint": "关闭后，首页月历不再显示根据出生日期推算的生日",
+  "profile.settingsSaved": "偏好已保存",
 
   // --- 考试 ---
   "examnew.title": "新建考试",
@@ -270,6 +296,9 @@ const messages = {
   "examnew.selectAllSubjects": "全选",
   "examnew.addSubject": "添加科目",
   "examnew.customSubject": "自定义科目",
+  "examnew.classes": "参加班级",
+  "examnew.classesSelected": "已选 {n} 班",
+  "examnew.classesHint": "以班级为单位选择参加考试的学生，选中的班级学生会带上这次考试；不选则全校在读学生参加。",
   "examnew.subjectName": "科目名称",
   "examnew.subjectColor": "颜色",
   "examnew.subjectDup": "科目名称不能重复",
@@ -293,13 +322,11 @@ const messages = {
   "exams.create": "新建考试",
   "exams.title": "考试",
   "exams.subtitle": "共 {count} 次考试 · 点开可查看平均分",
-  "exams.unassigned": "未归入学期",
-  "exams.noSemesters": "请先在个人中心设置学期",
-  "exams.setupSemesters": "去设置学期",
   "exams.viewAverages": "查看平均分",
   "exams.fullScore": "满分",
   "exams.emptyTitle": "还没有考试",
   "exams.emptyDesc": "新建一次考试并选好科目，之后就能在学生档案里录入成绩。",
+  "exams.pastSection": "已结束的考试",
 
   "exam.averages": "平均分",
   "exam.perClass": "各班平均分",
@@ -312,14 +339,26 @@ const messages = {
   "exam.students": "{count} 人",
   "exam.exams": "{count} 次考试",
   "exam.attributionNote": "各班人数按学生考试当日所在班级统计",
+  "exam.perClassEmpty": "还没有成绩录入，录入后这里会按班级显示平均分。",
   "exam.deleteConfirm": "删除后，这次考试的所有科目成绩都会被清掉。",
   "exam.subjectLockNote": "已经有成绩录入时，科目结构不能修改。要改科目请先删除这次考试。",
+  "exam.scoreImportTitle": "成绩导入（Excel）",
+  "exam.scoreImportDesc": "下载模板后按学号填入各科成绩（可写「缺考」），再上传导入。按学号匹配学生，重复导入会覆盖旧成绩；成功后学生会生成「参加考试」时间线记录。",
+  "exam.scoreTemplate": "下载模板",
+  "exam.scoreImport": "导入成绩",
+  "exam.scoreImportPick": "选择成绩文件（.xlsx）",
+  "exam.scoreImportDone": "成绩导入成功",
+  "exam.scoreImportFail": "成绩导入失败",
+  "exam.scoreImportOk": "导入成功",
+  "exam.scoreImportPartial": "部分成功",
+  "exam.scoreImportError": "失败",
 
   // --- 学生 ---
   "students.title": "学生",
   "students.subtitle": "共 {count} 名学生 · 点击任意一行打开档案",
-  "students.search": "搜索姓名、学号或班级",
+  "students.search": "搜索姓名、学号、班级或监护人",
   "students.ungrouped": "未分班",
+  "students.noRecentEvent": "这位同学最近很低调，暂无动态",
   "students.emptyTitle": "还没有学生",
   "students.emptyDesc": "先把学生加进班级，才能开始记成绩和跟进。",
   "students.groupCollapsed": "已折叠",
@@ -351,6 +390,7 @@ const messages = {
   "th.status": "状态",
   "th.exam": "考试",
   "th.tags": "标签",
+  "th.lastEvent": "最近事件",
   "th.subject": "科目",
   "th.score": "分数",
 
@@ -359,9 +399,12 @@ const messages = {
   "detail.guardian": "监护人",
   "detail.scores": "考试成绩",
   "detail.scoresHint": "点任意一个分数即可就地更正，每次修改都会留下痕迹",
+  "detail.addScore": "添加成绩",
+  "detail.scoreAdded": "成绩已添加",
   "detail.events": "事件记录",
   "detail.timeline": "时间线",
   "detail.timelineSub": "由你添加的记录可以点开编辑；系统自动生成的不可编辑",
+  "detail.timelineToday": "今天",
   "detail.trendTitle": "成绩变化趋势",
   "detail.trendSub": "各科成绩随考试变化",
   "detail.addGuardian": "添加监护人",
@@ -374,6 +417,7 @@ const messages = {
   "detail.editReason": "工作台内更正",
   "detail.recordEvent": "记录家访",
   "detail.nameRequired": "请填写学生姓名",
+  "detail.admissionNoRequired": "请填写学号",
   "detail.deleteConfirm": "如果他已有成绩或跟进记录，只会停用账号并保留数据；没有记录才会彻底删除。",
   "detail.profileEditTitle": "编辑资料",
   "detail.status": "状态",
@@ -385,12 +429,15 @@ const messages = {
   "event.close": "收起",
   "event.type": "事件类型",
   "event.purpose": "事件目的",
+  "event.homeVisitPurpose": "家访目的",
   "event.purposeHint": "写清楚为什么做这件事，半年后回看才想得起来",
+  "event.purposeRequired": "请填写事件目的",
+  "event.defaultPurpose": "例行家访",
   "event.summary": "事件摘要",
+  "event.description": "说明",
   "event.summaryRequired": "请填写事件摘要",
-  "event.followUp": "需要跟进",
-  "event.followUpHint": "勾选后会汇总到首页「待跟进」",
-  "event.followUpNote": "跟进备注",
+  "event.homeVisitDone": "家访已完成",
+  "event.homeVisitDoneHint": "完成后可自动给学生添加「已家访」标签（可在个人中心关闭）",
   "event.occurredAt": "事件时间",
   "event.occurredAtHint": "留空则记为当前时间",
   "event.save": "保存事件",
@@ -414,10 +461,12 @@ const messages = {
   // --- 时间线事件 ---
   "tl.enrolled": "入学",
   "tl.class_moved": "转班",
+  "tl.class_joined": "加入班级",
   "tl.exam": "考试",
   "tl.score": "成绩",
   "tl.exam_taken": "参加考试",
   "tl.result_changed": "成绩更正",
+  "tl.seat_changed": "换座位",
   "tl.birthday": "生日",
   "tl.home_visited": "家访",
   "tl.parent_call": "家长沟通",
@@ -452,6 +501,12 @@ export function dateLocale() {
   return "zh-CN"
 }
 
+// 本地时区的今天，YYYY-MM-DD（与 <input type="date"> 的值格式一致，可直接字符串比较）
+export function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
 // 日期区间文案：单日返回完整日期；跨天（多日考试）返回 "6月7日 – 6月9日"
 export function formatDateRange(d1, d2) {
   const fmtFull = (d) =>
@@ -466,24 +521,6 @@ export function formatDateRange(d1, d2) {
       : { year: "numeric", month: "short", day: "numeric" }
   )
   return `${fmtFull(d1)} – ${endText}`
-}
-
-/** Group exams (newest first) into profile-defined semesters. */
-export function groupExamsBySemester(exams, semesters) {
-  const sorted = [...(semesters || [])].sort((a, b) => b.start_date.localeCompare(a.start_date))
-  const byId = Object.fromEntries(sorted.map((sem) => [sem.id, { ...sem, exams: [] }]))
-  const other = { id: "_other", name: t("exams.unassigned"), start_date: "", end_date: "", exams: [] }
-
-  for (const exam of exams) {
-    const day = exam.exam_date
-    const match = sorted.find((sem) => day >= sem.start_date && day <= sem.end_date)
-    if (match) byId[match.id].exams.push(exam)
-    else other.exams.push(exam)
-  }
-
-  const groups = sorted.map((sem) => byId[sem.id]).filter((g) => g.exams.length)
-  if (other.exams.length) groups.push(other)
-  return groups
 }
 
 // ------------------------------------------------------------------ 学科
@@ -574,6 +611,7 @@ const EVENT_TYPES = {
   comment: { icon: "note", color: "#7C5BA8" },
   birthday: { icon: "cake", color: "#9A5B07" },
   activity: { icon: "flag", color: "#0E7490" },
+  seat_changed: { icon: "swap", color: "#2B8A8A" },
   exam: { icon: "clipboard", color: "#2E6BA8" },
   score: { icon: "clipboard", color: "#1D4ED8" },
 }
@@ -586,29 +624,55 @@ export function eventTypeColor(type) {
   return (EVENT_TYPES[type] || { color: "#94a3b8" }).color
 }
 
-export function eventTypeLabel(type) {
+export function isClassJoinEvent(type, payload = {}) {
+  return type === "class_moved" && !payload?.from_class && !payload?.from
+}
+
+export function eventTypeLabel(type, payload = null) {
+  if (isClassJoinEvent(type, payload || {})) return t("tl.class_joined")
   const key = `tl.${type}`
   return messages[key] ?? type
+}
+
+// 事件展示标题（卡片、时间线、动态流等标题位全局复用）。
+// 生日带 🎂；注意与 eventTypeLabel 区分——后者还用于
+// 「删除这条生日记录？」这类句子拼接，不能带 emoji。
+export function eventTitle(type, payload = null) {
+  const label = eventTypeLabel(type, payload)
+  return type === "birthday" ? `🎂 ${label}` : label
 }
 
 export function describeEvent(type, p = {}) {
   switch (type) {
     case "enrolled":
+      if (p.notes) return p.notes
       return t("tl.joined", { class: p.class_name ?? p.class ?? "" })
     case "class_moved":
+      if (p.notes) return p.notes
+      if (!p.from_class && !p.from) {
+        const to = p.to_class ?? p.to ?? ""
+        return to ? t("tl.joined", { class: to }) : ""
+      }
       return `${p.from_class ?? p.from ?? ""} → ${p.to_class ?? p.to ?? ""}${p.reason ? " · " + p.reason : ""}`
     case "exam_taken": {
+      if (p.notes) return p.notes
       const scores = p.scores
         ? Object.entries(p.scores).map(([s, v]) => `${subject(s)} ${v}`).join(", ")
         : ""
       return `${p.exam ?? ""}${scores ? " — " + scores : ""}`
     }
     case "result_changed":
+      if (p.notes) return p.notes
       return `${p.exam ?? ""} · ${subject(p.subject)}: ${p.old} → ${p.new}${p.reason ? " · " + p.reason : ""}`
-    case "birthday": {
-      const [y, m, d] = (p.birth_date ?? "").split("-")
-      return y ? `出生于 ${y}年${parseInt(m)}月${parseInt(d)}日` : "生日"
-    }
+    case "seat_changed":
+      // from/to 是「第X排第Y列」或空：空 to = 移出座位表，空 from = 首次安排
+      if (p.notes) return p.notes
+      if (p.from && p.to) return `${p.from} → ${p.to}`
+      if (p.to) return `安排座位：${p.to}`
+      return "移出座位表"
+    case "birthday":
+      // 全局约定：生日只显示标题（见 eventTitle），不渲染描述
+      return ""
     case "activity":
       return p.notes ?? ""
     case "home_visited":
@@ -648,6 +712,9 @@ export function recordableEventOptions() {
 
 // 把后端/网络错误翻译成能指导下一步动作的话（错误可识别、可诊断、可恢复）
 const ERROR_HINTS = [
+  [/手机号已(注册|存在)|already registered/i, "该手机号已注册，可直接登录，或联系管理员重置密码"],
+  [/at least 6 characters/i, "密码至少 6 位"],
+  [/internal server error|proxy|bad gateway|service unavailable/i, "服务器暂时出了问题，请稍后重试"],
   [/登录已过期|not authenticated|未登录/i, "登录已过期，请重新登录"],
   [/failed to fetch|networkerror|网络/i, "连接不上服务器，请检查网络后重试"],
   [/not found/i, "找不到这条数据，它可能已经被删除"],
