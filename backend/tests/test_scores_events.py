@@ -24,17 +24,34 @@ from app.routers import classes as classes_router
 from app.routers import dashboard as dashboard_router
 from app.routers import exams as exams_router
 from app.security import hash_password
+from app.workspace import ensure_workspace_id
 
 
 # ---------------------------------------------------------------------------
 # Seed helpers — persons / classes / enrollments / exams / scores
 # ---------------------------------------------------------------------------
 
+def _teacher_of(db) -> Person | None:
+    """本测试库里（唯一）的教师；工作区隔离后班级/学生的归属锚点。"""
+    role = Person.payload["role"].as_string()
+    return (
+        db.query(Person)
+        .filter(role == "teacher")
+        .order_by(Person.created_at.asc(), Person.id.asc())
+        .first()
+    )
+
+
 def _seed_person(db, name: str, admission_no: str, *, role: str = "student",
                  active: bool = True) -> Person:
     payload = validate_person_payload(role, {"admission_no": admission_no})
     if not active:
         payload["is_active"] = False
+    if role == "student":
+        # 工作区隔离：学生要挂到教师工作区，该教师的接口才看得到
+        teacher = _teacher_of(db)
+        if teacher is not None:
+            payload["workspace_id"] = ensure_workspace_id(teacher)
     p = Person(name=name, password_hash=hash_password(uuid.uuid4().hex), payload=payload)
     db.add(p)
     db.flush()
@@ -44,6 +61,7 @@ def _seed_person(db, name: str, admission_no: str, *, role: str = "student",
 def _seed_teacher(db, phone: str = "13800000001", name: str = "王老师") -> Person:
     p = Person(name=name, phone=phone, password_hash=hash_password("123456"),
                payload=validate_person_payload("teacher", {}))
+    ensure_workspace_id(p)
     db.add(p)
     db.flush()
     return p
@@ -56,7 +74,10 @@ def _headers(db, person: Person, token: str = "t" * 64) -> dict:
 
 
 def _seed_class(db, name: str = "七年级1班", academic_year: str = "2026") -> Class:
-    c = Class(name=name, academic_year=academic_year)
+    # 班级归属到教师：工作区隔离后 require_class_in_workspace 校验所有权
+    teacher = _teacher_of(db)
+    c = Class(name=name, academic_year=academic_year,
+              teacher_id=teacher.id if teacher else None)
     db.add(c)
     db.flush()
     return c
