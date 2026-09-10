@@ -13,6 +13,7 @@ VENV="$BACKEND_DIR/.venv"
 BACKEND_PORT=8001
 FRONTEND_PORT=5173
 DB_FILE="$BACKEND_DIR/teacher_workbench.db"
+FRESH_DB=0
 
 port_pids() {
   local port="$1"
@@ -64,6 +65,7 @@ ensure_backend() {
   if [[ ! -f "$DB_FILE" ]]; then
     echo "==> Seeding demo database"
     (cd "$BACKEND_DIR" && "$VENV/bin/python" -m app.seed)
+    FRESH_DB=1
   fi
 }
 
@@ -109,7 +111,12 @@ start_dev() {
   echo "  Backend   http://127.0.0.1:$BACKEND_PORT"
   echo "  API docs  http://127.0.0.1:$BACKEND_PORT/docs"
   echo
-  echo "Demo login: 13800000001 / 123456"
+  if [[ "$FRESH_DB" -eq 1 ]]; then
+    echo "Demo login:  chen@school.edu / 123456"
+    echo "Admin login: admin@school.dev / admin123  → hidden /admin dashboard"
+  else
+    echo "Login with your own account (demo credentials only exist on a freshly seeded database)."
+  fi
   echo "Press Ctrl+C to stop both servers."
   echo
 

@@ -5,6 +5,7 @@ __pycache__/
 
 # Demo database
 backend/*.db
+/teacher_workbench.db
 
 # Node
 node_modules/
