@@ -3348,3 +3348,124 @@ button.mention-picker__row:not(:disabled):hover {
     display: inline-grid;
   }
 }
+
+/* 名单批量分配：勾选 chip 与底部操作条 */
+.chip--toggle {
+  cursor: pointer;
+}
+.chip__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: -3px;
+  border: 1.5px solid var(--line);
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  color: transparent;
+  transition: border-color 0.15s, background-color 0.15s, color 0.15s;
+}
+.chip--toggle.is-on {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+}
+.chip--toggle.is-on .chip__mark {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #fff;
+}
+.batch-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -6px 20px rgba(15, 35, 24, 0.08);
+  animation: batch-bar-in 0.18s ease-out;
+}
+@keyframes batch-bar-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .batch-bar {
+    animation: none;
+  }
+}
+.batch-bar__in {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 10px var(--sp-4) calc(10px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.batch-bar__count {
+  padding: 4px 14px;
+  border-radius: var(--r-pill);
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.batch-bar__right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+.batch-bar__field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  min-width: 0;
+  white-space: nowrap;
+}
+.batch-bar__select {
+  max-width: 220px;
+}
+.batch-bar__error {
+  margin: 0;
+  padding: 7px var(--sp-4);
+  border-top: 1px dashed var(--line);
+  font-size: var(--fs-sm);
+  color: #b42318;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.batch-bar-spacer {
+  height: 64px;
+}
+@media (max-width: 560px) {
+  .batch-bar__in {
+    padding-left: var(--sp-3);
+    padding-right: var(--sp-3);
+  }
+  .batch-bar__right {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .batch-bar__field {
+    flex: 1 1 auto;
+  }
+  .batch-bar__select {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+  .batch-bar-spacer {
+    height: 108px;
+  }
+}

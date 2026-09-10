@@ -124,6 +124,17 @@ const messages = {
   "classdetail.addStudentHint": "只能添加尚未分班的学生",
   "classdetail.addStudentEmpty": "没有待分配的学生",
   "classdetail.studentAdded": "已将 {name} 加入班级",
+  "classdetail.batchSelect": "批量操作",
+  "classdetail.batchExit": "退出多选",
+  "classdetail.batchAll": "全选",
+  "classdetail.batchNone": "清空",
+  "classdetail.batchSelected": "已选 {n} 人",
+  "classdetail.batchTarget": "转入",
+  "classdetail.batchConfirm": "确认分配",
+  "classdetail.batchConfirmTitle": "将 {n} 名学生转入「{class}」？",
+  "classdetail.batchConfirmHint": "转班记录会写入每个学生的时间线。",
+  "classdetail.batchDone": "已转入 {n} 人",
+  "classdetail.batchDoneSkipped": "已转入 {moved} 人，{skipped} 人已在目标班级，已跳过",
   "classdetail.noScores": "这个班级还没有成绩数据",
 
   // --- 登录 ---

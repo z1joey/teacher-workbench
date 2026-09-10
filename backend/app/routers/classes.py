@@ -23,10 +23,16 @@ from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import RECORD_EVENT_TYPES, create_event
 from ..models._common import utcnow
-from ..unassigned import is_unassigned_class
-from ..workspace import classes_query, require_class_in_workspace
+from ..unassigned import ensure_unassigned_class, is_unassigned_class
+from ..workspace import (
+    classes_query,
+    require_class_in_workspace,
+    require_student_in_workspace,
+    workspace_id,
+)
 from ..models import Class, ClassSeating, Enrollment, Event, Person, person_events
 from .exams import exam_events, find_exam_event, subject_averages
+from .students import current_class
 
 router = APIRouter(
     tags=["classes"],
@@ -43,6 +49,7 @@ def class_out(
         "id": str(c.id),
         "name": c.name,
         "academic_year": c.academic_year,
+        "is_unassigned": is_unassigned_class(c),
         "student_count": len(students),
         "students": [
             {
@@ -161,14 +168,19 @@ def _avg_trend(db: Session, class_id: uuid.UUID) -> list[dict]:
     return out
 
 
-def current_students(db: Session, class_id: uuid.UUID) -> list[Person]:
-    return (
+def current_students(
+    db: Session, class_id: uuid.UUID, teacher: Person | None = None
+) -> list[Person]:
+    cls = db.get(Class, class_id)
+    q = (
         db.query(Person)
         .join(Enrollment, Enrollment.person_id == Person.id)
         .filter(Enrollment.class_id == class_id, Enrollment.valid_to.is_(None))
-        .order_by(Person.payload["admission_no"].as_string())
-        .all()
     )
+    if cls is not None and is_unassigned_class(cls) and teacher is not None:
+        wid = workspace_id(teacher)
+        q = q.filter(Person.payload["workspace_id"].as_string() == wid)
+    return q.order_by(Person.payload["admission_no"].as_string()).all()
 
 
 class ClassIn(BaseModel):
@@ -191,8 +203,16 @@ def list_classes(
     user: Person = Depends(get_current_person),
 ):
     out = []
+    unassigned = ensure_unassigned_class(db)
+    pool = current_students(db, unassigned.id, user)
+    pool_ids = [s.id for s in pool]
+    out.append({
+        **class_out(unassigned, pool, _visited_ids(db, pool_ids)),
+        "avg_trend": [],
+        "recent_events": _recent_events(db, pool_ids),
+    })
     for c in classes_query(db, user).order_by(Class.name).all():
-        students = current_students(db, c.id)
+        students = current_students(db, c.id, user)
         ids = [s.id for s in students]
         visited = _visited_ids(db, ids)
         base = class_out(c, students, visited)
@@ -217,6 +237,66 @@ def create_class(
     db.add(c)
     db.commit()
     return class_out(c, [])
+
+
+class BatchEnrollIn(BaseModel):
+    student_ids: list[uuid.UUID] = Field(min_length=1)
+
+
+@router.post("/classes/{class_id}/enrollments")
+def batch_enroll(
+    class_id: uuid.UUID,
+    body: BatchEnrollIn,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Move many students into one class in a single transaction.
+
+    Per-student mechanics mirror update_student's class-change branch (close
+    the current Enrollment, open a new one, record 转班/加入班级); students
+    already in the target class are skipped and reported instead of failing.
+    """
+    target = require_class_in_workspace(db, user, class_id)
+    moved, skipped = [], []
+    # dict.fromkeys dedupes while keeping the caller's order
+    for student_id in dict.fromkeys(body.student_ids):
+        s = require_student_in_workspace(db, user, student_id)
+        current = current_class(db, student_id)
+        if current is not None and current.id == target.id:
+            skipped.append(s.name)
+            continue
+        old = (
+            db.query(Enrollment)
+            .filter(
+                Enrollment.person_id == student_id,
+                Enrollment.valid_to.is_(None),
+            )
+            .first()
+        )
+        old_name = None if current is None or is_unassigned_class(current) else current.name
+        if old is not None:
+            old.valid_to = date.today()
+        db.add(
+            Enrollment(
+                person_id=student_id,
+                class_id=target.id,
+                valid_from=date.today(),
+                reason="moved",
+            )
+        )
+        new_name = None if is_unassigned_class(target) else target.name
+        if old_name is not None or new_name is not None:
+            create_event(
+                db,
+                event_type="class_moved",
+                title="加入班级" if old_name is None else "转班",
+                start_time=utcnow(),
+                payload={"from_class": old_name, "to_class": new_name},
+                attendee_ids=[s.id],
+            )
+        moved.append({"id": str(student_id), "name": s.name})
+    db.commit()
+    return {"moved": moved, "skipped": skipped}
 
 
 @router.get("/classes/{class_id}")
@@ -255,17 +335,19 @@ def get_class(
             o["sum"] += float(agg["avg"])
             o["count"] += 1
 
+    roster = current_students(db, class_id, user)
     return {
         "class": {
             "id": str(c.id),
             "name": c.name,
             "academic_year": c.academic_year,
+            "is_unassigned": is_unassigned_class(c),
         },
         "students": [
             {"id": str(s.id), "name": s.name,
              "gender": (s.payload or {}).get("gender"),
              "admission_no": (s.payload or {}).get("admission_no")}
-            for s in current_students(db, class_id)
+            for s in roster
         ],
         "trend": {
             "exams": [
@@ -331,7 +413,10 @@ def save_seating(
     旧座位保留原序号，由前端在名单变化时清掉失效座位。
     任一学生的座位发生变化（首次安排/移动/移出）都会留一条 seat_changed 事件。"""
     require_class_in_workspace(db, user, class_id)
-    member_ids = {str(s.id) for s in current_students(db, class_id)}
+    c = db.get(Class, class_id)
+    if c is not None and is_unassigned_class(c):
+        raise HTTPException(status_code=400, detail="未分班学生不能安排座位")
+    member_ids = {str(s.id) for s in current_students(db, class_id, user)}
     seen: set[str] = set()
     for pos, sid in body.seats.items():
         if not pos.isdigit() or int(pos) < 0 or int(pos) >= body.rows * body.cols:
@@ -390,7 +475,7 @@ def update_class(
     c.name = body.name.strip()
     c.academic_year = body.academic_year.strip()
     db.commit()
-    return class_out(c, current_students(db, class_id))
+    return class_out(c, current_students(db, class_id, current))
 
 
 @router.delete("/classes/{class_id}")

@@ -70,7 +70,11 @@ def require_class_in_workspace(
     db: Session, teacher: Person, class_id: uuid.UUID
 ) -> Class:
     cls = db.get(Class, class_id)
-    if cls is None or is_unassigned_class(cls) or cls.teacher_id != teacher.id:
+    if cls is None:
+        raise HTTPException(status_code=404, detail="class not found")
+    if is_unassigned_class(cls):
+        return cls
+    if cls.teacher_id != teacher.id:
         raise HTTPException(status_code=404, detail="class not found")
     return cls
 
