@@ -38,7 +38,8 @@ async function load() {
   loading.value = true
   error.value = ""
   try {
-    classes.value = await api.get("/classes")
+    // 归档班级也取回：仅用于选中校验与深链接；默认展示由 ClassDetailContent 控制
+    classes.value = await api.get("/classes?include_archived=1")
   } catch (e) {
     error.value = friendlyError(e)
   } finally {

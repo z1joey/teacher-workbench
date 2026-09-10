@@ -95,11 +95,62 @@ def get_profile(
             db.query(Event).filter(Event.type == "comment", attended).count()
         ),
     }
+
+    # 毕业归档：已毕业学生与归档班级（数据保留，仅在此集中查看）
+    graduated_students = (
+        students_query(db, person)
+        .filter(Person.payload["graduated_at"].as_string().is_not(None))
+        .order_by(Person.payload["graduated_at"].as_string().desc())
+        .all()
+    )
+    archived_classes = []
+    for c in (
+        classes_query(db, person, include_archived=True)
+        .filter(Class.archived.is_(True))
+        .order_by(Class.name)
+        .all()
+    ):
+        grads = (
+            db.query(Person)
+            .join(Enrollment, Enrollment.person_id == Person.id)
+            .filter(
+                Enrollment.class_id == c.id,
+                Person.payload["graduated_at"].as_string().is_not(None),
+            )
+            .distinct()
+            .order_by(Person.payload["admission_no"].as_string())
+            .all()
+        )
+        archived_classes.append(
+            {
+                "id": str(c.id),
+                "name": c.name,
+                "academic_year": c.academic_year,
+                "students": [
+                    {
+                        "id": str(s.id),
+                        "name": s.name,
+                        "admission_no": (s.payload or {}).get("admission_no"),
+                    }
+                    for s in grads
+                ],
+            }
+        )
     return {
         "user": user_out(person),
         "settings": settings_out(payload),
         "classes": classes,
         "stats": stats,
+        "graduated_students": [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "admission_no": (s.payload or {}).get("admission_no"),
+                "graduated_at": (s.payload or {}).get("graduated_at"),
+            }
+            for s in graduated_students
+        ],
+        "archived_classes": archived_classes,
     }
 
 

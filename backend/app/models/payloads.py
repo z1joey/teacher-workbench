@@ -27,6 +27,7 @@ class StudentPayload(_Strict):
     address: str | None = None
     workspace_id: str | None = None
     is_active: bool = True
+    graduated_at: str | None = None  # ISO "YYYY-MM-DD"；毕业置位，列表默认隐藏
 
     @field_validator("gender", mode="before")
     @classmethod

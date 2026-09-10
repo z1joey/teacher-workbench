@@ -61,6 +61,8 @@ router = APIRouter(
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 AUTO_HOME_VISIT_TAG_NAME = "已家访"
 AUTO_HOME_VISIT_TAG_COLOR = "#2f7d4f"
+AUTO_GRADUATED_TAG_NAME = "已毕业"
+AUTO_GRADUATED_TAG_COLOR = "#b7791f"
 DEFAULT_HOME_VISIT_PURPOSE = "例行家访"
 
 # Fallback titles for system-generated events (Event.title is NOT NULL).
@@ -71,6 +73,7 @@ _TYPE_LABELS = {
     "birthday": "生日",
     "enrolled": "入学",
     "class_moved": "转班",
+    "graduated": "毕业",
 }
 
 # event types a teacher may create/edit through the generic record endpoints
@@ -202,7 +205,43 @@ def current_class(db: Session, person_id: uuid.UUID) -> Class | None:
 
 
 def _status_of(person: Person) -> str:
-    return "active" if (person.payload or {}).get("is_active", True) else "inactive"
+    payload = person.payload or {}
+    if payload.get("graduated_at"):
+        return "graduated"
+    return "active" if payload.get("is_active", True) else "inactive"
+
+
+def _graduate_side_effects(db: Session, s: Person, class_name: str | None) -> None:
+    """毕业副作用：关闭当前学籍（reason=graduated）、写毕业事件、打已毕业标签。"""
+    enrollment = (
+        db.query(Enrollment)
+        .filter(Enrollment.person_id == s.id, Enrollment.valid_to.is_(None))
+        .first()
+    )
+    if enrollment is not None:
+        enrollment.valid_to = date.today()
+        enrollment.reason = "graduated"
+    create_event(
+        db,
+        event_type="graduated",
+        title="毕业",
+        start_time=utcnow(),
+        payload={"class_name": class_name},
+        attendee_ids=[s.id],
+    )
+    _attach_tag_if_missing(db, s.id, AUTO_GRADUATED_TAG_NAME, AUTO_GRADUATED_TAG_COLOR)
+
+
+def graduate_student(db: Session, s: Person, class_name: str | None) -> bool:
+    """把单个学生标记毕业。已毕业返回 False（幂等跳过）。"""
+    payload = dict(s.payload or {})
+    if payload.get("graduated_at"):
+        return False
+    payload["graduated_at"] = date.today().isoformat()
+    payload["is_active"] = False
+    s.payload = validate_person_payload("student", payload)
+    _graduate_side_effects(db, s, class_name)
+    return True
 
 
 def _admission_no_in_use(
@@ -542,12 +581,15 @@ def last_exam_summary(db: Session, person_id: uuid.UUID) -> dict | None:
 
 @router.get("/students")
 def list_students(
+    include_graduated: bool = False,
     db: Session = Depends(get_db),
     user: Person = Depends(get_current_person),
 ):
+    query = students_query(db, user)
+    if not include_graduated:
+        query = query.filter(Person.payload["graduated_at"].as_string().is_(None))
     students = (
-        students_query(db, user)
-        .order_by(Person.payload["admission_no"].as_string())
+        query.order_by(Person.payload["admission_no"].as_string())
         .all()
     )
     # 监护人一次取全（避免逐生查询），供顶栏搜索按监护人姓名/电话命中
@@ -1386,11 +1428,32 @@ def update_student(
         payload["birth_date"] = body.birth_date.isoformat()
     if body.address is not None:
         payload["address"] = body.address or None
+    graduating = False
     if body.status is not None:
-        if body.status not in ("active", "inactive"):
-            raise HTTPException(status_code=400, detail="status must be 'active' or 'inactive'")
-        payload["is_active"] = body.status == "active"
+        if body.status not in ("active", "inactive", "graduated"):
+            raise HTTPException(
+                status_code=400,
+                detail="status must be 'active', 'inactive' or 'graduated'",
+            )
+        if body.status == "graduated":
+            if not payload.get("graduated_at"):
+                payload["graduated_at"] = date.today().isoformat()
+                payload["is_active"] = False
+                graduating = True
+        elif body.status == "active":
+            payload["graduated_at"] = None
+            payload["is_active"] = True
+        else:
+            payload["is_active"] = False
     s.payload = validate_person_payload("student", payload)
+
+    # 毕业副作用放在 payload 落定之后：关学籍、写毕业事件、打已毕业标签
+    if graduating:
+        cls_now = current_class(db, s.id)
+        _graduate_side_effects(
+            db, s,
+            None if cls_now is None or is_unassigned_class(cls_now) else cls_now.name,
+        )
 
     # Guardian upsert: name/phone drive the linked guardian Person (if either
     # is supplied) — see _set_primary_guardian for the merge/link semantics.

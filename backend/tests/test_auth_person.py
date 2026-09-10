@@ -154,7 +154,10 @@ def test_profile_patch_get_round_trips_name(make_client, db):
 
     r = client.get("/api/profile", headers=headers)
     assert r.status_code == 200, r.text
-    assert set(r.json()) == {"user", "classes", "stats", "settings"}
+    assert set(r.json()) == {
+        "user", "classes", "stats", "settings",
+        "graduated_students", "archived_classes",
+    }
     assert r.json()["settings"] == {
         "auto_tags": True,
         "calendar_birthdays": True,

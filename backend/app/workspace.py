@@ -47,8 +47,11 @@ def students_query(db: Session, teacher: Person):
     )
 
 
-def classes_query(db: Session, teacher: Person):
-    return db.query(Class).filter(Class.teacher_id == teacher.id)
+def classes_query(db: Session, teacher: Person, include_archived: bool = False):
+    q = db.query(Class).filter(Class.teacher_id == teacher.id)
+    if not include_archived:
+        q = q.filter(Class.archived.is_(False))
+    return q
 
 
 def student_in_workspace(student: Person | None, teacher: Person) -> bool:

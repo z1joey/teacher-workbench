@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
+import SelectMenu from "../components/SelectMenu.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
@@ -144,6 +145,43 @@ async function saveProfile() {
     error.value = friendlyError(e)
   } finally {
     saving.value = false
+  }
+}
+
+// 毕业操作：个人中心集中入口。毕业不会删除数据，班级转为已归档。
+const graduatingClassId = ref("")
+const graduating = ref(false)
+// 归档班级名单默认收起，点「查看名单」展开
+const expandedClasses = ref(new Set())
+
+function toggleRoster(id) {
+  const next = new Set(expandedClasses.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedClasses.value = next
+}
+
+async function graduateClass() {
+  const cls = profile.value.classes.find((c) => c.id === graduatingClassId.value)
+  if (!cls) return
+  const ok = await ask({
+    title: t("profile.graduateConfirmTitle", { n: cls.students.length, class: cls.name }),
+    message: t("profile.graduateConfirmHint"),
+    confirmLabel: t("profile.graduateConfirm"),
+    tone: "warn",
+  })
+  if (!ok) return
+  graduating.value = true
+  error.value = ""
+  try {
+    const res = await api.post(`/classes/${cls.id}/graduate`)
+    notify({ tone: "ok", title: t("profile.graduateDone", { n: res.graduated }), timeout: 3200 })
+    graduatingClassId.value = ""
+    await load()
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    graduating.value = false
   }
 }
 
@@ -294,6 +332,76 @@ const activity = computed(() => {
                 {{ t("profile.clearHomeVisitTags") }}
               </button>
             </div>
+          </div>
+        </div>
+        <!-- 毕业归档：标记毕业 + 查看归档班级与毕业生（名单默认收起） -->
+        <div class="card">
+          <div class="card__head">
+            <div>
+              <h2 class="card__title"><Icon name="flag" :size="16" /> {{ t("profile.graduatedArchive") }}</h2>
+              <p class="card__desc">{{ t("profile.graduatedArchiveHint") }}</p>
+            </div>
+          </div>
+          <div class="card__body">
+            <div v-if="profile.classes.length" class="row" style="gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px">
+              <SelectMenu
+                v-model="graduatingClassId"
+                :options="profile.classes.map((c) => ({ value: c.id, label: `${c.name}（${c.students.length} 人）` }))"
+                placeholder="选择班级"
+                aria-label="选择要毕业的班级"
+                :disabled="graduating"
+                trigger-class="input input--sm"
+              />
+              <button
+                type="button"
+                class="btn btn--sm"
+                :disabled="graduating || !graduatingClassId"
+                @click="graduateClass"
+              >
+                <span v-if="graduating" class="spinner" />
+                {{ t("profile.graduateAction") }}
+              </button>
+            </div>
+
+            <p v-if="error" class="field__error" style="margin-bottom: 12px">
+              <Icon name="alert-circle" :size="12" /> {{ error }}
+            </p>
+
+            <div v-if="profile.archived_classes.length" class="stack" style="gap: 12px">
+              <div v-for="c in profile.archived_classes" :key="c.id" class="stack" style="gap: 8px">
+                <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between">
+                  <div class="row-wrap" style="align-items: center">
+                    <router-link :to="`/classes/${c.id}`" class="pill">
+                      {{ c.name }} <span class="muted" style="font-weight: 400">{{ t("profile.graduatedSuffix") }}</span>
+                    </router-link>
+                    <span class="stat__sub">
+                      {{ c.academic_year }}
+                      <template v-if="c.students.length"> · {{ t("profile.studentsCount", { n: c.students.length }) }}</template>
+                    </span>
+                  </div>
+                  <button
+                    v-if="c.students.length"
+                    type="button"
+                    class="btn btn--sm btn--ghost"
+                    @click="toggleRoster(c.id)"
+                  >
+                    {{ expandedClasses.has(c.id) ? t("profile.hideRoster") : t("profile.viewRoster") }}
+                  </button>
+                </div>
+                <div v-if="expandedClasses.has(c.id) && c.students.length" class="chips" style="padding-left: 4px">
+                  <router-link
+                    v-for="s in c.students"
+                    :key="s.id"
+                    :to="`/students/${s.id}`"
+                    class="chip"
+                  >
+                    {{ s.name }}
+                    <span class="muted" style="font-size: 12px">{{ s.admission_no }}</span>
+                  </router-link>
+                </div>
+              </div>
+            </div>
+            <p v-else class="muted" style="margin: 0">{{ t("profile.noArchivedClasses") }}</p>
           </div>
         </div>
       </div>

@@ -32,7 +32,7 @@ from ..workspace import (
 )
 from ..models import Class, ClassSeating, Enrollment, Event, Person, person_events
 from .exams import exam_events, find_exam_event, subject_averages
-from .students import current_class
+from .students import current_class, graduate_student
 
 router = APIRouter(
     tags=["classes"],
@@ -50,6 +50,7 @@ def class_out(
         "name": c.name,
         "academic_year": c.academic_year,
         "is_unassigned": is_unassigned_class(c),
+        "archived": bool(c.archived),
         "student_count": len(students),
         "students": [
             {
@@ -188,6 +189,12 @@ class ClassIn(BaseModel):
     academic_year: str = Field(min_length=4, max_length=20)
 
 
+class ClassUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=50)
+    academic_year: str | None = Field(default=None, min_length=4, max_length=20)
+    archived: bool | None = None
+
+
 def _check_duplicate(db: Session, name: str, academic_year: str,
                      exclude_id: uuid.UUID | None = None) -> None:
     query = db.query(Class).filter(Class.name == name, Class.academic_year == academic_year)
@@ -199,6 +206,7 @@ def _check_duplicate(db: Session, name: str, academic_year: str,
 
 @router.get("/classes")
 def list_classes(
+    include_archived: bool = False,
     db: Session = Depends(get_db),
     user: Person = Depends(get_current_person),
 ):
@@ -211,7 +219,7 @@ def list_classes(
         "avg_trend": [],
         "recent_events": _recent_events(db, pool_ids),
     })
-    for c in classes_query(db, user).order_by(Class.name).all():
+    for c in classes_query(db, user, include_archived=include_archived).order_by(Class.name).all():
         students = current_students(db, c.id, user)
         ids = [s.id for s in students]
         visited = _visited_ids(db, ids)
@@ -299,6 +307,30 @@ def batch_enroll(
     return {"moved": moved, "skipped": skipped}
 
 
+@router.post("/classes/{class_id}/graduate")
+def graduate_class(
+    class_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """班级毕业：全班在读学生标记毕业并归档班级。
+
+    数据一律保留；删除仍由用户通过既有的学生/班级删除接口自行决定。
+    """
+    cls = require_class_in_workspace(db, user, class_id)
+    if is_unassigned_class(cls):
+        raise HTTPException(status_code=400, detail="未分班不能毕业")
+    graduated, skipped = 0, 0
+    for s in current_students(db, class_id, user):
+        if graduate_student(db, s, cls.name):
+            graduated += 1
+        else:
+            skipped += 1
+    cls.archived = True
+    db.commit()
+    return {"graduated": graduated, "skipped": skipped}
+
+
 @router.get("/classes/{class_id}")
 def get_class(
     class_id: uuid.UUID,
@@ -335,13 +367,28 @@ def get_class(
             o["sum"] += float(agg["avg"])
             o["count"] += 1
 
-    roster = current_students(db, class_id, user)
+    # 归档班的名单 = 该班历届毕业生（学籍已关闭，current_students 为空）
+    if c.archived:
+        roster = (
+            db.query(Person)
+            .join(Enrollment, Enrollment.person_id == Person.id)
+            .filter(
+                Enrollment.class_id == class_id,
+                Person.payload["graduated_at"].as_string().is_not(None),
+            )
+            .distinct()
+            .order_by(Person.payload["admission_no"].as_string())
+            .all()
+        )
+    else:
+        roster = current_students(db, class_id, user)
     return {
         "class": {
             "id": str(c.id),
             "name": c.name,
             "academic_year": c.academic_year,
             "is_unassigned": is_unassigned_class(c),
+            "archived": bool(c.archived),
         },
         "students": [
             {"id": str(s.id), "name": s.name,
@@ -464,16 +511,22 @@ def save_seating(
 @router.patch("/classes/{class_id}")
 def update_class(
     class_id: uuid.UUID,
-    body: ClassIn,
+    body: ClassUpdateIn,
     db: Session = Depends(get_db),
     current: Person = Depends(get_current_person),
 ):
     c = db.get(Class, class_id)
     if c is None or is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
-    _check_duplicate(db, body.name.strip(), body.academic_year.strip(), exclude_id=class_id)
-    c.name = body.name.strip()
-    c.academic_year = body.academic_year.strip()
+    renaming = "name" in body.model_fields_set or "academic_year" in body.model_fields_set
+    name = c.name if body.name is None else body.name.strip()
+    year = c.academic_year if body.academic_year is None else body.academic_year.strip()
+    if renaming:
+        _check_duplicate(db, name, year, exclude_id=class_id)
+    c.name = name
+    c.academic_year = year
+    if body.archived is not None:
+        c.archived = body.archived
     db.commit()
     return class_out(c, current_students(db, class_id, current))
 

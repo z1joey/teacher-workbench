@@ -468,8 +468,23 @@ const messages = {
   // --- 状态枚举 ---
   "status.active": "在读",
   "status.inactive": "已停用",
+  "status.graduated": "已毕业",
   "status.entered": "已录入",
   "status.absent": "缺考",
+  "classes.archived": "已归档",
+  "classdetail.unarchive": "取消归档",
+  "classdetail.unarchiveDone": "已取消归档",
+  "profile.graduatedArchive": "毕业归档",
+  "profile.graduatedArchiveHint": "将整个班级标记为毕业：学生带上「已毕业」标签并从默认列表隐藏，数据不会删除。",
+  "profile.graduatedSuffix": "已毕业",
+  "profile.viewRoster": "查看名单",
+  "profile.hideRoster": "收起名单",
+  "profile.noArchivedClasses": "暂无归档班级。",
+  "profile.graduateAction": "标记毕业",
+  "profile.graduateConfirmTitle": "将「{class}」的 {n} 名在读学生标记为已毕业？",
+  "profile.graduateConfirmHint": "数据不会删除：学生会带上「已毕业」标签并从默认列表隐藏，班级转为已归档，之后仍可查看或手动删除。",
+  "profile.graduateConfirm": "确认毕业",
+  "profile.graduateDone": "已毕业 {n} 人，班级已归档",
 
   "gender.F": "女",
   "gender.M": "男",
@@ -605,12 +620,14 @@ export function classBreadcrumbLabel(name, academicYear) {
 
 // ------------------------------------------------------------------ 状态
 
-const STUDENT_STATUS = { active: "在读", inactive: "已停用" }
+const STUDENT_STATUS = { active: "在读", inactive: "已停用", graduated: "已毕业" }
 export function studentStatusLabel(s) {
   return (s && STUDENT_STATUS[s]) || s || "—"
 }
 export function studentStatusTone(s) {
-  return s === "active" ? "ok" : "muted"
+  if (s === "active") return "ok"
+  if (s === "graduated") return "warn"
+  return "muted"
 }
 
 const RESULT_STATUS = { entered: "已录入", absent: "缺考" }

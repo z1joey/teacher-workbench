@@ -564,6 +564,7 @@ def test_class_crud_contract(make_client, db, headers):
     assert data == {
         "id": data["id"], "name": "七年级1班",
         "academic_year": "2026", "is_unassigned": False,
+        "archived": False,
         "student_count": 0, "students": [],
     }
 

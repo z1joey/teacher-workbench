@@ -61,6 +61,7 @@ const profileForm = ref({})
 const STATUS_OPTIONS = [
   { value: "active", label: t("status.active") },
   { value: "inactive", label: t("status.inactive") },
+  { value: "graduated", label: t("status.graduated") },
 ]
 
 async function load() {

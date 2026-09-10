@@ -11,6 +11,7 @@ import AsyncState from "./AsyncState.vue"
 import FormField from "./FormField.vue"
 import LineChart from "./LineChart.vue"
 import SeatingBoard from "./SeatingBoard.vue"
+import SelectMenu from "./SelectMenu.vue"
 import { ask } from "../confirm"
 import { notify, runUndoable } from "../feedback"
 import { setPageTitle } from "../title"
@@ -80,15 +81,11 @@ onMounted(() => {
 watch(() => props.classId, load)
 
 const isUnassigned = computed(() => !!detail.value?.class?.is_unassigned)
+const isArchived = computed(() => !!detail.value?.class?.archived)
 
 function classLabel(c) {
   if (c.is_unassigned) return c.name
   return duplicateNames.value.has(c.name) ? `${c.name}（${c.academic_year}）` : c.name
-}
-
-function onPickClass(ev) {
-  const id = ev.target.value
-  if (id && id !== props.classId) emit("switch", id)
 }
 
 function startEdit() {
@@ -256,8 +253,26 @@ const targetClassId = ref("")
 const batchSubmitting = ref(false)
 const batchError = ref("")
 
+// ------------------------------------------------------------------ 班级归档
+// 毕业操作集中在个人中心；这里只负责已归档班级的展示与取消归档。
+const unarchiving = ref(false)
+
+async function unarchiveClass() {
+  unarchiving.value = true
+  try {
+    await api.patch(`/classes/${props.classId}`, { archived: false })
+    notify({ tone: "ok", title: t("classdetail.unarchiveDone"), timeout: 2600 })
+    await Promise.all([load(), loadClassList()])
+    emit("changed")
+  } catch (e) {
+    notify({ tone: "error", title: friendlyError(e), timeout: 3200 })
+  } finally {
+    unarchiving.value = false
+  }
+}
+
 const targetClasses = computed(() =>
-  allClasses.value.filter((c) => c.id !== props.classId),
+  allClasses.value.filter((c) => c.id !== props.classId && !c.archived),
 )
 
 function exitSelectMode() {
@@ -348,24 +363,30 @@ function fmtPct(score, full) {
   >
       <PageHeader :title="detail.class.name">
         <template v-if="allClasses.length > 1" #title>
-          <label class="class-switcher">
-            <select
-              class="class-switcher__select"
-              :value="classId"
-              aria-label="选择班级"
-              @change="onPickClass"
-            >
-              <option v-for="c in allClasses" :key="c.id" :value="c.id">{{ classLabel(c) }}</option>
-            </select>
-            <Icon name="chevron-down" :size="18" class="class-switcher__chevron" />
-          </label>
+          <SelectMenu
+            :model-value="classId"
+            :options="allClasses.map((c) => ({ value: c.id, label: classLabel(c) }))"
+            aria-label="选择班级"
+            trigger-class="class-switcher__select"
+            @update:model-value="(id) => emit('switch', id)"
+          >
+            <template #trigger="{ label }">
+              <span>{{ label }}</span>
+              <Icon name="chevron-down" :size="18" class="switcher-chevron" />
+            </template>
+          </SelectMenu>
         </template>
         <template #actions>
+          <span v-if="isArchived" class="pill pill--muted">{{ t("classes.archived") }}</span>
           <button class="btn btn--ghost" @click="emit('create')">
             <Icon name="plus" :size="15" /> {{ t("classes.create") }}
           </button>
-          <button v-if="!isUnassigned && !editing" class="btn" @click="startEdit">
+          <button v-if="!isUnassigned && !isArchived && !editing" class="btn" @click="startEdit">
             <Icon name="pencil" :size="15" /> {{ t("action.edit") }}
+          </button>
+          <button v-if="isArchived" class="btn" :disabled="unarchiving" @click="unarchiveClass">
+            <span v-if="unarchiving" class="spinner" />
+            {{ t("classdetail.unarchive") }}
           </button>
         </template>
       </PageHeader>
@@ -445,13 +466,13 @@ function fmtPct(score, full) {
                 <h2 class="card__title"><Icon name="users" :size="16" /> {{ t("classdetail.roster") }}</h2>
                 <p v-if="isUnassigned" class="card__desc">{{ t("classes.unassignedHint") }}</p>
               </div>
-              <template v-if="detail.students.length && selectMode">
+              <template v-if="detail.students.length && !isArchived && selectMode">
                 <button type="button" class="btn btn--sm" @click="toggleAll">
                   {{ allSelected ? t("classdetail.batchNone") : t("classdetail.batchAll") }}
                 </button>
               </template>
               <button
-                v-if="detail.students.length"
+                v-if="detail.students.length && !isArchived"
                 type="button"
                 class="btn btn--sm"
                 :class="{ 'btn--primary': selectMode }"
@@ -624,3 +645,10 @@ function fmtPct(score, full) {
       </template>
   </AsyncState>
 </template>
+
+<style scoped>
+.switcher-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+</style>

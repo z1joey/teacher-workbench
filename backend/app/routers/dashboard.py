@@ -57,6 +57,11 @@ def month_calendar(
     lo = datetime.combine(first, time.min)
     hi = datetime.combine(last, time.max)
     wid = workspace_id(user)
+    # 毕业/停用学生的生日不再出现在日历（学生离校后自动移除）
+    active_student = or_(
+        Person.payload["is_active"].as_boolean().is_(None),
+        Person.payload["is_active"].as_boolean().is_not(False),
+    )
     # multi-day sittings appear on every day of their span (中考/高考 style)
     for e in (
         db.query(Event)
@@ -113,6 +118,7 @@ def month_calendar(
                 Event.type == "birthday",
                 _STUDENT_ATTENDEE,
                 Person.payload["workspace_id"].as_string() == wid,
+                active_student,
             )
             .order_by(Event.created_at.asc(), Event.id.asc())
             .all()
