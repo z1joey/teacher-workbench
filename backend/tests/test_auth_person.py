@@ -247,6 +247,43 @@ def test_profile_auto_tags_setting(make_client, db):
     assert person.payload["auto_tags"] is False
 
 
+def test_profile_clear_home_visit_tags(make_client, db):
+    import uuid
+
+    from app.models import Tag, person_tags
+    from app.routers.students import AUTO_HOME_VISIT_TAG_NAME, _attach_tag_if_missing
+    from app.workspace import ensure_workspace_id, tag_student_workspace
+
+    client = make_client(profile.router)
+    teacher = seed_person(db, "clear-tags@test.example", name="陈老师")
+    ensure_workspace_id(teacher)
+    token = seed_token(db, teacher, uuid.uuid4().hex)
+    headers = {"Authorization": f"Bearer {token}"}
+    mine = seed_person(db, None, role="student", name="林晓雨", admission_no="CLR001")
+    other = seed_person(db, None, role="student", name="外班生", admission_no="CLR002")
+    tag_student_workspace(mine, teacher)
+    _attach_tag_if_missing(db, mine.id, AUTO_HOME_VISIT_TAG_NAME, "#2f7d4f")
+    _attach_tag_if_missing(db, other.id, AUTO_HOME_VISIT_TAG_NAME, "#2f7d4f")
+    db.commit()
+
+    r = client.post("/api/profile/clear-home-visit-tags", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json() == {"removed": 1}
+    tag = db.query(Tag).filter(Tag.name == AUTO_HOME_VISIT_TAG_NAME).one()
+    assert (
+        db.query(person_tags)
+        .filter(person_tags.c.person_id == mine.id, person_tags.c.tag_id == tag.id)
+        .first()
+        is None
+    )
+    assert (
+        db.query(person_tags)
+        .filter(person_tags.c.person_id == other.id, person_tags.c.tag_id == tag.id)
+        .first()
+        is not None
+    )
+
+
 def test_teachers_lists_only_teachers(make_client, db):
     client = make_client(misc.router)
     seed_person(db, "zhang@test.example", name="张老师")

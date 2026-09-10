@@ -278,8 +278,6 @@ const messages = {
   "profile.phoneEmpty": "未填写",
   "profile.phoneHint": "6-15 位数字，可用空格或短横线分隔",
   "profile.phoneInvalid": "手机号格式不正确，请输入 6-15 位数字",
-  "profile.myClasses": "我的班级",
-  "profile.noClasses": "暂时没有班级",
   "profile.activity": "教学足迹",
   "profile.recordsLogged": "跟进记录",
   "profile.resultsEntered": "录入成绩",
@@ -290,6 +288,11 @@ const messages = {
   "profile.settings": "偏好设置",
   "profile.autoTags": "家访完成后自动添加「已家访」标签",
   "profile.autoTagsHint": "关闭后，标记家访完成时不会自动给学生打标签",
+  "profile.clearHomeVisitTags": "清除所有「已家访」标签",
+  "profile.clearHomeVisitTagsHint": "只清除你工作区内学生身上的该标签，不影响家访记录",
+  "profile.clearHomeVisitTagsConfirm": "确定清除所有学生身上的「已家访」标签？家访记录不会删除。",
+  "profile.clearHomeVisitTagsDone": "已清除 {n} 个「已家访」标签",
+  "profile.clearHomeVisitTagsEmpty": "当前没有可清除的「已家访」标签",
   "profile.calendarBirthdays": "在日历中显示学生生日",
   "profile.calendarBirthdaysHint": "关闭后，首页月历不再显示根据出生日期推算的生日",
   "profile.settingsSaved": "偏好已保存",
@@ -650,11 +653,10 @@ export function eventTypeLabel(type, payload = null) {
 }
 
 // 事件展示标题（卡片、时间线、动态流等标题位全局复用）。
-// 生日带 🎂；注意与 eventTypeLabel 区分——后者还用于
-// 「删除这条生日记录？」这类句子拼接，不能带 emoji。
+// 注意与 eventTypeLabel 区分——后者还用于
+// 「删除这条生日记录？」这类句子拼接。
 export function eventTitle(type, payload = null) {
-  const label = eventTypeLabel(type, payload)
-  return type === "birthday" ? `🎂 ${label}` : label
+  return eventTypeLabel(type, payload)
 }
 
 // 时间线/卡片展示名：优先 Event.title，再回退类型标签。

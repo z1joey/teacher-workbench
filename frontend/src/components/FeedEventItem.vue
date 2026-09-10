@@ -94,7 +94,8 @@ function onClick() {
     </span>
     <div class="feed__body">
       <div class="feed__head">
-        <span>
+        <span class="feed__title-row">
+          <span class="feed__title-text">
           <template v-if="studentFirst && event.student_name">
             <router-link
               v-if="event.student_id"
@@ -127,18 +128,19 @@ function onClick() {
             </template>
             <template v-if="event.actor"> · {{ event.actor }}</template>
           </template>
+          </span>
+          <span v-if="$slots.actions" class="feed__inline-actions">
+            <slot name="actions" />
+          </span>
           <span
             v-if="event.event_type === 'home_visited' && event.payload?.done"
             class="pill pill--ok feed__done"
           >{{ t("visits.done") }}</span>
           <slot name="badges" />
         </span>
-        <span class="row-wrap" style="gap: 8px">
-          <slot name="actions" />
-          <time v-if="dateFormat !== 'none' && event.occurred_at" class="timeline__time">
-            {{ fmtDate(event.occurred_at) }}
-          </time>
-        </span>
+        <time v-if="dateFormat !== 'none' && event.occurred_at" class="timeline__time">
+          {{ fmtDate(event.occurred_at) }}
+        </time>
       </div>
       <p v-if="describeEvent(event.event_type, event.payload)" class="feed__desc">
         {{ describeEvent(event.event_type, event.payload) }}

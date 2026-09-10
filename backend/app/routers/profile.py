@@ -6,11 +6,12 @@ from ..display_name import teacher_display_name
 from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import MANUAL_EVENT_TYPES
-from ..models import Class, Enrollment, Event, Person
+from ..models import Class, Enrollment, Event, Person, Tag, person_tags
 from ..payloads import validate_person_payload
 from ..routers.auth import normalize_phone, validate_phone_format
+from ..routers.students import AUTO_HOME_VISIT_TAG_NAME, _prune_unused_tags
 from ..unassigned import is_unassigned_class
-from ..workspace import classes_query
+from ..workspace import classes_query, students_query
 
 router = APIRouter(tags=["profile"])
 
@@ -134,3 +135,27 @@ def update_profile(
     person.payload = validate_person_payload("teacher", payload)
     db.commit()
     return {**user_out(person), "settings": settings_out(person.payload or {})}
+
+
+@router.post("/profile/clear-home-visit-tags")
+def clear_home_visit_tags(
+    db: Session = Depends(get_db),
+    person: Person = Depends(get_current_person),
+):
+    """Remove the auto 已家访 tag from every student in this teacher's workspace."""
+    tag = db.query(Tag).filter(Tag.name == AUTO_HOME_VISIT_TAG_NAME).first()
+    if tag is None:
+        return {"removed": 0}
+    student_ids = [s.id for s in students_query(db, person).all()]
+    if not student_ids:
+        return {"removed": 0}
+    result = db.execute(
+        person_tags.delete().where(
+            person_tags.c.person_id.in_(student_ids),
+            person_tags.c.tag_id == tag.id,
+        )
+    )
+    removed = int(result.rowcount or 0)
+    _prune_unused_tags(db)
+    db.commit()
+    return {"removed": removed}

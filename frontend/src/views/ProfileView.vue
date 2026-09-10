@@ -1,5 +1,5 @@
 <script setup>
-// 个人中心：资料、我的班级、教学足迹。退出登录需要确认，避免误触。
+// 个人中心：资料、偏好设置、教学足迹。退出登录需要确认，避免误触。
 import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
@@ -12,7 +12,7 @@ import { ask } from "../confirm"
 import { notify } from "../feedback"
 import { clearAll } from "../feedback"
 import { clearSearch } from "../search"
-import { friendlyError, genderLabel, t } from "../strings"
+import { friendlyError, t } from "../strings"
 
 const router = useRouter()
 
@@ -24,9 +24,36 @@ const saving = ref(false)
 const editForm = ref({ name: "", phone: "" })
 const errors = ref({})
 const settingsSaving = ref(false)
+const clearingHomeVisitTags = ref(false)
 
 function normalizePhone(phone) {
   return phone.replace(/[\s-]/g, "")
+}
+
+async function clearHomeVisitTags() {
+  const ok = await ask({
+    title: t("profile.clearHomeVisitTags"),
+    message: t("profile.clearHomeVisitTagsConfirm"),
+    confirmLabel: t("profile.clearHomeVisitTags"),
+    tone: "warn",
+  })
+  if (!ok) return
+  clearingHomeVisitTags.value = true
+  error.value = ""
+  try {
+    const { removed } = await api.post("/profile/clear-home-visit-tags")
+    notify({
+      tone: removed ? "ok" : "info",
+      title: removed
+        ? t("profile.clearHomeVisitTagsDone", { n: removed })
+        : t("profile.clearHomeVisitTagsEmpty"),
+      timeout: 2800,
+    })
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    clearingHomeVisitTags.value = false
+  }
 }
 
 async function saveSettings() {
@@ -183,8 +210,8 @@ const activity = computed(() => {
                   <span class="pill pill--outline">
                     {{ t("profile.loginEmail") }}：{{ profile.user.email }}
                   </span>
-                  <span class="pill pill--outline">
-                    {{ t("profile.phone") }}：{{ profile.user.phone || t("profile.phoneEmpty") }}
+                  <span v-if="profile.user.phone" class="pill pill--outline">
+                    {{ t("profile.phone") }}：{{ profile.user.phone }}
                   </span>
                 </div>
               </div>
@@ -253,37 +280,19 @@ const activity = computed(() => {
               </label>
               <p class="field__hint" style="margin-top: 8px">{{ t("profile.calendarBirthdaysHint") }}</p>
             </div>
-          </div>
-        </div>
-
-        <!-- 我的班级 -->
-        <div class="card">
-          <div class="card__head">
-            <h2 class="card__title"><Icon name="building" :size="16" /> {{ t("profile.myClasses") }}</h2>
-            <span class="pill pill--muted pill--count">{{ profile.classes.length }}</span>
-          </div>
-          <div class="card__body">
-            <div v-if="!profile.classes.length" class="state state--in-card">
-              <p class="state__desc">{{ t("profile.noClasses") }}</p>
-            </div>
-            <div v-for="c in profile.classes" :key="c.id" class="stack" style="gap: 8px; margin-bottom: 20px">
-              <div class="row-wrap">
-                <router-link :to="`/classes/${c.id}`" class="pill">{{ c.name }}</router-link>
-                <span class="stat__sub">
-                  {{ c.academic_year }} · {{ t("profile.studentsCount", { n: c.students.length }) }}
-                </span>
-              </div>
-              <div class="chips">
-                <router-link
-                  v-for="s in c.students"
-                  :key="s.id"
-                  :to="`/students/${s.id}`"
-                  class="chip"
-                >
-                  {{ s.name }}
-                  <span class="muted" style="font-size: 12px">{{ genderLabel(s.gender) }}</span>
-                </router-link>
-              </div>
+            <div class="profile-section">
+              <p style="font-weight: 600; margin: 0">{{ t("profile.clearHomeVisitTags") }}</p>
+              <p class="field__hint" style="margin-top: 8px">{{ t("profile.clearHomeVisitTagsHint") }}</p>
+              <button
+                type="button"
+                class="btn btn--sm"
+                style="margin-top: 12px"
+                :disabled="clearingHomeVisitTags || settingsSaving"
+                @click="clearHomeVisitTags"
+              >
+                <span v-if="clearingHomeVisitTags" class="spinner" />
+                {{ t("profile.clearHomeVisitTags") }}
+              </button>
             </div>
           </div>
         </div>

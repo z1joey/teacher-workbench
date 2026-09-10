@@ -536,7 +536,8 @@ def test_delete_exam_keeps_score_events(make_client, db, headers):
     assert db.query(Event).filter(Event.type == "score").count() == 1
     # with no sitting to match, the class trend resolves exam_id to None
     rows = client.get("/api/classes", headers=headers).json()
-    assert rows[0]["avg_trend"] == [
+    mine = next(r for r in rows if r["id"] == str(cls.id))
+    assert mine["avg_trend"] == [
         {"exam_id": None, "exam_name": "期中考试", "exam_date": "2026-05-20",
          "averages": {"语文": 90.0}},
     ]
@@ -562,7 +563,8 @@ def test_class_crud_contract(make_client, db, headers):
     data = r.json()
     assert data == {
         "id": data["id"], "name": "七年级1班",
-        "academic_year": "2026", "student_count": 0, "students": [],
+        "academic_year": "2026", "is_unassigned": False,
+        "student_count": 0, "students": [],
     }
 
     dup = client.post("/api/classes", json={

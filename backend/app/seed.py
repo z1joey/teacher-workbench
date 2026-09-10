@@ -29,7 +29,7 @@ from .workspace import ensure_workspace_id, tag_student_workspace
 from .eventing import create_event
 from .models import Class, ClassSeating, Enrollment, Event, Person, Tag, student_guardians
 from .payloads import validate_person_payload
-from .routers.students import _guardians_of, _find_or_create_guardian
+from .routers.students import _find_or_create_guardian, _guardians_of
 from .security import hash_password
 
 random.seed(2026)
@@ -88,6 +88,35 @@ _CARD_VISIT_SUMMARIES = [
     ("作业习惯", "沟通晚间作息，家长表示会控制电子产品使用。"),
     ("期末回访", "了解假期安排，鼓励学生保持阅读习惯。"),
 ]
+
+
+def _apply_completed_home_visit_tags(db: Session) -> None:
+    """Mirror mark-done API: completed visits earn the 已家访 student tag."""
+    from .models import person_tags
+
+    tag = db.query(Tag).filter(Tag.name == "已家访").first()
+    if tag is None:
+        tag = Tag(name="已家访", color="#2f7d4f")
+        db.add(tag)
+        db.flush()
+    for ev in db.query(Event).filter(Event.type == "home_visited").all():
+        if not (ev.payload or {}).get("done"):
+            continue
+        for person in ev.attendees:
+            if person.role != "student":
+                continue
+            exists = (
+                db.query(person_tags)
+                .filter(
+                    person_tags.c.person_id == person.id,
+                    person_tags.c.tag_id == tag.id,
+                )
+                .first()
+            )
+            if exists is None:
+                db.execute(
+                    person_tags.insert().values(person_id=person.id, tag_id=tag.id)
+                )
 
 
 def _seed_list_card_events(db: Session, students: list[Person], teacher: Person) -> None:
@@ -503,6 +532,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
 
     sync_all_birthday_events(db)
     _seed_list_card_events(db, students, teacher)
+    _apply_completed_home_visit_tags(db)
     return teacher
 
 

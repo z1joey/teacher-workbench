@@ -117,16 +117,32 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         moved = db.query(Enrollment).filter(Enrollment.reason == "moved").all()
         assert len(moved) == 1
 
-        # tags: 2 demo tags, each attached to exactly 2 students
+        # tags: 2 manual demo tags + 已家访 auto-applied for completed visits
         tags = db.query(Tag).all()
-        assert {t.name for t in tags} == {"需关注", "课代表"}
+        assert {t.name for t in tags} == {"需关注", "课代表", "已家访"}
         usage = dict(
             db.query(Tag.name, func.count(person_tags.c.person_id))
             .outerjoin(person_tags, person_tags.c.tag_id == Tag.id)
             .group_by(Tag.id)
             .all()
         )
-        assert usage == {"需关注": 2, "课代表": 2}
+        assert usage["需关注"] == 2
+        assert usage["课代表"] == 2
+        done_visit_students = set()
+        for ev in db.query(Event).filter(Event.type == "home_visited").all():
+            if (ev.payload or {}).get("done"):
+                for person in ev.attendees:
+                    if (person.payload or {}).get("role") == "student":
+                        done_visit_students.add(person.id)
+        visit_tag = next(t for t in tags if t.name == "已家访")
+        tagged = {
+            row[0]
+            for row in db.query(person_tags.c.person_id)
+            .filter(person_tags.c.tag_id == visit_tag.id)
+            .all()
+        }
+        assert tagged == done_visit_students
+        assert usage["已家访"] == len(done_visit_students) == 11
 
         # seeded logins verify: admin/admin123, 陈老师/123456 — and the hashes
         # are not interchangeable

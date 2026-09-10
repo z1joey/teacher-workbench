@@ -81,7 +81,7 @@ const pastExams = computed(() => exams.value.filter(isPast))
           <div class="chips">
             <span v-for="s in e.subjects" :key="s.id" class="pill pill--outline">
               <span class="subject-dot" :style="{ background: subjectColor(s.subject, s.color) }" />
-              {{ subject(s.subject) }} · {{ t("exams.fullScore") }} {{ s.full_score }}
+              {{ subject(s.subject) }} · {{ s.full_score }}
             </span>
           </div>
         </div>
@@ -113,7 +113,7 @@ const pastExams = computed(() => exams.value.filter(isPast))
             <div class="chips">
               <span v-for="s in e.subjects" :key="s.id" class="pill pill--outline">
                 <span class="subject-dot" :style="{ background: subjectColor(s.subject, s.color) }" />
-                {{ subject(s.subject) }} · {{ t("exams.fullScore") }} {{ s.full_score }}
+                {{ subject(s.subject) }} · {{ s.full_score }}
               </span>
             </div>
           </div>

@@ -2503,6 +2503,16 @@ a.chip:hover {
   gap: var(--sp-3);
   flex-wrap: wrap;
 }
+.feed__title-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.feed__inline-actions {
+  flex-shrink: 0;
+}
 .feed__desc {
   margin-top: 2px;
   font-size: var(--fs-sm);
@@ -2510,7 +2520,7 @@ a.chip:hover {
   overflow-wrap: anywhere;
 }
 .feed__done {
-  margin-left: 8px;
+  margin-left: 0;
 }
 
 /* ==========================================================================
