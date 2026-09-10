@@ -124,11 +124,20 @@ const allExamScoreGroups = computed(() => {
   return buildExamScoreGroups(student.value.scores)
 })
 
+// 所选场次在折线图（时间正序）中的下标；-1 表示未选，即默认最近一场
+const selectedTrendIndex = ref(-1)
+
 const examScoreGroups = computed(() => {
   const all = allExamScoreGroups.value
   if (!all.length) return []
   if (showAllScores.value || all.length <= SCORE_EXAMS_VISIBLE) return all
-  return all.slice(0, SCORE_EXAMS_VISIBLE)
+  // 成绩组按时间倒序：图上下标 i 对应组下标 n-1-i
+  const n = Math.min(all.length, scoreTrend.value?.labels.length ?? 0)
+  const gi =
+    selectedTrendIndex.value < 0 || selectedTrendIndex.value >= n
+      ? 0
+      : Math.min(n - 1 - selectedTrendIndex.value, all.length - SCORE_EXAMS_VISIBLE)
+  return all.slice(gi, gi + SCORE_EXAMS_VISIBLE)
 })
 
 // per-subject delta vs the same subject on the previous exam sitting
@@ -716,6 +725,8 @@ const headerMeta = computed(() => {
                   :series="scoreTrend.series"
                   :y-max="scoreTrend.yMax"
                   :format-tip="scoreTrend.formatTip"
+                  :highlight-index="selectedTrendIndex"
+                  @select="selectedTrendIndex = $event"
                 />
 
                 <div class="score-exams">

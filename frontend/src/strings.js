@@ -411,7 +411,7 @@ const messages = {
   "detail.born": "出生日期",
   "detail.guardian": "监护人",
   "detail.scores": "考试成绩",
-  "detail.scoresHint": "折线图展示历次考试；下方默认最近一场，可展开查看全部。点分数可就地更正，↑↓ 为较上一场，更正显示调整幅度",
+  "detail.scoresHint": "折线图展示历次考试；点选图中的场次或用 ← → 切换，下方显示该场成绩，可展开查看全部。点分数可就地更正，↑↓ 为较上一场，更正显示调整幅度",
   "detail.scoreCorrected": "更正{n}",
   "detail.addScore": "添加成绩",
   "detail.scoreAdded": "成绩已添加",
