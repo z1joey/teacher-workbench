@@ -5,6 +5,7 @@ Revises: 0008
 Create Date: 2026-09-09
 """
 from alembic import op
+import sqlalchemy as sa
 
 from app.models.event import EVENT_TYPES
 
@@ -22,7 +23,11 @@ def _check_sql() -> str:
 
 def upgrade() -> None:
     for event_type in _REMOVED:
-        op.execute(f"DELETE FROM event WHERE type = '{event_type}'")
+        op.execute(
+            sa.text("DELETE FROM event WHERE type = :event_type").bindparams(
+                event_type=event_type
+            )
+        )
     op.execute("ALTER TABLE event DROP CONSTRAINT IF EXISTS ck_event_type_valid")
     op.create_check_constraint("ck_event_type_valid", "event", _check_sql())
 
