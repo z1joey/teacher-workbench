@@ -503,6 +503,8 @@ const messages = {
   "tl.home_visited": "家访",
   "tl.comment": "评语",
   "tl.joined": "加入 {class}",
+  "tl.graduated": "毕业",
+  "tl.graduatedFrom": "从 {class} 毕业",
 
   // --- 404 ---
   "nf.title": "这一页被黑板擦擦掉了",
@@ -695,6 +697,9 @@ export function describeEvent(type, p = {}) {
     case "enrolled":
       if (p.notes) return p.notes
       return t("tl.joined", { class: p.class_name ?? p.class ?? "" })
+    case "graduated":
+      if (p.notes) return p.notes
+      return p.class_name ? t("tl.graduatedFrom", { class: p.class_name }) : t("tl.graduated")
     case "class_moved":
       if (p.notes) return p.notes
       if (!p.from_class && !p.from) {
