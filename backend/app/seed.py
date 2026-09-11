@@ -533,6 +533,55 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     sync_all_birthday_events(db)
     _seed_list_card_events(db, students, teacher)
     _apply_completed_home_visit_tags(db)
+
+    # --- 毕业归档：上一届班级整体毕业（数据保留，默认列表隐藏）--------------
+    # 学生：graduated_at + is_active=False + 「已毕业」标签，学籍关闭于毕业日；
+    # 班级：archived=True。全部在个人中心「毕业归档」卡片中可见。
+    GRAD_YEAR = "2024/2025"
+    GRAD_DATE = date(2025, 7, 4)
+    c61 = Class(name="六1班", academic_year=GRAD_YEAR, teacher_id=teacher.id, archived=True)
+    db.add(c61)
+    db.flush()
+    grad_tag = Tag(name="已毕业", color="#b7791f")
+    db.add(grad_tag)
+    db.flush()
+
+    GRAD_NAMES = [
+        ("赵一诺", "F"), ("钱思远", "M"), ("孙悦宁", "F"),
+        ("黄嘉树", "M"), ("范雨桐", "F"), ("魏子墨", "M"),
+    ]
+    for i, (name, gender) in enumerate(GRAD_NAMES):
+        payload = validate_person_payload("student", {
+            "admission_no": f"S2024{301 + i:03d}",
+            "gender": gender,
+            "birth_date": date(2011, random.randint(1, 12), random.randint(1, 28)).isoformat(),
+            "address": f"文化路{200 + i}号",
+            "is_active": False,
+            "graduated_at": GRAD_DATE.isoformat(),
+        })
+        s = Person(name=name, password_hash=hash_password(uuid.uuid4().hex),
+                   payload=payload)
+        db.add(s)
+        db.flush()
+        tag_student_workspace(s, teacher)
+        guardian = _find_or_create_guardian(
+            db, f"{name[0]}女士", f"137{random.randint(10_000_000, 99_999_999)}"
+        )
+        db.execute(student_guardians.insert().values(
+            student_id=s.id, guardian_id=guardian.id
+        ))
+        db.add(Enrollment(
+            person_id=s.id, class_id=c61.id,
+            valid_from=date(2024, 9, 1), valid_to=GRAD_DATE, reason="admitted",
+        ))
+        create_event(db, event_type="enrolled", title="入学",
+                     start_time=dt(date(2024, 9, 1), time(8, 0)),
+                     payload={"class_name": c61.name}, attendee_ids=[s.id])
+        create_event(db, event_type="graduated", title="毕业",
+                     start_time=dt(GRAD_DATE, time(10, 0)),
+                     payload={"class_name": c61.name}, attendee_ids=[s.id])
+        grad_tag.people.append(s)
+    db.flush()
     return teacher
 
 
@@ -552,6 +601,8 @@ def run() -> None:
         print("Seed complete:")
         print(f"  persons by role: {roles}")
         print(f"  events by type: {types}")
+        archived_classes = db.query(Class).filter(Class.archived.is_(True)).count()
+        print(f"  archived classes: {archived_classes}")
         print(f"  tags: {db.query(Tag).count()}")
         print(f"  enrollments: {db.query(Enrollment).count()}")
         print("  demo login: chen@school.edu / 123456")
