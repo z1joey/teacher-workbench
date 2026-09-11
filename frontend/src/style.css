@@ -3479,3 +3479,9 @@ button.mention-picker__row:not(:disabled):hover {
     height: 108px;
   }
 }
+
+/* 顶栏搜索结果中的已毕业标注 */
+.search-results__graduated {
+  color: var(--primary);
+  font-weight: 600;
+}

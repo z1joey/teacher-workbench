@@ -7,7 +7,7 @@ import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
-import { searchQuery, searchStudents, studentMatchesQuery, matchedGuardiansOf } from "../search"
+import { ensureSearchStudents, searchQuery, studentMatchesQuery, matchedGuardiansOf } from "../search"
 import Highlight from "../components/Highlight.vue"
 import { friendlyError, tagStyle, t, eventTitle, describeEvent, dateLocale } from "../strings"
 
@@ -25,7 +25,8 @@ async function load() {
   error.value = ""
   try {
     students.value = await api.get("/students")
-    searchStudents.value = students.value // keep the top bar dropdown in sync
+    // 搜索目录是含已毕业的超集，且在数据变化后强制刷新
+    await ensureSearchStudents(true)
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
