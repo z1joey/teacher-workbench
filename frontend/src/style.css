@@ -3498,3 +3498,31 @@ button.mention-picker__row:not(:disabled):hover {
     align-self: start;
   }
 }
+
+/* 个人中心：基本资料卡内的教学足迹统计（1 行 3 列，无图标） */
+.profile-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
+  border-top: 1px solid var(--line);
+}
+.profile-stat {
+  min-width: 0;
+  text-align: center;
+}
+.profile-stat + .profile-stat {
+  border-left: 1px solid var(--line);
+}
+.profile-stat__value {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+}
+.profile-stat__label {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}

@@ -229,9 +229,8 @@ const activity = computed(() => {
     :rows="4"
     @retry="load"
   >
-    <div class="split">
-      <div>
-        <!-- 资料 -->
+    <div>
+      <!-- 资料 -->
         <div class="card">
           <div class="card__head">
             <h2 class="card__title"><Icon name="user" :size="16" /> 基本资料</h2>
@@ -287,6 +286,14 @@ const activity = computed(() => {
               </button>
             </div>
           </form>
+
+          <!-- 教学足迹：1 行 3 列 -->
+          <div class="profile-stats">
+            <div v-for="a in activity" :key="a.label" class="profile-stat">
+              <div class="profile-stat__value">{{ a.value }}</div>
+              <div class="profile-stat__label">{{ a.label }}</div>
+            </div>
+          </div>
         </div>
 
         <!-- 偏好设置 -->
@@ -405,21 +412,6 @@ const activity = computed(() => {
             <p v-else class="muted" style="margin: 0">{{ t("profile.noArchivedClasses") }}</p>
           </div>
         </div>
-      </div>
-      <div class="profile-rail">
-      <!-- 教学足迹 -->
-      <div class="card">
-        <div class="card__head">
-          <h2 class="card__title"><Icon name="chart" :size="16" /> {{ t("profile.activity") }}</h2>
-        </div>
-        <div class="card__body">
-          <div v-for="a in activity" :key="a.label" class="stat stat--plain">
-            <div class="stat__label">{{ a.label }}</div>
-            <div class="stat__value tnum">{{ a.value }}</div>
-          </div>
-        </div>
-      </div>
-      </div>
       </div>
 
       <!-- 数据管理：花名册导入导出与演示数据（原「数据」页并入） -->
