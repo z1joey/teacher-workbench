@@ -71,7 +71,7 @@ const today = computed(() =>
             <p class="state__desc">{{ t("home.noRecentEvents") }}</p>
           </div>
           <div v-else class="feed">
-            <FeedEventItem v-for="e in dashboard.recent_events" :key="e.id" :event="e" />
+            <FeedEventItem v-for="e in dashboard.recent_events" :key="e.id" :event="e" stacked />
           </div>
         </div>
       </div>

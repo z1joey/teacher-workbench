@@ -2519,6 +2519,17 @@ a.chip:hover {
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+.feed__date {
+  display: block;
+  margin-bottom: 2px;
+}
+.feed__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
 .feed__done {
   margin-left: 0;
 }
@@ -2598,25 +2609,6 @@ a.chip:hover {
 .cal-day__dots i {
   width: 4px;
   height: 4px;
-  border-radius: 50%;
-}
-.cal-legend {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--sp-1) var(--sp-4);
-  margin-top: var(--sp-3);
-  font-size: var(--fs-xs);
-  color: var(--muted);
-}
-.cal-legend__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.cal-legend__swatch {
-  width: 8px;
-  height: 8px;
   border-radius: 50%;
 }
 .cal-day-list {

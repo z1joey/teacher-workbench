@@ -182,8 +182,6 @@ const messages = {
   "home.calSummaryRequired": "请填写内容",
   "home.calPurpose": "事由",
   "home.calReadOnly": "生日由系统根据学生出生日期每年自动生成，不能编辑或删除。学生离校后会自动移除。",
-  "home.calLegendExam": "考试",
-  "home.calLegendRecord": "跟进记录",
   "home.calNotifyThisWeek": "本周",
   "home.calNotifyNextWeek": "下周",
 

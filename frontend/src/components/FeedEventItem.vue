@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from "vue"
+import { computed, useSlots } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "./Icon.vue"
 import { isEventClickable, openEvent } from "../eventNav"
@@ -19,6 +19,8 @@ const props = defineProps({
   studentFirst: { type: Boolean, default: false },
   /** Show event type label beside the student name. */
   showType: { type: Boolean, default: true },
+  /** Stacked layout: date on top, description, then tags row (home latest feed). */
+  stacked: { type: Boolean, default: false },
   /** full = Sep 24, 2026; compact = 9/24 Mon; none = hide date. */
   dateFormat: {
     type: String,
@@ -60,6 +62,11 @@ function normalizeEvent(raw) {
 const event = computed(() => normalizeEvent(props.event))
 const displayName = computed(() => eventDisplayName(event.value))
 const clickable = computed(() => isEventClickable(event.value))
+const slots = useSlots()
+const showDone = computed(
+  () => event.value.event_type === "home_visited" && event.value.payload?.done
+)
+const hasTags = computed(() => showDone.value || !!slots.badges)
 
 function fmtDate(ts) {
   if (!ts || props.dateFormat === "none") return ""
@@ -93,6 +100,12 @@ function onClick() {
       <Icon :name="eventTypeIcon(event.event_type)" :size="13" />
     </span>
     <div class="feed__body">
+      <time
+        v-if="stacked && dateFormat !== 'none' && event.occurred_at"
+        class="timeline__time feed__date"
+      >
+        {{ fmtDate(event.occurred_at) }}
+      </time>
       <div class="feed__head">
         <span class="feed__title-row">
           <span class="feed__title-text">
@@ -132,13 +145,15 @@ function onClick() {
           <span v-if="$slots.actions" class="feed__inline-actions">
             <slot name="actions" />
           </span>
-          <span
-            v-if="event.event_type === 'home_visited' && event.payload?.done"
-            class="pill pill--ok feed__done"
-          >{{ t("visits.done") }}</span>
-          <slot name="badges" />
+          <span v-if="!stacked && showDone" class="pill pill--ok feed__done">
+            {{ t("visits.done") }}
+          </span>
+          <template v-if="!stacked"><slot name="badges" /></template>
         </span>
-        <time v-if="dateFormat !== 'none' && event.occurred_at" class="timeline__time">
+        <time
+          v-if="!stacked && dateFormat !== 'none' && event.occurred_at"
+          class="timeline__time"
+        >
           {{ fmtDate(event.occurred_at) }}
         </time>
       </div>
@@ -150,6 +165,10 @@ function onClick() {
           <router-link :to="`/students/${s.id}`" @click.stop>{{ s.name }}</router-link><template v-if="i < event.students.length - 1">、</template>
         </template>
       </p>
+      <div v-if="stacked && hasTags" class="feed__tags">
+        <span v-if="showDone" class="pill pill--ok feed__done">{{ t("visits.done") }}</span>
+        <slot name="badges" />
+      </div>
     </div>
   </div>
 </template>
