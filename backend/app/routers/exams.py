@@ -200,11 +200,16 @@ def exam_config_payload(subjects: list["SubjectIn"], term: str | None = None) ->
 
 
 def exam_out(exam: Event) -> dict:
+    # 全部学生参与者都已毕业 → 考试视为结束（前端据此归入已结束分组）
+    students = [p for p in exam.attendees if (p.payload or {}).get("role") == "student"]
     return {
         "id": str(exam.id),
         "name": exam.title,
         "exam_date": exam.start_time.date().isoformat(),
         "end_date": exam.end_time.date().isoformat() if exam.end_time else None,
+        "students_graduated": bool(students) and all(
+            (p.payload or {}).get("graduated_at") for p in students
+        ),
         "subjects": subjects_config(exam),
     }
 
@@ -335,7 +340,24 @@ def get_exam(exam_id: uuid.UUID, db: Session = Depends(get_db)):
     e = db.get(Event, exam_id)
     if e is None or e.type != "exam":
         raise HTTPException(status_code=404, detail="exam not found")
-    return exam_out(e)
+    # 参加班级回显：考试学生参与者当前在读班级的并集
+    student_ids = [
+        p.id for p in e.attendees if (p.payload or {}).get("role") == "student"
+    ]
+    class_ids: list = []
+    if student_ids:
+        class_ids = [
+            row[0]
+            for row in db.query(Enrollment.class_id)
+            .join(Person, Person.id == Enrollment.person_id)
+            .filter(
+                Enrollment.person_id.in_(student_ids),
+                Enrollment.valid_to.is_(None),
+            )
+            .distinct()
+            .all()
+        ]
+    return {**exam_out(e), "class_ids": class_ids}
 
 
 @router.get("/exams/{exam_id}/averages")
@@ -414,6 +436,7 @@ class ExamUpdateIn(BaseModel):
     exam_date: date | None = None
     end_date: date | None = None  # last day of a multi-day sitting
     subjects: list[SubjectIn] | None = None
+    class_ids: list[uuid.UUID] | None = None  # absent = 不修改参加班级
 
 
 @router.patch("/exams/{exam_id}")
@@ -479,6 +502,19 @@ def update_exam(
             subject = score.title.rsplit("·", 1)[-1]
             score.title = f"{e.title}·{subject}"
             score.start_time = score.start_time + timedelta(days=shift)
+
+    # 参加班级：按所选班级的当前在读学生重建学生参与者（教师保留）
+    if "class_ids" in body.model_fields_set:
+        class_ids = list(dict.fromkeys(body.class_ids))
+        for cid in class_ids:
+            if db.get(Class, cid) is None:
+                raise HTTPException(status_code=400, detail="class not found")
+        keep = {p.id for p in e.attendees if (p.payload or {}).get("role") != "student"}
+        keep.add(user.id)
+        students = _attendee_ids(db, class_ids)
+        e.attendees = db.query(Person).filter(
+            Person.id.in_([user.id, *students, *keep])
+        ).all()
 
     db.commit()
     db.refresh(e)

@@ -271,7 +271,7 @@ def test_exam_list_and_detail_shapes(make_client, db, headers):
 
     rows = client.get("/api/exams", headers=headers).json()
     assert [r["name"] for r in rows] == ["期末考试", "期中考试"]  # exam_date desc
-    assert set(rows[0]) == {"id", "name", "exam_date", "end_date", "subjects"}
+    assert set(rows[0]) == {"id", "name", "exam_date", "end_date", "subjects", "students_graduated"}
     assert all(r["end_date"] is None for r in rows)  # both single-day
     zhong = next(r for r in rows if r["id"] == e1["id"])
     assert [s["subject"] for s in zhong["subjects"]] == ["数学", "语文"]  # subject order

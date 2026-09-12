@@ -1067,6 +1067,20 @@ def list_events(
         ):
             students.setdefault(event_id, []).append(person)
 
+    # 已毕业学生的记录默认隐藏（数据保留，档案时间线仍可查看）：
+    # 仅挂已毕业学生的整条事件不再返回，混合参与的事件只在名单中滤掉毕业生
+    rows = [
+        ev for ev in rows
+        if not students.get(ev.id) or not all(
+            (p.payload or {}).get("graduated_at") for p in students[ev.id]
+        )
+    ]
+    for ev in rows:
+        if ev.id in students:
+            students[ev.id] = [
+                p for p in students[ev.id] if not (p.payload or {}).get("graduated_at")
+            ]
+
     # 班级覆盖：活动动态里「全班参加」时直接显示班级名。
     # class_of: 学生 → 当前班级；class_size: 班级当前在读人数
     class_of: dict[uuid.UUID, tuple[uuid.UUID, str]] = {}

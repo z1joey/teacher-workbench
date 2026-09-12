@@ -27,19 +27,23 @@ const editing = ref(false)
 const editSaving = ref(false)
 const editError = ref("")
 const editForm = ref({})
+const classes = ref([])
+const classesTouched = ref(false)
 
 async function load() {
   loading.value = true
   error.value = ""
   try {
-    const [av, tr, ex] = await Promise.all([
+    const [av, tr, ex, cls] = await Promise.all([
       api.get(`/exams/${props.id}/averages`),
       api.get("/exams/trend"),
       api.get(`/exams/${props.id}`),
+      api.get("/classes").catch(() => []), // 拉不到班级只影响编辑下拉，不阻塞页面
     ])
     averages.value = av
     trendData.value = tr
     exam.value = ex
+    classes.value = cls
     setPageTitle(ex.name)
   } catch (e) {
     error.value = friendlyError(e)
@@ -53,16 +57,27 @@ watch(() => props.id, load)
 function startEdit() {
   editing.value = true
   editError.value = ""
+  classesTouched.value = false
   editForm.value = {
     name: exam.value.name,
     exam_date: exam.value.exam_date,
     end_date: exam.value.end_date || "",
+    class_ids: [...(exam.value.class_ids || [])],
   }
 }
 function cancelEdit() {
   editing.value = false
   editForm.value = {}
   editError.value = ""
+  classesTouched.value = false
+}
+
+function toggleEditClass(id) {
+  classesTouched.value = true
+  const ids = new Set(editForm.value.class_ids)
+  if (ids.has(id)) ids.delete(id)
+  else ids.add(id)
+  editForm.value = { ...editForm.value, class_ids: [...ids] }
 }
 
 async function saveEdit() {
@@ -77,11 +92,14 @@ async function saveEdit() {
   }
   editSaving.value = true
   try {
-    const updated = await api.patch(`/exams/${props.id}`, {
+    const payload = {
       name: editForm.value.name.trim(),
       exam_date: editForm.value.exam_date,
       end_date: editForm.value.end_date || null,
-    })
+    }
+    // 只有动过参加班级才提交 class_ids，避免把未改动的参加者意外重置
+    if (classesTouched.value) payload.class_ids = [...editForm.value.class_ids]
+    const updated = await api.patch(`/exams/${props.id}`, payload)
     exam.value = updated
     editing.value = false
     notify({ tone: "ok", title: t("common.saved"), timeout: 2400 })
@@ -307,6 +325,33 @@ function pct(score, full) {
               />
             </FormField>
           </div>
+
+          <div class="field">
+            <span class="field__label">
+              {{ t("examnew.classes") }}
+              <span v-if="editForm.class_ids?.length" class="field__opt">
+                {{ t("examnew.classesSelected", { n: editForm.class_ids.length }) }}
+              </span>
+            </span>
+            <div class="row-wrap" style="margin-top: 4px">
+              <button
+                v-for="c in classes"
+                :key="c.id"
+                type="button"
+                class="chip"
+                :class="{ 'chip--selected': editForm.class_ids.includes(c.id) }"
+                :aria-pressed="editForm.class_ids.includes(c.id)"
+                :disabled="editSaving"
+                @click="toggleEditClass(c.id)"
+              >
+                <Icon v-if="editForm.class_ids.includes(c.id)" name="check" :size="13" />
+                {{ c.name }}
+                <span class="muted tnum" style="font-size: 12px">{{ c.student_count }}</span>
+              </button>
+            </div>
+            <span class="field__hint">{{ t("examnew.classesHint") }}</span>
+          </div>
+
           <p class="field__hint" style="margin-bottom: 12px">{{ t("exam.subjectLockNote") }}</p>
 
           <p v-if="editError" class="field__error" style="margin-bottom: 12px">

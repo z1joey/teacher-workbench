@@ -15,7 +15,7 @@ from calendar import monthrange
 from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from ..display_name import teacher_display_name
@@ -83,13 +83,15 @@ def month_calendar(
         db.query(Event, Person)
         .join(person_events, person_events.c.event_id == Event.id)
         .join(Person, Person.id == person_events.c.person_id)
-        .filter(
-            Event.type.in_(list(MANUAL_EVENT_TYPES)),
-            _STUDENT_ATTENDEE,
-            Person.payload["workspace_id"].as_string() == wid,
-            Event.start_time >= lo,
-            Event.start_time <= hi,
-        )
+            .filter(
+                Event.type.in_(list(MANUAL_EVENT_TYPES)),
+                _STUDENT_ATTENDEE,
+                Person.payload["workspace_id"].as_string() == wid,
+                # 已毕业学生的记录不上首页（数据保留，档案时间线仍可查看）
+                Person.payload["graduated_at"].as_string().is_(None),
+                Event.start_time >= lo,
+                Event.start_time <= hi,
+            )
         .all()
     )
     for ev, student in rows:
@@ -214,6 +216,8 @@ def dashboard(
         roster = [
             s for s in roster_by_event.get(event.id, [])
             if s.id in workspace_student_ids
+            # 已毕业学生不上首页摘要（事件仍有其他在读学生时保留该事件）
+            and not (s.payload or {}).get("graduated_at")
         ]
         if not roster:
             continue
@@ -221,11 +225,17 @@ def dashboard(
         if len(digest) >= 8:
             break
     today = date.today()
+    # 全部学生参与者都已毕业的考试不再列入「即将考试」
+    active_exam_student = and_(
+        Person.payload["role"].as_string() == "student",
+        Person.payload["graduated_at"].as_string().is_(None),
+    )
     upcoming = (
         db.query(Event)
         .filter(
             Event.type == "exam",
             Event.attendees.any(Person.id == user.id),
+            Event.attendees.any(active_exam_student),
             Event.start_time >= datetime.combine(today, time.min),
         )
         .order_by(Event.start_time)

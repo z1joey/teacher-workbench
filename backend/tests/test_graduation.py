@@ -1,5 +1,6 @@
 """毕业：班级整体毕业 + 单人毕业；数据保留，列表默认隐藏已毕业。"""
 import uuid
+from datetime import date
 
 from app.models import Enrollment, Event, Person
 from tests.conftest import seed_person, seed_token
@@ -186,3 +187,78 @@ def test_unknown_class_404(client, db):
     _, headers = _setup_teacher(db, "grad-g@test.example")
     r = client.post(f"/api/classes/{uuid.uuid4()}/graduate", headers=headers)
     assert r.status_code == 404
+
+
+def test_unknown_class_404(client, db):
+    _, headers = _setup_teacher(db, "grad-g@test.example")
+    r = client.post(f"/api/classes/{uuid.uuid4()}/graduate", headers=headers)
+    assert r.status_code == 404
+
+
+def test_graduated_records_leave_home_and_visits(client, db):
+    """毕业归档后：首页摘要、家访页、日历不再出现该生记录；数据保留在档案时间线。"""
+    _, headers = _setup_teacher(db, "grad-h@test.example")
+    s = _student(client, headers, "小毕业")
+    class_id = _class(client, headers, "六2班")
+    _enroll(client, headers, s["id"], class_id)
+
+    r = client.post(
+        f"/api/students/{s['id']}/events",
+        json={"event_type": "home_visited", "summary": "期末家访", "done": True},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    visit_id = r.json()["id"]
+
+    r = client.post(f"/api/classes/{class_id}/graduate", headers=headers)
+    assert r.status_code == 200, r.text
+
+    # 首页摘要不再出现该生事件（毕业事件本身也不上首页）
+    r = client.get("/api/dashboard", headers=headers)
+    recent = r.json()["recent_events"]
+    assert all("小毕业" not in [st["name"] for st in ev["students"]] for ev in recent)
+    assert all(ev["title"] != "家访" for ev in recent)
+
+    # 家访页不再返回该生记录
+    r = client.get("/api/events?type=home_visited", headers=headers)
+    assert all(ev["id"] != visit_id for ev in r.json())
+
+    # 日历当月不再有该生的家访/生日记录
+    today = date.today()
+    r = client.get(f"/api/calendar?year={today.year}&month={today.month}", headers=headers)
+    cal = r.json()["items"]
+    assert all(item.get("student_id") != s["id"] for item in cal)
+
+    # 数据保留：学生档案时间线仍有家访与毕业记录
+    r = client.get(f"/api/students/{s['id']}/timeline", headers=headers)
+    types = {e["event_type"] for e in r.json()}
+    assert {"home_visited", "graduated"} <= types
+
+
+def test_graduated_class_exam_becomes_ended(client, db):
+    """全部学生参与者毕业 → 考试视为结束：列表打标，首页不再列为即将考试。"""
+    _, headers = _setup_teacher(db, "grad-i@test.example")
+    s = _student(client, headers, "参考学生")
+    class_id = _class(client, headers, "六3班")
+    _enroll(client, headers, s["id"], class_id)
+
+    r = client.post("/api/exams", json={
+        "name": "期末统考", "exam_date": "2027-06-20",
+        "subjects": [{"subject": "math", "full_score": 100}],
+        "class_ids": [class_id],
+    }, headers=headers)
+    assert r.status_code == 201, r.text
+    exam_id = r.json()["id"]
+
+    def flag():
+        r = client.get("/api/exams", headers=headers)
+        return next(e for e in r.json() if e["id"] == exam_id)
+
+    assert flag()["students_graduated"] is False
+
+    r = client.post(f"/api/classes/{class_id}/graduate", headers=headers)
+    assert r.status_code == 200, r.text
+    assert flag()["students_graduated"] is True
+
+    r = client.get("/api/dashboard", headers=headers)
+    assert all(e["id"] != exam_id for e in r.json()["upcoming_exams"])
