@@ -83,6 +83,15 @@ watch(() => props.classId, load)
 const isUnassigned = computed(() => !!detail.value?.class?.is_unassigned)
 const isArchived = computed(() => !!detail.value?.class?.archived)
 
+// 切换器选项：空的「未分班」默认不出现（当前正在看它时保留，避免标题丢名）
+const switcherOptions = computed(() =>
+  allClasses.value
+    .filter(
+      (c) => !c.is_unassigned || c.student_count > 0 || c.id === props.classId,
+    )
+    .map((c) => ({ value: c.id, label: classLabel(c) })),
+)
+
 function classLabel(c) {
   if (c.is_unassigned) return c.name
   return duplicateNames.value.has(c.name) ? `${c.name}（${c.academic_year}）` : c.name
@@ -362,10 +371,10 @@ function fmtPct(score, full) {
     @retry="load"
   >
       <PageHeader :title="detail.class.name">
-        <template v-if="allClasses.length > 1" #title>
+        <template v-if="switcherOptions.length > 1" #title>
           <SelectMenu
             :model-value="classId"
-            :options="allClasses.map((c) => ({ value: c.id, label: classLabel(c) }))"
+            :options="switcherOptions"
             aria-label="选择班级"
             trigger-class="class-switcher__select"
             @update:model-value="(id) => emit('switch', id)"

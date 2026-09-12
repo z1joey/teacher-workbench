@@ -3485,3 +3485,16 @@ button.mention-picker__row:not(:disabled):hover {
   color: var(--primary);
   font-weight: 600;
 }
+
+/* 个人中心：右侧栏（教学足迹 + 班级毕业）桌面端吸附跟随 */
+.profile-rail {
+  display: flex;
+  flex-direction: column;
+}
+@media (min-width: 1081px) {
+  .profile-rail {
+    position: sticky;
+    top: calc(var(--topbar-h) + var(--sp-4));
+    align-self: start;
+  }
+}

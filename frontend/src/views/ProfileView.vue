@@ -4,6 +4,7 @@ import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import SelectMenu from "../components/SelectMenu.vue"
+import DataView from "./DataView.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
@@ -405,7 +406,7 @@ const activity = computed(() => {
           </div>
         </div>
       </div>
-
+      <div class="profile-rail">
       <!-- 教学足迹 -->
       <div class="card">
         <div class="card__head">
@@ -419,6 +420,11 @@ const activity = computed(() => {
         </div>
       </div>
       </div>
+      </div>
+
+      <!-- 数据管理：花名册导入导出与演示数据（原「数据」页并入） -->
+      <DataView />
+
       <div class="form-actions" style="justify-content: center">
         <button type="button" class="btn btn--danger" @click="logout">
           <Icon name="logout" :size="15" /> {{ t("auth.logout") }}

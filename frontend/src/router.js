@@ -17,14 +17,13 @@ import ExamsView from "./views/ExamsView.vue"
 import ExamNewView from "./views/ExamNewView.vue"
 import ExamDetailView from "./views/ExamDetailView.vue"
 import EventDetailView from "./views/EventDetailView.vue"
-import DataView from "./views/DataView.vue"
 import AdminView from "./views/AdminView.vue"
 import NotFoundView from "./views/NotFoundView.vue"
 
 // Routes that only teachers (non-admin) may enter. Admin accounts get
 // redirected away — they are developers, not classroom teachers.
 const TEACHER_ROUTE_PREFIXES = [
-  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/comments", "/guardians", "/data",
+  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/comments", "/guardians",
 ]
 
 function isTeacherRoute(path) {
@@ -40,7 +39,8 @@ export const router = createRouter({
     { path: "/login", name: "login", component: LoginView, meta: { title: "登录" } },
     { path: "/signup", name: "signup", component: SignupView, meta: { title: "注册" } },
     { path: "/profile", name: "profile", component: ProfileView, meta: { title: "个人中心" } },
-    { path: "/data", name: "data", component: DataView, meta: { title: "数据" } },
+    // 数据管理并入个人中心；旧链接重定向
+    { path: "/data", redirect: { name: "profile" } },
     {
       path: "/guardians/:id",
       name: "guardianDetail",
