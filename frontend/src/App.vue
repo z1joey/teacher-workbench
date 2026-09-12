@@ -37,7 +37,15 @@ const navItems = computed(() => (isAdmin.value ? ADMIN_NAV : TEACHER_NAV))
 const crumbs = computed(() => {
   const meta = route.meta || {}
   const out = []
-  if (meta.parent) out.push({ ...meta.parent })
+  if (meta.parent) {
+    // 从班级页进入的学生档案：面包屑回来源班级页，而不是学生列表
+    if (route.name === "studentDetail" && route.query.from === "class" && route.query.classId) {
+      const label = String(route.query.className || t("classes.title"))
+      out.push({ label, to: `/classes?class=${route.query.classId}` })
+    } else {
+      out.push({ ...meta.parent })
+    }
+  }
   const label = pageTitle.value || meta.title
   if (label) out.push({ label })
   return out

@@ -510,7 +510,10 @@ function fmtPct(score, full) {
                   </button>
                   <router-link
                     v-else
-                    :to="`/students/${s.id}`"
+                    :to="{
+                      path: `/students/${s.id}`,
+                      query: { from: 'class', classId: props.classId, className: detail.class.name },
+                    }"
                     class="chip"
                     :title="s.admission_no"
                   >
