@@ -349,7 +349,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                 create_event(db, event_type="score",
                              title=f"{exam.title}·{subject}",
                              start_time=dt(exam.start_time.date(), EXAM_HOUR),
-                             payload=payload, attendee_ids=[s.id])
+                             payload=payload, attendee_ids=[s.id, teacher.id])
     db.flush()
 
     create_event(db, event_type="result_changed", title="math成绩更正",

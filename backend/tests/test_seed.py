@@ -189,6 +189,14 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         assert verify_password("123456", chen.password_hash)
         assert not verify_password("admin123", chen.password_hash)
 
+        # 录入成绩统计：score 事件同时挂录入老师（教学足迹「录入成绩」）
+        chen_scores = (
+            db.query(func.count(Event.id))
+            .filter(Event.type == "score", Event.attendees.any(Person.id == chen.id))
+            .scalar()
+        )
+        assert chen_scores == 6 * 9 * 24
+
         # every student with birth_date carries an ISO birth_date (30 = 24
         # active + 6 graduated; birthday Events are only projected for active)
         birth_dates = (

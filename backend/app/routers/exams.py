@@ -36,7 +36,7 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, distinct, func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -110,7 +110,8 @@ def subject_averages(db: Session, title_prefix: str, start_day: date,
             func.avg(Event.payload["score"].as_numeric(10, 2)),
             func.min(Event.payload["score"].as_numeric(10, 2)),
             func.max(Event.payload["score"].as_numeric(10, 2)),
-            func.count(Event.id),
+            # 成绩事件可挂多名参与者（学生 + 录入老师），按事件去重计数
+            func.count(distinct(Event.id)),
             func.max(Event.payload["max_score"].as_numeric(10, 2)),
         )
         .select_from(Event)
@@ -695,9 +696,11 @@ def _upsert_score_event(
     student: Person,
     score: float | None,
     absent: bool,
+    entered_by: Person | None = None,
 ) -> bool:
     """Upsert one per-subject score Event; returns True when an existing row
-    was updated (re-import overwrites) rather than created."""
+    was updated (re-import overwrites) rather than created. `entered_by` 是
+    录入老师，作为事件参与者记入审计（教学足迹「录入成绩」据此统计）。"""
     lo, hi = day_window(*exam_days(exam))
     existing = (
         db.query(Event)
@@ -717,6 +720,7 @@ def _upsert_score_event(
         payload["score"] = score
         payload["absent"] = False
     payload = validate_event_payload("score", payload)
+    attendees = [student.id, *([entered_by.id] if entered_by else [])]
     if existing is not None:
         existing.payload = payload
         return True
@@ -726,7 +730,7 @@ def _upsert_score_event(
         title=f"{exam.title}·{subject_name}",
         start_time=datetime.combine(exam.start_time.date(), EXAM_HOUR),
         payload=payload,
-        attendee_ids=[student.id],
+        attendee_ids=attendees,
     )
     return False
 
@@ -782,6 +786,7 @@ def add_student_scores(
     exam_id: uuid.UUID,
     body: StudentScoresIn,
     db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
 ):
     """Manually record one student's scores for a sitting (the student page's
     添加成绩 dialog) — same upsert path as the Excel import."""
@@ -807,7 +812,8 @@ def add_student_scores(
         if item.absent:
             absent_subjects.append(item.subject)
             _upsert_score_event(
-                db, exam, item.subject, full_by_subject[item.subject], student, None, True
+                db, exam, item.subject, full_by_subject[item.subject], student, None, True,
+                entered_by=user,
             )
             continue
         if item.score is None:
@@ -822,7 +828,8 @@ def add_student_scores(
             )
         scores[item.subject] = item.score
         _upsert_score_event(
-            db, exam, item.subject, full_by_subject[item.subject], student, item.score, False
+            db, exam, item.subject, full_by_subject[item.subject], student, item.score, False,
+            entered_by=user,
         )
     if not scores and not absent_subjects:
         raise HTTPException(status_code=400, detail="没有可录入的成绩")
@@ -908,7 +915,7 @@ async def import_scores(
                 if low in _ABSENT_WORDS:
                     updated = _upsert_score_event(
                         db, exam, subject_name, full_by_subject[subject_name],
-                        student, None, True,
+                        student, None, True, entered_by=user,
                     )
                     absent_subjects.append(subject_name)
                     absent_cells += 1
@@ -926,7 +933,7 @@ async def import_scores(
                     continue
                 updated = _upsert_score_event(
                     db, exam, subject_name, full_by_subject[subject_name],
-                    student, score, False,
+                    student, score, False, entered_by=user,
                 )
                 scores[subject_name] = score
                 item["subjects"].append(subject_name)
