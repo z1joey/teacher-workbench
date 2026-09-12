@@ -11,6 +11,7 @@ from datetime import date, datetime
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -30,6 +31,10 @@ class Class(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(50))
     academic_year: Mapped[str] = mapped_column(String(20))
+    # 班级毕业（graduated）后置 True：数据保留，默认从列表隐藏
+    archived: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("0")
+    )
     teacher_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("person.id"), index=True
     )

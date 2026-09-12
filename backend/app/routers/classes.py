@@ -23,10 +23,16 @@ from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import RECORD_EVENT_TYPES, create_event
 from ..models._common import utcnow
-from ..unassigned import is_unassigned_class
-from ..workspace import classes_query, require_class_in_workspace
+from ..unassigned import ensure_unassigned_class, is_unassigned_class
+from ..workspace import (
+    classes_query,
+    require_class_in_workspace,
+    require_student_in_workspace,
+    workspace_id,
+)
 from ..models import Class, ClassSeating, Enrollment, Event, Person, person_events
 from .exams import exam_events, find_exam_event, subject_averages
+from .students import current_class, graduate_student
 
 router = APIRouter(
     tags=["classes"],
@@ -43,6 +49,8 @@ def class_out(
         "id": str(c.id),
         "name": c.name,
         "academic_year": c.academic_year,
+        "is_unassigned": is_unassigned_class(c),
+        "archived": bool(c.archived),
         "student_count": len(students),
         "students": [
             {
@@ -161,19 +169,30 @@ def _avg_trend(db: Session, class_id: uuid.UUID) -> list[dict]:
     return out
 
 
-def current_students(db: Session, class_id: uuid.UUID) -> list[Person]:
-    return (
+def current_students(
+    db: Session, class_id: uuid.UUID, teacher: Person | None = None
+) -> list[Person]:
+    cls = db.get(Class, class_id)
+    q = (
         db.query(Person)
         .join(Enrollment, Enrollment.person_id == Person.id)
         .filter(Enrollment.class_id == class_id, Enrollment.valid_to.is_(None))
-        .order_by(Person.payload["admission_no"].as_string())
-        .all()
     )
+    if cls is not None and is_unassigned_class(cls) and teacher is not None:
+        wid = workspace_id(teacher)
+        q = q.filter(Person.payload["workspace_id"].as_string() == wid)
+    return q.order_by(Person.payload["admission_no"].as_string()).all()
 
 
 class ClassIn(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     academic_year: str = Field(min_length=4, max_length=20)
+
+
+class ClassUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=50)
+    academic_year: str | None = Field(default=None, min_length=4, max_length=20)
+    archived: bool | None = None
 
 
 def _check_duplicate(db: Session, name: str, academic_year: str,
@@ -187,12 +206,21 @@ def _check_duplicate(db: Session, name: str, academic_year: str,
 
 @router.get("/classes")
 def list_classes(
+    include_archived: bool = False,
     db: Session = Depends(get_db),
     user: Person = Depends(get_current_person),
 ):
     out = []
-    for c in classes_query(db, user).order_by(Class.name).all():
-        students = current_students(db, c.id)
+    unassigned = ensure_unassigned_class(db)
+    pool = current_students(db, unassigned.id, user)
+    pool_ids = [s.id for s in pool]
+    out.append({
+        **class_out(unassigned, pool, _visited_ids(db, pool_ids)),
+        "avg_trend": [],
+        "recent_events": _recent_events(db, pool_ids),
+    })
+    for c in classes_query(db, user, include_archived=include_archived).order_by(Class.name).all():
+        students = current_students(db, c.id, user)
         ids = [s.id for s in students]
         visited = _visited_ids(db, ids)
         base = class_out(c, students, visited)
@@ -217,6 +245,90 @@ def create_class(
     db.add(c)
     db.commit()
     return class_out(c, [])
+
+
+class BatchEnrollIn(BaseModel):
+    student_ids: list[uuid.UUID] = Field(min_length=1)
+
+
+@router.post("/classes/{class_id}/enrollments")
+def batch_enroll(
+    class_id: uuid.UUID,
+    body: BatchEnrollIn,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Move many students into one class in a single transaction.
+
+    Per-student mechanics mirror update_student's class-change branch (close
+    the current Enrollment, open a new one, record 转班/加入班级); students
+    already in the target class are skipped and reported instead of failing.
+    """
+    target = require_class_in_workspace(db, user, class_id)
+    moved, skipped = [], []
+    # dict.fromkeys dedupes while keeping the caller's order
+    for student_id in dict.fromkeys(body.student_ids):
+        s = require_student_in_workspace(db, user, student_id)
+        current = current_class(db, student_id)
+        if current is not None and current.id == target.id:
+            skipped.append(s.name)
+            continue
+        old = (
+            db.query(Enrollment)
+            .filter(
+                Enrollment.person_id == student_id,
+                Enrollment.valid_to.is_(None),
+            )
+            .first()
+        )
+        old_name = None if current is None or is_unassigned_class(current) else current.name
+        if old is not None:
+            old.valid_to = date.today()
+        db.add(
+            Enrollment(
+                person_id=student_id,
+                class_id=target.id,
+                valid_from=date.today(),
+                reason="moved",
+            )
+        )
+        new_name = None if is_unassigned_class(target) else target.name
+        if old_name is not None or new_name is not None:
+            create_event(
+                db,
+                event_type="class_moved",
+                title="加入班级" if old_name is None else "转班",
+                start_time=utcnow(),
+                payload={"from_class": old_name, "to_class": new_name},
+                attendee_ids=[s.id],
+            )
+        moved.append({"id": str(student_id), "name": s.name})
+    db.commit()
+    return {"moved": moved, "skipped": skipped}
+
+
+@router.post("/classes/{class_id}/graduate")
+def graduate_class(
+    class_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """班级毕业：全班在读学生标记毕业并归档班级。
+
+    数据一律保留；删除仍由用户通过既有的学生/班级删除接口自行决定。
+    """
+    cls = require_class_in_workspace(db, user, class_id)
+    if is_unassigned_class(cls):
+        raise HTTPException(status_code=400, detail="未分班不能毕业")
+    graduated, skipped = 0, 0
+    for s in current_students(db, class_id, user):
+        if graduate_student(db, s, cls.name):
+            graduated += 1
+        else:
+            skipped += 1
+    cls.archived = True
+    db.commit()
+    return {"graduated": graduated, "skipped": skipped}
 
 
 @router.get("/classes/{class_id}")
@@ -255,17 +367,34 @@ def get_class(
             o["sum"] += float(agg["avg"])
             o["count"] += 1
 
+    # 归档班的名单 = 该班历届毕业生（学籍已关闭，current_students 为空）
+    if c.archived:
+        roster = (
+            db.query(Person)
+            .join(Enrollment, Enrollment.person_id == Person.id)
+            .filter(
+                Enrollment.class_id == class_id,
+                Person.payload["graduated_at"].as_string().is_not(None),
+            )
+            .distinct()
+            .order_by(Person.payload["admission_no"].as_string())
+            .all()
+        )
+    else:
+        roster = current_students(db, class_id, user)
     return {
         "class": {
             "id": str(c.id),
             "name": c.name,
             "academic_year": c.academic_year,
+            "is_unassigned": is_unassigned_class(c),
+            "archived": bool(c.archived),
         },
         "students": [
             {"id": str(s.id), "name": s.name,
              "gender": (s.payload or {}).get("gender"),
              "admission_no": (s.payload or {}).get("admission_no")}
-            for s in current_students(db, class_id)
+            for s in roster
         ],
         "trend": {
             "exams": [
@@ -331,7 +460,10 @@ def save_seating(
     旧座位保留原序号，由前端在名单变化时清掉失效座位。
     任一学生的座位发生变化（首次安排/移动/移出）都会留一条 seat_changed 事件。"""
     require_class_in_workspace(db, user, class_id)
-    member_ids = {str(s.id) for s in current_students(db, class_id)}
+    c = db.get(Class, class_id)
+    if c is not None and is_unassigned_class(c):
+        raise HTTPException(status_code=400, detail="未分班学生不能安排座位")
+    member_ids = {str(s.id) for s in current_students(db, class_id, user)}
     seen: set[str] = set()
     for pos, sid in body.seats.items():
         if not pos.isdigit() or int(pos) < 0 or int(pos) >= body.rows * body.cols:
@@ -379,18 +511,24 @@ def save_seating(
 @router.patch("/classes/{class_id}")
 def update_class(
     class_id: uuid.UUID,
-    body: ClassIn,
+    body: ClassUpdateIn,
     db: Session = Depends(get_db),
     current: Person = Depends(get_current_person),
 ):
     c = db.get(Class, class_id)
     if c is None or is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
-    _check_duplicate(db, body.name.strip(), body.academic_year.strip(), exclude_id=class_id)
-    c.name = body.name.strip()
-    c.academic_year = body.academic_year.strip()
+    renaming = "name" in body.model_fields_set or "academic_year" in body.model_fields_set
+    name = c.name if body.name is None else body.name.strip()
+    year = c.academic_year if body.academic_year is None else body.academic_year.strip()
+    if renaming:
+        _check_duplicate(db, name, year, exclude_id=class_id)
+    c.name = name
+    c.academic_year = year
+    if body.archived is not None:
+        c.archived = body.archived
     db.commit()
-    return class_out(c, current_students(db, class_id))
+    return class_out(c, current_students(db, class_id, current))
 
 
 @router.delete("/classes/{class_id}")

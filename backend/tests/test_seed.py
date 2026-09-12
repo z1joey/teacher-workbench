@@ -42,11 +42,12 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
 
     db = SessionLocal()
     try:
-        # roles: 1 admin + 1 teacher (the sole 班主任) + 24 students + 25 guardians (王秀英
-        # is shared by 王浩 and 邓晓彤, so 24 primary + 1 shared)
+        # roles: 1 admin + 1 teacher (the sole 班主任) + 30 students (24 active
+        # + 6 graduated 六1班) + 31 guardians (王秀英 is shared by 王浩 and
+        # 邓晓彤, so 30 primary + 1 shared)
         role_of = Person.payload["role"].as_string()
         roles = dict(db.query(role_of, func.count(Person.id)).group_by(role_of).all())
-        assert roles == {"admin": 1, "teacher": 1, "student": 24, "guardian": 25}
+        assert roles == {"admin": 1, "teacher": 1, "student": 30, "guardian": 31}
 
         # guardian scenarios: 王浩 has two guardians; 王秀英 covers two students
         wang = db.query(Person).filter(Person.name == "王浩").one()
@@ -58,21 +59,18 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         # events by type: 6 graded sittings + 1 upcoming exam, every
         # student-subject of the graded sittings scored, 3 correction stories,
         # 王浩's class move, 5 visits (one planned), 2 notes, teacher-written
-        # records (评语/谈话/辅导/电话沟通), 比赛/活动, plus yearly birthdays.
+        # records (评语/家访), plus yearly birthdays — and the graduation
+        # story: 6 入学 + 6 毕业 events for 六1班.
         types = dict(db.query(Event.type, func.count(Event.id)).group_by(Event.type).all())
         assert types == {
             "exam": 7,
             "score": 6 * 9 * 24,
-            "enrolled": 24,
+            "enrolled": 30,
             "class_moved": 1,
-            "home_visited": 5,
-            "note_added": 2,
+            "graduated": 6,
+            "home_visited": 12,
             "result_changed": 3,
-            "comment": 3,
-            "talk": 2,
-            "tutoring": 3,
-            "parent_call": 2,
-            "activity": 4,
+            "comment": 20,
             "seat_changed": 24,
             "birthday": 24,
         }
@@ -117,21 +115,68 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         )
         assert midterm_math == 2 * 24
 
-        # enrollments: 24 admitted + 王浩's 七2→七1 move
-        assert db.query(Enrollment).count() == 25
+        # enrollments: 24 admitted + 王浩's 七2→七1 move + 6 closed 六1班 rows
+        assert db.query(Enrollment).count() == 31
         moved = db.query(Enrollment).filter(Enrollment.reason == "moved").all()
         assert len(moved) == 1
 
-        # tags: 2 demo tags, each attached to exactly 2 students
+        # tags: 2 manual demo tags + 已家访 auto-applied for completed visits
+        # + 已毕业 for the graduated 六1班 cohort
         tags = db.query(Tag).all()
-        assert {t.name for t in tags} == {"需关注", "课代表"}
+        assert {t.name for t in tags} == {"需关注", "课代表", "已家访", "已毕业"}
         usage = dict(
             db.query(Tag.name, func.count(person_tags.c.person_id))
             .outerjoin(person_tags, person_tags.c.tag_id == Tag.id)
             .group_by(Tag.id)
             .all()
         )
-        assert usage == {"需关注": 2, "课代表": 2}
+        assert usage["需关注"] == 2
+        assert usage["课代表"] == 2
+        done_visit_students = set()
+        for ev in db.query(Event).filter(Event.type == "home_visited").all():
+            if (ev.payload or {}).get("done"):
+                for person in ev.attendees:
+                    if (person.payload or {}).get("role") == "student":
+                        done_visit_students.add(person.id)
+        visit_tag = next(t for t in tags if t.name == "已家访")
+        tagged = {
+            row[0]
+            for row in db.query(person_tags.c.person_id)
+            .filter(person_tags.c.tag_id == visit_tag.id)
+            .all()
+        }
+        assert tagged == done_visit_students
+        assert usage["已家访"] == len(done_visit_students) == 11
+        grad_tag = next(t for t in tags if t.name == "已毕业")
+        assert usage["已毕业"] == 6
+
+        # graduation: 六1班 is archived; its 6 students carry graduated_at +
+        # is_active=False and their 六1班 enrollment closed on the grad date
+        c61 = db.query(Class).filter(Class.name == "六1班").one()
+        assert c61.archived is True
+        grad_at = Person.payload["graduated_at"].as_string()
+        grads = (
+            db.query(Person)
+            .join(Enrollment, Enrollment.person_id == Person.id)
+            .filter(
+                Enrollment.class_id == c61.id,
+                grad_at.is_not(None),
+            )
+            .distinct()
+            .all()
+        )
+        assert {s.name for s in grads} == {n for n, _ in [
+            ("赵一诺", "F"), ("钱思远", "M"), ("孙悦宁", "F"),
+            ("黄嘉树", "M"), ("范雨桐", "F"), ("魏子墨", "M"),
+        ]}
+        assert all(not (s.payload or {}).get("is_active", True) for s in grads)
+        closed = (
+            db.query(Enrollment)
+            .filter(Enrollment.class_id == c61.id, Enrollment.valid_to.is_not(None))
+            .all()
+        )
+        assert len(closed) == 6
+        assert all(e.valid_from == date(2024, 9, 1) and e.valid_to == date(2025, 7, 4) for e in closed)
 
         # seeded logins verify: admin/admin123, 陈老师/123456 — and the hashes
         # are not interchangeable
@@ -144,13 +189,22 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         assert verify_password("123456", chen.password_hash)
         assert not verify_password("admin123", chen.password_hash)
 
-        # every active student with birth_date gets one system birthday Event
+        # 录入成绩统计：score 事件同时挂录入老师（教学足迹「录入成绩」）
+        chen_scores = (
+            db.query(func.count(Event.id))
+            .filter(Event.type == "score", Event.attendees.any(Person.id == chen.id))
+            .scalar()
+        )
+        assert chen_scores == 6 * 9 * 24
+
+        # every student with birth_date carries an ISO birth_date (30 = 24
+        # active + 6 graduated; birthday Events are only projected for active)
         birth_dates = (
             db.query(Person.payload["birth_date"].as_string())
             .filter(role_of == "student")
             .all()
         )
-        assert len(birth_dates) == 24
+        assert len(birth_dates) == 30
         for (iso,) in birth_dates:
             date.fromisoformat(iso)  # raises on a non-ISO value
     finally:

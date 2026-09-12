@@ -1,8 +1,8 @@
 <script setup>
-// 班级内容主体：座位表 + 趋势 + 名单 + 各科平均 + 未分班区。
+// 班级内容主体：座位表 + 趋势 + 名单 + 各科平均；未分班作为顶部可选的特殊班。
 // 由 /classes（下拉选班）和 /classes/:id（深链接）两个宿主复用；
 // 多班时页头出现下拉框切换，单班只显示班级名称。
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import api from "../api"
 import Icon from "./Icon.vue"
@@ -11,10 +11,18 @@ import AsyncState from "./AsyncState.vue"
 import FormField from "./FormField.vue"
 import LineChart from "./LineChart.vue"
 import SeatingBoard from "./SeatingBoard.vue"
+import SelectMenu from "./SelectMenu.vue"
 import { ask } from "../confirm"
 import { notify, runUndoable } from "../feedback"
 import { setPageTitle } from "../title"
-import { friendlyError, genderLabel, subject, subjectColor, t } from "../strings"
+import {
+  classBreadcrumbLabel,
+  friendlyError,
+  genderLabel,
+  subject,
+  subjectColor,
+  t,
+} from "../strings"
 
 const props = defineProps({ classId: { type: String, required: true } })
 const emit = defineEmits(["switch", "create", "changed"])
@@ -44,7 +52,10 @@ async function load() {
   error.value = ""
   try {
     detail.value = await api.get(`/classes/${props.classId}`)
-    setPageTitle(detail.value.class.name)
+    const c = detail.value.class
+    setPageTitle(
+      c.is_unassigned ? c.name : classBreadcrumbLabel(c.name, c.academic_year),
+    )
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -66,17 +77,24 @@ async function loadClassList() {
 onMounted(() => {
   load()
   loadClassList()
-  loadUnassigned()
 })
 watch(() => props.classId, load)
 
-function classLabel(c) {
-  return duplicateNames.value.has(c.name) ? `${c.name}（${c.academic_year}）` : c.name
-}
+const isUnassigned = computed(() => !!detail.value?.class?.is_unassigned)
+const isArchived = computed(() => !!detail.value?.class?.archived)
 
-function onPickClass(ev) {
-  const id = ev.target.value
-  if (id && id !== props.classId) emit("switch", id)
+// 切换器选项：空的「未分班」默认不出现（当前正在看它时保留，避免标题丢名）
+const switcherOptions = computed(() =>
+  allClasses.value
+    .filter(
+      (c) => !c.is_unassigned || c.student_count > 0 || c.id === props.classId,
+    )
+    .map((c) => ({ value: c.id, label: classLabel(c) })),
+)
+
+function classLabel(c) {
+  if (c.is_unassigned) return c.name
+  return duplicateNames.value.has(c.name) ? `${c.name}（${c.academic_year}）` : c.name
 }
 
 function startEdit() {
@@ -235,59 +253,108 @@ async function assignStudent(student) {
   }
 }
 
-// ------------------------------------------------------------------ 拖拽进出班
+// ------------------------------------------------------------------ 批量分配
+// 选择模式下名单 chip 变为勾选，确认后一次请求调入目标班级；
+// 已在目标班级的学生由后端跳过并在 toast 里说明。
+const selectMode = ref(false)
+const selectedIds = ref(new Set())
+const targetClassId = ref("")
+const batchSubmitting = ref(false)
+const batchError = ref("")
 
-// 正在拖拽的学生 { id, name, from }；from 为班级 id，未分班是 null
-const dragStudent = ref(null)
-// 当前高亮的投放目标："roster"（名单，投放=入班）| "pool"（未分班，投放=出班）
-const dropTarget = ref(null)
-const dropTargetActive = computed(() => dragStudent.value !== null)
+// ------------------------------------------------------------------ 班级归档
+// 毕业操作集中在个人中心；这里只负责已归档班级的展示与取消归档。
+const unarchiving = ref(false)
 
-function onRosterDragStart(student, ev) {
-  dragStudent.value = { id: student.id, name: student.name, from: detail.value.class.id }
-  ev.dataTransfer.setData("application/x-student-move", JSON.stringify(dragStudent.value))
-  ev.dataTransfer.effectAllowed = "move"
-}
-
-function onPoolDragStart(student, ev) {
-  dragStudent.value = { id: student.id, name: student.name, from: null }
-  ev.dataTransfer.setData("application/x-student-move", JSON.stringify(dragStudent.value))
-  ev.dataTransfer.effectAllowed = "move"
-}
-
-function onDragEnd() {
-  dragStudent.value = null
-  dropTarget.value = null
-}
-
-function onDragLeave(target, ev) {
-  // 在卡片子元素间移动也会触发 dragleave，只有真正离开卡片才熄灭高亮
-  if (!ev.currentTarget.contains(ev.relatedTarget)) {
-    if (dropTarget.value === target) dropTarget.value = null
-  }
-}
-
-function onDropRoster() {
-  const d = dragStudent.value
-  dropTarget.value = null
-  dragStudent.value = null
-  if (!d || d.from === props.classId) return // 原班投放 = 什么都不做
-  assignStudent(d)
-}
-
-async function onDropPool() {
-  const d = dragStudent.value
-  dropTarget.value = null
-  dragStudent.value = null
-  if (!d || d.from === null) return
+async function unarchiveClass() {
+  unarchiving.value = true
   try {
-    await api.patch(`/students/${d.id}`, { class_id: null })
-    notify({ tone: "ok", title: `已把 ${d.name} 移出班级`, timeout: 3000 })
-    await Promise.all([load(), loadUnassigned()])
+    await api.patch(`/classes/${props.classId}`, { archived: false })
+    notify({ tone: "ok", title: t("classdetail.unarchiveDone"), timeout: 2600 })
+    await Promise.all([load(), loadClassList()])
+    emit("changed")
   } catch (e) {
-    notify({ tone: "danger", title: "移出失败", detail: friendlyError(e) })
+    notify({ tone: "error", title: friendlyError(e), timeout: 3200 })
+  } finally {
+    unarchiving.value = false
   }
 }
+
+const targetClasses = computed(() =>
+  allClasses.value.filter((c) => c.id !== props.classId && !c.archived),
+)
+
+function exitSelectMode() {
+  selectMode.value = false
+  selectedIds.value = new Set()
+  batchError.value = ""
+}
+
+function toggleSelectMode() {
+  if (selectMode.value) {
+    exitSelectMode()
+    return
+  }
+  selectMode.value = true
+  targetClassId.value = targetClasses.value[0]?.id ?? ""
+}
+
+function toggleStudent(id) {
+  const next = new Set(selectedIds.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selectedIds.value = next
+}
+
+const allSelected = computed(
+  () =>
+    detail.value.students.length > 0 &&
+    detail.value.students.every((s) => selectedIds.value.has(s.id)),
+)
+
+function toggleAll() {
+  selectedIds.value = allSelected.value
+    ? new Set()
+    : new Set(detail.value.students.map((s) => s.id))
+}
+
+async function confirmBatchAssign() {
+  const target = targetClasses.value.find((c) => c.id === targetClassId.value)
+  if (!selectedIds.value.size || !target) return
+  const ok = await ask({
+    title: t("classdetail.batchConfirmTitle", { n: selectedIds.value.size, class: target.name }),
+    message: t("classdetail.batchConfirmHint"),
+    confirmLabel: t("classdetail.batchConfirm"),
+  })
+  if (!ok) return
+  batchSubmitting.value = true
+  batchError.value = ""
+  try {
+    const res = await api.post(`/classes/${target.id}/enrollments`, {
+      student_ids: [...selectedIds.value],
+    })
+    notify({
+      tone: "ok",
+      title: res.skipped.length
+        ? t("classdetail.batchDoneSkipped", { moved: res.moved.length, skipped: res.skipped.length })
+        : t("classdetail.batchDone", { n: res.moved.length }),
+      timeout: 3200,
+    })
+    exitSelectMode()
+    await Promise.all([load(), loadUnassigned()])
+    emit("changed")
+  } catch (e) {
+    batchError.value = friendlyError(e)
+  } finally {
+    batchSubmitting.value = false
+  }
+}
+
+function onBatchKeydown(e) {
+  if (e.key === "Escape" && selectMode.value && !showAddStudent.value) exitSelectMode()
+}
+onMounted(() => window.addEventListener("keydown", onBatchKeydown))
+onBeforeUnmount(() => window.removeEventListener("keydown", onBatchKeydown))
 
 function fmtPct(score, full) {
   return full ? Math.round((score / full) * 100) : 0
@@ -303,34 +370,32 @@ function fmtPct(score, full) {
     :rows="4"
     @retry="load"
   >
-      <PageHeader
-        :title="detail.class.name"
-        :subtitle="detail.class.academic_year"
-      >
-        <template v-if="allClasses.length > 1" #title>
-          <label class="class-switcher">
-            <select
-              class="class-switcher__select"
-              :value="classId"
-              aria-label="选择班级"
-              @change="onPickClass"
-            >
-              <option v-for="c in allClasses" :key="c.id" :value="c.id">{{ classLabel(c) }}</option>
-            </select>
-            <Icon name="chevron-down" :size="18" class="class-switcher__chevron" />
-          </label>
-        </template>
-        <template #meta>
-          <button type="button" class="pill pill--outline" @click="openAddStudent">
-            {{ t("students.title") }} <b class="tnum">{{ detail.students.length }}</b>
-          </button>
+      <PageHeader :title="detail.class.name">
+        <template v-if="switcherOptions.length > 1" #title>
+          <SelectMenu
+            :model-value="classId"
+            :options="switcherOptions"
+            aria-label="选择班级"
+            trigger-class="class-switcher__select"
+            @update:model-value="(id) => emit('switch', id)"
+          >
+            <template #trigger="{ label }">
+              <span>{{ label }}</span>
+              <Icon name="chevron-down" :size="18" class="switcher-chevron" />
+            </template>
+          </SelectMenu>
         </template>
         <template #actions>
+          <span v-if="isArchived" class="pill pill--muted">{{ t("classes.archived") }}</span>
           <button class="btn btn--ghost" @click="emit('create')">
             <Icon name="plus" :size="15" /> {{ t("classes.create") }}
           </button>
-          <button v-if="!editing" class="btn" @click="startEdit">
+          <button v-if="!isUnassigned && !isArchived && !editing" class="btn" @click="startEdit">
             <Icon name="pencil" :size="15" /> {{ t("action.edit") }}
+          </button>
+          <button v-if="isArchived" class="btn" :disabled="unarchiving" @click="unarchiveClass">
+            <span v-if="unarchiving" class="spinner" />
+            {{ t("classdetail.unarchive") }}
           </button>
         </template>
       </PageHeader>
@@ -377,12 +442,12 @@ function fmtPct(score, full) {
         </form>
       </div>
 
-      <!-- 座位表：班级页默认显示，标题行带行列设置，就地拖拽编辑 -->
-      <SeatingBoard :class-id="classId" :students="detail.students" />
+      <!-- 座位表：未分班不显示 -->
+      <SeatingBoard v-if="!isUnassigned" :class-id="classId" :students="detail.students" />
 
       <div class="split">
         <div>
-          <div class="card">
+          <div v-if="!isUnassigned" class="card">
             <div class="card__head">
               <div>
                 <h2 class="card__title"><Icon name="trending" :size="16" /> {{ t("classdetail.trendTitle") }}</h2>
@@ -404,32 +469,60 @@ function fmtPct(score, full) {
             </div>
           </div>
 
-          <div
-            class="card"
-            :class="{ 'card--drop': dropTargetActive && dropTarget === 'roster' && dragStudent.from !== classId }"
-            @dragover.prevent="dropTarget = 'roster'"
-            @dragleave="onDragLeave('roster', $event)"
-            @drop.prevent="onDropRoster"
-          >
+          <div class="card">
             <div class="card__head">
-              <h2 class="card__title"><Icon name="users" :size="16" /> {{ t("classdetail.roster") }}</h2>
-              <span class="pill pill--muted pill--count">{{ detail.students.length }}</span>
+              <div class="grow">
+                <h2 class="card__title"><Icon name="users" :size="16" /> {{ t("classdetail.roster") }}</h2>
+                <p v-if="isUnassigned" class="card__desc">{{ t("classes.unassignedHint") }}</p>
+              </div>
+              <template v-if="detail.students.length && !isArchived && selectMode">
+                <button type="button" class="btn btn--sm" @click="toggleAll">
+                  {{ allSelected ? t("classdetail.batchNone") : t("classdetail.batchAll") }}
+                </button>
+              </template>
+              <button
+                v-if="detail.students.length && !isArchived"
+                type="button"
+                class="btn btn--sm"
+                :class="{ 'btn--primary': selectMode }"
+                @click="toggleSelectMode"
+              >
+                {{ selectMode ? t("classdetail.batchExit") : t("classdetail.batchSelect") }}
+              </button>
+              <span v-if="!selectMode" class="pill pill--muted pill--count">{{ detail.students.length }}</span>
             </div>
             <div class="card__body">
               <div v-if="detail.students.length" class="chips">
-                <router-link
-                  v-for="s in detail.students"
-                  :key="s.id"
-                  :to="`/students/${s.id}`"
-                  class="chip"
-                  :title="s.admission_no"
-                  draggable="true"
-                  @dragstart="onRosterDragStart(s, $event)"
-                  @dragend="onDragEnd"
-                >
-                  {{ s.name }}
-                  <span class="muted" style="font-size: 12px">{{ genderLabel(s.gender) }}</span>
-                </router-link>
+                <template v-for="s in detail.students" :key="s.id">
+                  <button
+                    v-if="selectMode"
+                    type="button"
+                    class="chip chip--toggle"
+                    :class="{ 'is-on': selectedIds.has(s.id) }"
+                    :aria-pressed="selectedIds.has(s.id)"
+                    @click="toggleStudent(s.id)"
+                  >
+                    <span class="chip__mark" aria-hidden="true">✓</span>
+                    {{ s.name }}
+                    <span class="muted" style="font-size: 12px">
+                      {{ isUnassigned ? s.admission_no : genderLabel(s.gender) }}
+                    </span>
+                  </button>
+                  <router-link
+                    v-else
+                    :to="{
+                      path: `/students/${s.id}`,
+                      query: { from: 'class', classId: props.classId, className: detail.class.name },
+                    }"
+                    class="chip"
+                    :title="s.admission_no"
+                  >
+                    {{ s.name }}
+                    <span class="muted" style="font-size: 12px">
+                      {{ isUnassigned ? s.admission_no : genderLabel(s.gender) }}
+                    </span>
+                  </router-link>
+                </template>
               </div>
               <div v-else class="state state--in-card">
                 <p class="state__desc">{{ t("classes.noStudents") }}</p>
@@ -438,7 +531,7 @@ function fmtPct(score, full) {
           </div>
         </div>
 
-        <div class="card">
+        <div v-if="!isUnassigned" class="card">
           <div class="card__head">
             <h2 class="card__title"><Icon name="chart" :size="16" /> {{ t("classdetail.averages") }}</h2>
           </div>
@@ -465,46 +558,6 @@ function fmtPct(score, full) {
           </div>
         </div>
       </div>
-
-      <!-- 未分班：拖出班学生回到这里，也可从名单拖走 -->
-      <section
-        v-if="unassigned.length"
-        class="card class-unassigned"
-        :class="{ 'card--drop': dropTargetActive && dropTarget === 'pool' && dragStudent.from !== null }"
-        style="margin-top: var(--sp-5)"
-        @dragover.prevent="dropTarget = 'pool'"
-        @dragleave="onDragLeave('pool', $event)"
-        @drop.prevent="onDropPool"
-      >
-        <div class="card__head">
-          <div class="grow">
-            <h2 class="card__title" style="font-size: 16px">{{ t("students.ungrouped") }}</h2>
-            <p class="card__desc">
-              {{ t("profile.studentsCount", { n: unassigned.length }) }}
-              · {{ t("classes.unassignedHint") }}
-            </p>
-          </div>
-          <router-link to="/students" class="btn btn--sm btn--ghost">
-            {{ t("classes.viewUnassigned") }}
-          </router-link>
-        </div>
-        <div class="card__body card__body--tight">
-          <div class="chips">
-            <router-link
-              v-for="s in unassigned"
-              :key="s.id"
-              :to="`/students/${s.id}`"
-              class="chip"
-              draggable="true"
-              @dragstart="onPoolDragStart(s, $event)"
-              @dragend="onDragEnd"
-            >
-              {{ s.name }}
-              <span class="muted tnum" style="font-size: 12px">{{ s.admission_no }}</span>
-            </router-link>
-          </div>
-        </div>
-      </section>
 
       <div
         v-if="showAddStudent"
@@ -559,5 +612,55 @@ function fmtPct(score, full) {
           </div>
         </div>
       </div>
+
+      <!-- 批量分配底部操作条 -->
+      <template v-if="selectMode && selectedIds.size">
+        <div class="batch-bar">
+          <div class="batch-bar__in">
+            <span class="batch-bar__count">{{ t("classdetail.batchSelected", { n: selectedIds.size }) }}</span>
+            <div class="batch-bar__right">
+              <label class="batch-bar__field">
+                <span class="batch-bar__label">{{ t("classdetail.batchTarget") }}</span>
+                <select
+                  v-model="targetClassId"
+                  class="input input--sm batch-bar__select"
+                  :disabled="batchSubmitting"
+                >
+                  <option v-for="c in targetClasses" :key="c.id" :value="c.id">{{ classLabel(c) }}</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                class="btn btn--primary"
+                :disabled="batchSubmitting || !targetClassId"
+                @click="confirmBatchAssign"
+              >
+                <span v-if="batchSubmitting" class="spinner" />
+                {{ t("classdetail.batchConfirm") }}
+              </button>
+              <button
+                type="button"
+                class="icon-btn batch-bar__close"
+                :aria-label="t('classdetail.batchExit')"
+                :disabled="batchSubmitting"
+                @click="exitSelectMode"
+              >
+                <Icon name="close" :size="15" />
+              </button>
+            </div>
+          </div>
+          <p v-if="batchError" class="batch-bar__error">
+            <Icon name="alert-circle" :size="12" /> {{ batchError }}
+          </p>
+        </div>
+        <div class="batch-bar-spacer" aria-hidden="true"></div>
+      </template>
   </AsyncState>
 </template>
+
+<style scoped>
+.switcher-chevron {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+</style>

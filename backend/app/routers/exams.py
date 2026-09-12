@@ -36,7 +36,7 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, func, or_
+from sqlalchemy import and_, distinct, func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -110,7 +110,8 @@ def subject_averages(db: Session, title_prefix: str, start_day: date,
             func.avg(Event.payload["score"].as_numeric(10, 2)),
             func.min(Event.payload["score"].as_numeric(10, 2)),
             func.max(Event.payload["score"].as_numeric(10, 2)),
-            func.count(Event.id),
+            # 成绩事件可挂多名参与者（学生 + 录入老师），按事件去重计数
+            func.count(distinct(Event.id)),
             func.max(Event.payload["max_score"].as_numeric(10, 2)),
         )
         .select_from(Event)
@@ -200,11 +201,16 @@ def exam_config_payload(subjects: list["SubjectIn"], term: str | None = None) ->
 
 
 def exam_out(exam: Event) -> dict:
+    # 全部学生参与者都已毕业 → 考试视为结束（前端据此归入已结束分组）
+    students = [p for p in exam.attendees if (p.payload or {}).get("role") == "student"]
     return {
         "id": str(exam.id),
         "name": exam.title,
         "exam_date": exam.start_time.date().isoformat(),
         "end_date": exam.end_time.date().isoformat() if exam.end_time else None,
+        "students_graduated": bool(students) and all(
+            (p.payload or {}).get("graduated_at") for p in students
+        ),
         "subjects": subjects_config(exam),
     }
 
@@ -335,7 +341,24 @@ def get_exam(exam_id: uuid.UUID, db: Session = Depends(get_db)):
     e = db.get(Event, exam_id)
     if e is None or e.type != "exam":
         raise HTTPException(status_code=404, detail="exam not found")
-    return exam_out(e)
+    # 参加班级回显：考试学生参与者当前在读班级的并集
+    student_ids = [
+        p.id for p in e.attendees if (p.payload or {}).get("role") == "student"
+    ]
+    class_ids: list = []
+    if student_ids:
+        class_ids = [
+            row[0]
+            for row in db.query(Enrollment.class_id)
+            .join(Person, Person.id == Enrollment.person_id)
+            .filter(
+                Enrollment.person_id.in_(student_ids),
+                Enrollment.valid_to.is_(None),
+            )
+            .distinct()
+            .all()
+        ]
+    return {**exam_out(e), "class_ids": class_ids}
 
 
 @router.get("/exams/{exam_id}/averages")
@@ -414,6 +437,7 @@ class ExamUpdateIn(BaseModel):
     exam_date: date | None = None
     end_date: date | None = None  # last day of a multi-day sitting
     subjects: list[SubjectIn] | None = None
+    class_ids: list[uuid.UUID] | None = None  # absent = 不修改参加班级
 
 
 @router.patch("/exams/{exam_id}")
@@ -479,6 +503,19 @@ def update_exam(
             subject = score.title.rsplit("·", 1)[-1]
             score.title = f"{e.title}·{subject}"
             score.start_time = score.start_time + timedelta(days=shift)
+
+    # 参加班级：按所选班级的当前在读学生重建学生参与者（教师保留）
+    if "class_ids" in body.model_fields_set:
+        class_ids = list(dict.fromkeys(body.class_ids))
+        for cid in class_ids:
+            if db.get(Class, cid) is None:
+                raise HTTPException(status_code=400, detail="class not found")
+        keep = {p.id for p in e.attendees if (p.payload or {}).get("role") != "student"}
+        keep.add(user.id)
+        students = _attendee_ids(db, class_ids)
+        e.attendees = db.query(Person).filter(
+            Person.id.in_([user.id, *students, *keep])
+        ).all()
 
     db.commit()
     db.refresh(e)
@@ -659,9 +696,11 @@ def _upsert_score_event(
     student: Person,
     score: float | None,
     absent: bool,
+    entered_by: Person | None = None,
 ) -> bool:
     """Upsert one per-subject score Event; returns True when an existing row
-    was updated (re-import overwrites) rather than created."""
+    was updated (re-import overwrites) rather than created. `entered_by` 是
+    录入老师，作为事件参与者记入审计（教学足迹「录入成绩」据此统计）。"""
     lo, hi = day_window(*exam_days(exam))
     existing = (
         db.query(Event)
@@ -681,6 +720,7 @@ def _upsert_score_event(
         payload["score"] = score
         payload["absent"] = False
     payload = validate_event_payload("score", payload)
+    attendees = [student.id, *([entered_by.id] if entered_by else [])]
     if existing is not None:
         existing.payload = payload
         return True
@@ -690,7 +730,7 @@ def _upsert_score_event(
         title=f"{exam.title}·{subject_name}",
         start_time=datetime.combine(exam.start_time.date(), EXAM_HOUR),
         payload=payload,
-        attendee_ids=[student.id],
+        attendee_ids=attendees,
     )
     return False
 
@@ -746,6 +786,7 @@ def add_student_scores(
     exam_id: uuid.UUID,
     body: StudentScoresIn,
     db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
 ):
     """Manually record one student's scores for a sitting (the student page's
     添加成绩 dialog) — same upsert path as the Excel import."""
@@ -771,7 +812,8 @@ def add_student_scores(
         if item.absent:
             absent_subjects.append(item.subject)
             _upsert_score_event(
-                db, exam, item.subject, full_by_subject[item.subject], student, None, True
+                db, exam, item.subject, full_by_subject[item.subject], student, None, True,
+                entered_by=user,
             )
             continue
         if item.score is None:
@@ -786,7 +828,8 @@ def add_student_scores(
             )
         scores[item.subject] = item.score
         _upsert_score_event(
-            db, exam, item.subject, full_by_subject[item.subject], student, item.score, False
+            db, exam, item.subject, full_by_subject[item.subject], student, item.score, False,
+            entered_by=user,
         )
     if not scores and not absent_subjects:
         raise HTTPException(status_code=400, detail="没有可录入的成绩")
@@ -872,7 +915,7 @@ async def import_scores(
                 if low in _ABSENT_WORDS:
                     updated = _upsert_score_event(
                         db, exam, subject_name, full_by_subject[subject_name],
-                        student, None, True,
+                        student, None, True, entered_by=user,
                     )
                     absent_subjects.append(subject_name)
                     absent_cells += 1
@@ -890,7 +933,7 @@ async def import_scores(
                     continue
                 updated = _upsert_score_event(
                     db, exam, subject_name, full_by_subject[subject_name],
-                    student, score, False,
+                    student, score, False, entered_by=user,
                 )
                 scores[subject_name] = score
                 item["subjects"].append(subject_name)

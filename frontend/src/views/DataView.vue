@@ -1,8 +1,8 @@
 <script setup>
 // 数据管理：花名册导入导出（Excel）。只导入学生，不创建班级。
+// 数据入口收敛到个人中心，本组件作为其内嵌区块使用（无独立页头）。
 import { computed, onMounted, ref } from "vue"
 import Icon from "../components/Icon.vue"
-import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
 import api, { downloadFile, triggerDownload, uploadFile } from "../api"
@@ -163,13 +163,8 @@ async function resetApp() {
 </script>
 
 <template>
-  <PageHeader
-    title="数据"
-    subtitle="用 Excel 花名册批量导入、导出学生"
-  />
-
   <AsyncState :loading="loading" :error="error" :rows="4" @retry="load">
-    <div class="stack" style="gap: 20px">
+    <div style="display: flex; flex-direction: column; margin-top: var(--sp-5)">
       <div class="card">
         <div class="card__head">
           <h2 class="card__title"><Icon name="upload" :size="16" /> 花名册导入（Excel）</h2>

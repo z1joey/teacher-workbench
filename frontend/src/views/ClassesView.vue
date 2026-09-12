@@ -38,7 +38,8 @@ async function load() {
   loading.value = true
   error.value = ""
   try {
-    classes.value = await api.get("/classes")
+    // 归档班级也取回：仅用于选中校验与深链接；默认展示由 ClassDetailContent 控制
+    classes.value = await api.get("/classes?include_archived=1")
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -54,12 +55,13 @@ watch(() => route.query.create, (v) => {
   if (v === "1") showCreate.value = true
 })
 
-// 选中班：URL ?class= 优先（须仍存在），否则第一个班
+// 选中班：URL ?class= 优先（须仍存在），否则第一个在读班级；
+// 空的「未分班」不当默认值——默认隐藏正是为了它别出现在眼前
 const selectedId = computed(() => {
   const raw = route.query.class
   const wanted = Array.isArray(raw) ? raw[0] : raw
   if (wanted && classes.value.some((c) => c.id === wanted)) return wanted
-  return classes.value[0]?.id
+  return classes.value.find((c) => !c.is_unassigned)?.id ?? classes.value[0]?.id
 })
 
 function switchClass(id) {

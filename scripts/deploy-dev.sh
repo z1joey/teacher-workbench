@@ -8,9 +8,9 @@
 #   → 远程滚动更新(--wait 健康门禁) → curl 端到端验证
 #
 # 用法:
-#   ./deploy-dev.sh              # 以标签 dev-local 部署
-#   ./deploy-dev.sh <tag>        # 自定义标签；重复执行=重新部署
-#   ./deploy-dev.sh <旧tag>      # 回滚到服务器上仍在的历史镜像
+#   ./scripts/deploy-dev.sh              # 以标签 dev-local 部署
+#   ./scripts/deploy-dev.sh <tag>        # 自定义标签；重复执行=重新部署
+#   ./scripts/deploy-dev.sh <旧tag>      # 回滚到服务器上仍在的历史镜像
 #
 # 配置（按优先级：环境变量 > docs/deploy-dev.conf）:
 #   SERVER         SSH 目标（必填，如 user@host）
@@ -21,8 +21,10 @@
 # =============================================================================
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
 # 本地配置文件（docs/ 整体不入库），环境变量可覆盖其中的值
-CONF="$(cd "$(dirname "$0")" && pwd)/docs/deploy-dev.conf"
+CONF="$ROOT/docs/deploy-dev.conf"
 if [[ -f "$CONF" ]]; then
   # shellcheck source=/dev/null
   source "$CONF"
@@ -44,12 +46,12 @@ echo "==> ① 检查服务器连通性: $SERVER"
 sshcmd 'echo "    OK: $(hostname)"'
 
 echo "==> ② 检查 .env（数据库口令）"
-if [[ ! -f .env ]]; then
+if [[ ! -f "$ROOT/.env" ]]; then
   echo "错误: 缺少 .env（需要 POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB）" >&2
   echo "       复制仓库里的 .env.example 并填写后重试" >&2
   exit 1
 fi
-set -a; source ./.env; set +a
+set -a; source "$ROOT/.env"; set +a
 : "${POSTGRES_USER:?POSTGRES_USER 未设置}"
 : "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未设置}"
 : "${POSTGRES_DB:?POSTGRES_DB 未设置}"
@@ -57,10 +59,10 @@ set -a; source ./.env; set +a
 echo "==> ③ 本机构建 linux/amd64 镜像 (tag: $TAG) —— Apple Silicon 上走模拟，稍慢"
 docker buildx build --platform linux/amd64 --load \
   --build-arg PIP_INDEX_URL="$PIP_INDEX_URL" \
-  -t "$REGISTRY_USER/teacher-workbench-backend:$TAG" ./backend
+  -t "$REGISTRY_USER/teacher-workbench-backend:$TAG" "$ROOT/backend"
 docker buildx build --platform linux/amd64 --load \
   --build-arg NPM_REGISTRY="$NPM_REGISTRY" \
-  -t "$REGISTRY_USER/teacher-workbench-frontend:$TAG" ./frontend
+  -t "$REGISTRY_USER/teacher-workbench-frontend:$TAG" "$ROOT/frontend"
 
 echo "==> ④ 经 SSH 传输镜像到服务器（首次约几百 MB）"
 docker save "$REGISTRY_USER/teacher-workbench-backend:$TAG" | gzip \
@@ -76,7 +78,7 @@ if ! sshcmd 'docker image inspect postgres:17 >/dev/null 2>&1'; then
 fi
 
 echo "==> ⑥ 上传 docker-compose.yml 与 .env"
-scp -i "$KEY" -o BatchMode=yes docker-compose.yml \
+scp -i "$KEY" -o BatchMode=yes "$ROOT/docker-compose.yml" \
   "$SERVER:$REMOTE_DIR/docker-compose.yml"
 # 服务器上的 .env 与最近一次部署保持一致，服务器手动 docker compose 时可用
 sshcmd "umask 177; cat > '$REMOTE_DIR/.env'" <<ENVFILE

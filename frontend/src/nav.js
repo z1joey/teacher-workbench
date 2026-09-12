@@ -5,8 +5,6 @@ export const TEACHER_NAV = [
   { key: "classes", label: "班级", to: "/classes", icon: "building", hint: "名单 · 班均", g: "c" },
   { key: "exams", label: "考试", to: "/exams", icon: "clipboard", hint: "科目 · 平均分", g: "e" },
   { key: "visits", label: "家访", to: "/visits", icon: "map-pin", hint: "家访记录", g: "v" },
-  { key: "events", label: "事件", to: "/events", icon: "checklist", hint: "比赛 · 活动", g: "r" },
-  { key: "data", label: "数据", to: "/data", icon: "database", hint: "花名册导入导出", g: "d" },
 ]
 
 export const ADMIN_NAV = [

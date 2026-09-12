@@ -58,8 +58,12 @@ def _seed_person(db, name: str, admission_no: str, *, role: str = "student",
     return p
 
 
-def _seed_teacher(db, phone: str = "13800000001", name: str = "王老师") -> Person:
-    p = Person(name=name, phone=phone, password_hash=hash_password("123456"),
+def _seed_teacher(db, phone: str = "13800000001", name: str = "王老师",
+                  email: str | None = None) -> Person:
+    if email is None:
+        email = f"{phone}@test.example"
+    p = Person(name=name, phone=phone, email=email,
+               password_hash=hash_password("123456"),
                payload=validate_person_payload("teacher", {}))
     ensure_workspace_id(p)
     db.add(p)
@@ -123,11 +127,20 @@ def _enter_scores(db, exam: Event, person: Person, subject_scores: dict[str, flo
 
 
 def _manual_event(db, person: Person, event_type: str, summary: str,
-                  start: datetime) -> Event:
-    payload = {"summary": summary} if event_type == "home_visited" else {"notes": summary}
-    ev = eventing.create_event(db, event_type=event_type, title=summary,
-                               start_time=start, payload=payload,
-                               attendee_ids=[person.id])
+                  start: datetime, *, title: str | None = None) -> Event:
+    if event_type == "home_visited":
+        payload = {"summary": summary}
+    elif event_type == "comment":
+        payload = {
+            "notes": summary,
+            "about": {"id": str(person.id), "name": person.name},
+        }
+    else:
+        raise ValueError(f"unsupported manual event type: {event_type}")
+    ev = eventing.create_event(
+        db, event_type=event_type, title=title or summary,
+        start_time=start, payload=payload, attendee_ids=[person.id],
+    )
     db.flush()
     return ev
 
@@ -258,7 +271,7 @@ def test_exam_list_and_detail_shapes(make_client, db, headers):
 
     rows = client.get("/api/exams", headers=headers).json()
     assert [r["name"] for r in rows] == ["期末考试", "期中考试"]  # exam_date desc
-    assert set(rows[0]) == {"id", "name", "exam_date", "end_date", "subjects"}
+    assert set(rows[0]) == {"id", "name", "exam_date", "end_date", "subjects", "students_graduated"}
     assert all(r["end_date"] is None for r in rows)  # both single-day
     zhong = next(r for r in rows if r["id"] == e1["id"])
     assert [s["subject"] for s in zhong["subjects"]] == ["数学", "语文"]  # subject order
@@ -523,7 +536,8 @@ def test_delete_exam_keeps_score_events(make_client, db, headers):
     assert db.query(Event).filter(Event.type == "score").count() == 1
     # with no sitting to match, the class trend resolves exam_id to None
     rows = client.get("/api/classes", headers=headers).json()
-    assert rows[0]["avg_trend"] == [
+    mine = next(r for r in rows if r["id"] == str(cls.id))
+    assert mine["avg_trend"] == [
         {"exam_id": None, "exam_name": "期中考试", "exam_date": "2026-05-20",
          "averages": {"语文": 90.0}},
     ]
@@ -549,7 +563,9 @@ def test_class_crud_contract(make_client, db, headers):
     data = r.json()
     assert data == {
         "id": data["id"], "name": "七年级1班",
-        "academic_year": "2026", "student_count": 0, "students": [],
+        "academic_year": "2026", "is_unassigned": False,
+        "archived": False,
+        "student_count": 0, "students": [],
     }
 
     dup = client.post("/api/classes", json={
@@ -592,7 +608,7 @@ def test_calendar_range_and_kinds(graded, db):
     ctx = graded
     a = ctx["students"][0]
     _manual_event(db, a, "home_visited", "6月家访", datetime(2026, 6, 5, 10, 0))
-    _manual_event(db, a, "talk", "七月谈话", datetime(2026, 7, 1, 9, 0))
+    _manual_event(db, a, "comment", "七月评语", datetime(2026, 7, 1, 9, 0))
     db.commit()
 
     r = ctx["client"].get("/api/calendar", params={"year": 2026, "month": 6},
@@ -625,7 +641,7 @@ def test_dashboard_summary_counts_and_panels(graded, db):
     client, a, b = ctx["client"], ctx["students"][0], ctx["students"][1]
     _manual_event(db, a, "home_visited", "家访甲", datetime(2026, 6, 5, 10, 0))
     _manual_event(db, a, "home_visited", "家访乙", datetime(2026, 6, 6, 10, 0))
-    _manual_event(db, b, "note_added", "课堂随笔", datetime(2026, 6, 7, 10, 0))
+    _manual_event(db, b, "comment", "课堂评语", datetime(2026, 6, 7, 10, 0))
     # the recording teacher attends the visit too — digest rows stay
     # student-centric: teacher/guardian attendees never surface as a row
     teacher = db.query(Person).filter(Person.phone == "13800000001").one()
@@ -657,7 +673,7 @@ def test_dashboard_summary_counts_and_panels(graded, db):
     # rows are not digest items; the attending teacher never surfaces)
     types = [e["event_type"] for e in data["recent_events"]]
     assert "score" not in types and "exam" not in types
-    assert set(types) <= {"home_visited", "note_added"}
+    assert set(types) <= {"home_visited", "comment"}
     roster_names = {s["name"] for e in data["recent_events"] for s in e["students"]}
     assert roster_names <= {"张一", "李二", "王三"}
     assert all(e["title"] for e in data["recent_events"])

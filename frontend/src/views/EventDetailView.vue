@@ -99,7 +99,7 @@ const resolvedType = computed(() => form.value.event_type)
 
 // 家访和家长沟通要说清「为什么」
 function typeNeedsPurpose(type) {
-  return type === "home_visited" || type === "parent_call"
+  return type === "home_visited"
 }
 
 const isHomeVisit = computed(

@@ -26,9 +26,10 @@ async function load() {
 }
 onMounted(load)
 
-// 已结束 = 最后一天（无结束日期即考试当天）早于今天；进行中/未来的不算
+// 已结束 = 最后一天（无结束日期即考试当天）早于今天；进行中/未来的不算。
+// 全部学生参与者都已毕业的考试也视为结束。
 function isPast(e) {
-  return (e.end_date || e.exam_date) < todayStr()
+  return (e.end_date || e.exam_date) < todayStr() || e.students_graduated === true
 }
 
 const activeExams = computed(() => exams.value.filter((e) => !isPast(e)))
@@ -81,7 +82,7 @@ const pastExams = computed(() => exams.value.filter(isPast))
           <div class="chips">
             <span v-for="s in e.subjects" :key="s.id" class="pill pill--outline">
               <span class="subject-dot" :style="{ background: subjectColor(s.subject, s.color) }" />
-              {{ subject(s.subject) }} · {{ t("exams.fullScore") }} {{ s.full_score }}
+              {{ subject(s.subject) }} · {{ s.full_score }}
             </span>
           </div>
         </div>
@@ -113,7 +114,7 @@ const pastExams = computed(() => exams.value.filter(isPast))
             <div class="chips">
               <span v-for="s in e.subjects" :key="s.id" class="pill pill--outline">
                 <span class="subject-dot" :style="{ background: subjectColor(s.subject, s.color) }" />
-                {{ subject(s.subject) }} · {{ t("exams.fullScore") }} {{ s.full_score }}
+                {{ subject(s.subject) }} · {{ s.full_score }}
               </span>
             </div>
           </div>

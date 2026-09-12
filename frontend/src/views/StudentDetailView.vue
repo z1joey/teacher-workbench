@@ -41,8 +41,8 @@ const editingId = ref(null)
 const editValue = ref(null)
 const editError = ref("")
 
-// the score list collapses to the most recent exams once history piles up
-const SCORE_EXAMS_VISIBLE = 3
+// default to the latest exam; expand to see full history
+const SCORE_EXAMS_VISIBLE = 1
 const showAllScores = ref(false)
 
 // tag editor
@@ -61,6 +61,7 @@ const profileForm = ref({})
 const STATUS_OPTIONS = [
   { value: "active", label: t("status.active") },
   { value: "inactive", label: t("status.inactive") },
+  { value: "graduated", label: t("status.graduated") },
 ]
 
 async function load() {
@@ -115,6 +116,7 @@ function buildExamScoreGroups(rows) {
       return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
     })
   }
+  groups.sort((a, b) => b.exam_date.localeCompare(a.exam_date))
   return groups
 }
 
@@ -123,28 +125,41 @@ const allExamScoreGroups = computed(() => {
   return buildExamScoreGroups(student.value.scores)
 })
 
-// one section per exam sitting
+// 所选场次在折线图（时间正序）中的下标；-1 表示未选，即默认最近一场
+const selectedTrendIndex = ref(-1)
+
 const examScoreGroups = computed(() => {
   const all = allExamScoreGroups.value
+  if (!all.length) return []
   if (showAllScores.value || all.length <= SCORE_EXAMS_VISIBLE) return all
-  return all.slice(-SCORE_EXAMS_VISIBLE)
+  // 成绩组按时间倒序：图上下标 i 对应组下标 n-1-i
+  const n = Math.min(all.length, scoreTrend.value?.labels.length ?? 0)
+  const gi =
+    selectedTrendIndex.value < 0 || selectedTrendIndex.value >= n
+      ? 0
+      : Math.min(n - 1 - selectedTrendIndex.value, all.length - SCORE_EXAMS_VISIBLE)
+  return all.slice(gi, gi + SCORE_EXAMS_VISIBLE)
 })
 
-// per-subject delta vs the student's previous entered score (chronological)
+// per-subject delta vs the same subject on the previous exam sitting
 const scoreDeltas = computed(() => {
   const deltas = new Map()
-  if (!student.value) return deltas
   const prev = {}
-  for (const row of student.value.scores) {
-    if (row.status === "entered" && row.score != null) {
-      const last = prev[row.subject]
-      deltas.set(
-        row.result_id,
-        last != null ? Math.round((row.score - last) * 10) / 10 : null,
-      )
-      prev[row.subject] = row.score
-    } else {
-      deltas.set(row.result_id, null)
+  const chronological = [...allExamScoreGroups.value].sort(
+    (a, b) => a.exam_date.localeCompare(b.exam_date),
+  )
+  for (const g of chronological) {
+    for (const row of g.results) {
+      if (row.status === "entered" && row.score != null) {
+        const last = prev[row.subject]
+        deltas.set(
+          row.result_id,
+          last != null ? Math.round((row.score - last) * 10) / 10 : null,
+        )
+        prev[row.subject] = row.score
+      } else {
+        deltas.set(row.result_id, null)
+      }
     }
   }
   return deltas
@@ -205,8 +220,29 @@ function fmtScore(row) {
 }
 
 function fmtDelta(delta) {
-  if (delta == null) return ""
+  if (delta == null || delta === 0) return ""
   return `${delta > 0 ? "↑" : "↓"}${Math.abs(delta).toFixed(1)}`
+}
+
+function fmtCorrectionDelta(correction) {
+  if (!correction || correction.old == null || correction.new == null) return ""
+  const d = Math.round((correction.new - correction.old) * 10) / 10
+  if (d === 0) return ""
+  return `${d > 0 ? "+" : ""}${d.toFixed(1)}`
+}
+
+function scorePillTitle(row) {
+  const parts = [
+    `${subject(row.subject)} ${fmtScore(row)}/${Number(row.full_score).toFixed(1)}`,
+  ]
+  const cd = fmtCorrectionDelta(row.correction)
+  if (cd) {
+    parts.push(`已更正 ${cd}${row.correction.reason ? `（${row.correction.reason}）` : ""}`)
+  }
+  const delta = scoreDelta(row.result_id)
+  if (delta != null) parts.push(`较上一场 ${fmtDelta(delta)}`)
+  parts.push("点击更正")
+  return parts.join(" · ")
 }
 
 function scoreDelta(resultId) {
@@ -690,6 +726,8 @@ const headerMeta = computed(() => {
                   :series="scoreTrend.series"
                   :y-max="scoreTrend.yMax"
                   :format-tip="scoreTrend.formatTip"
+                  :highlight-index="selectedTrendIndex"
+                  @select="selectedTrendIndex = $event"
                 />
 
                 <div class="score-exams">
@@ -725,12 +763,17 @@ const headerMeta = computed(() => {
                           v-else
                           type="button"
                           class="score-pill"
-                          :title="`${subject(row.subject)} ${fmtScore(row)}/${Number(row.full_score).toFixed(1)} · 点击更正`"
+                          :title="scorePillTitle(row)"
                           @click="startEdit(row)"
                         >
                           <span class="chart__dot" :style="{ background: rowColor(row) }" />
                           <span>{{ subject(row.subject) }}</span>
                           <b class="tnum score-pill__value">{{ fmtScore(row) }}</b>
+                          <span
+                            v-if="row.correction && fmtCorrectionDelta(row.correction)"
+                            class="tnum score-pill__correction"
+                            :title="row.correction.reason || ''"
+                          >{{ t("detail.scoreCorrected", { n: fmtCorrectionDelta(row.correction) }) }}</span>
                           <span
                             v-if="scoreDelta(row.result_id) != null"
                             class="tnum score-pill__delta"

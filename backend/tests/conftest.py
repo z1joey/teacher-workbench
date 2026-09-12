@@ -122,7 +122,8 @@ def client(engine):
     fastapi_app.dependency_overrides.clear()
 
 
-def seed_person(db, phone: str | None, *, role: str = "teacher", active: bool = True,
+def seed_person(db, email: str | None, *, phone: str | None = None,
+                role: str = "teacher", active: bool = True,
                 name: str = "用户", admission_no: str | None = None):
     """Insert a Person row with a registry-validated payload (the common
     arrange step of the router tests). `name` is a typed person column; the
@@ -135,8 +136,8 @@ def seed_person(db, phone: str | None, *, role: str = "teacher", active: bool = 
     if not active:
         data["is_active"] = False
     payload = validate_person_payload(role, data)
-    p = Person(name=name, phone=phone, password_hash=hash_password("123456"),
-               payload=payload)
+    p = Person(name=name, email=email, phone=phone,
+               password_hash=hash_password("123456"), payload=payload)
     db.add(p)
     db.flush()
     return p

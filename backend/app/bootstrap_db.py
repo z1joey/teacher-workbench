@@ -180,12 +180,27 @@ def _ensure_class_teacher_id() -> None:
         conn.execute(text("PRAGMA foreign_keys=ON"))
 
 
+def _ensure_class_archived() -> None:
+    """毕业功能：旧库的 class 表补 archived 列（纯加列，两方言都支持）。"""
+    insp = inspect(engine)
+    if not insp.has_table("class"):
+        return
+    cols = {c["name"] for c in insp.get_columns("class")}
+    if "archived" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text(
+            "ALTER TABLE class ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0"
+        ))
+
+
 def ensure_schema() -> None:
     """Idempotent setup used on app startup and in Docker CMD."""
     Base.metadata.create_all(engine)
     _drop_event_type_check()
     _strip_class_legacy_columns()
     _ensure_class_teacher_id()
+    _ensure_class_archived()
     _strip_follow_up_from_events()
     with Session(engine, autoflush=False, expire_on_commit=False) as db:
         ensure_unassigned_class(db)

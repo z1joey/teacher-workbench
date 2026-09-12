@@ -80,7 +80,7 @@ def _seed_student_with_evidence(db):
     from app import eventing
     from app.models import Class, Enrollment
 
-    teacher = seed_person(db, "13900000001", name="陈老师")
+    teacher = seed_person(db, "chen139@test.example", phone="13900000001", name="陈老师")
     seed_token(db, teacher, TEACHER_TOKEN)
     student = seed_person(db, None, role="student", name="林小明", admission_no="S901")
     klass = Class(name="七年级1班", academic_year="2025/2026")
@@ -123,16 +123,17 @@ def test_delete_student_with_evidence_soft_deactivates(client, db):
     st = db.get(Person, student.id)
     assert st is not None, "student was hard-deleted despite having evidence"
     assert (st.payload or {}).get("is_active") is False
-    # +1 note_added ("账号停用") on the timeline; enrollments closed
+    # +1 comment ("账号停用") on the timeline; enrollments closed
     after = db.query(Event).filter(Event.attendees.any(Person.id == student.id)).count()
     assert after == before + 1
     note = (
         db.query(Event)
-        .filter(Event.type == "note_added", Event.attendees.any(Person.id == student.id))
+        .filter(Event.type == "comment", Event.attendees.any(Person.id == student.id))
         .order_by(Event.start_time.desc())
         .first()
     )
-    assert note.payload == {"notes": "账号停用"}
+    assert note.title == "账号停用"
+    assert note.payload["notes"] == "账号停用"
     assert all(e.valid_to is not None for e in db.query(Enrollment)
                .filter(Enrollment.person_id == student.id).all())
 
@@ -140,7 +141,8 @@ def test_delete_student_with_evidence_soft_deactivates(client, db):
 @pytest.fixture()
 def admin_client(client, db):
     """Full-app client with an admin Authorization header pre-set."""
-    admin = seed_person(db, "13900000000", role="admin", name="管理员")
+    admin = seed_person(db, "admin139@test.example", phone="13900000000",
+                        role="admin", name="管理员")
     seed_token(db, admin, ADMIN_TOKEN)
     client.headers.update({"Authorization": f"Bearer {ADMIN_TOKEN}"})
     yield client

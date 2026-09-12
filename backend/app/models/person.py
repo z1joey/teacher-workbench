@@ -1,8 +1,9 @@
 """Person: the single identity table.
 
 Every human is a Person — a student, teacher, admin, or a student's
-guardian. `name` and the login credentials (phone/password_hash/email) are
-typed columns; only role-specific attributes live in the payload JSONB —
+guardian. `name` and the login credentials (email/password_hash) are typed
+columns; `phone` is optional contact info for teachers/admins. Only
+role-specific attributes live in the payload JSONB —
 e.g. {"role": "student", "admission_no": ...}. Adding a role is a new
 payload shape plus a validation-layer entry, no DDL.
 
@@ -30,10 +31,11 @@ class Person(Base):
     # (whose name still lives in the payload at that checkpoint) without the
     # NOT NULL column rejecting them; 0007 extracts payload->>'name' into it.
     name: Mapped[str] = mapped_column(String(100), default="", server_default="")
-    # login credential for teachers/admins; NULL for students (they don't log in)
+    # optional contact for teachers/admins; also used for guardian dedup
     phone: Mapped[str | None] = mapped_column(String(40), unique=True)
     password_hash: Mapped[str] = mapped_column(String(200))
-    email: Mapped[str | None] = mapped_column(String(200), unique=True)  # optional
+    # login credential for teachers/admins; NULL for students (they don't log in)
+    email: Mapped[str | None] = mapped_column(String(200), unique=True)
     payload: Mapped[dict | None] = mapped_column(JSONType)  # role + role-specific attributes
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -90,7 +92,7 @@ class Person(Base):
 
 
 class AuthSession(Base):
-    """Bearer tokens for phone/password login (MVP: DB-backed sessions).
+    """Bearer tokens for email/password login (MVP: DB-backed sessions).
 
     One row per active login (device/browser), so a person can be signed in
     from several at once; delete one row to log out that device, all of them

@@ -5,11 +5,8 @@ import HomeView from "./views/HomeView.vue"
 import LoginView from "./views/LoginView.vue"
 import SignupView from "./views/SignupView.vue"
 import ProfileView from "./views/ProfileView.vue"
-import EventsView from "./views/EventsView.vue"
 import HomeVisitsView from "./views/HomeVisitsView.vue"
 import CommentNewView from "./views/CommentNewView.vue"
-import ActivityNewView from "./views/ActivityNewView.vue"
-import ActivityDetailView from "./views/ActivityDetailView.vue"
 import GuardianDetailView from "./views/GuardianDetailView.vue"
 import ClassesView from "./views/ClassesView.vue"
 import ClassDetailView from "./views/ClassDetailView.vue"
@@ -20,14 +17,13 @@ import ExamsView from "./views/ExamsView.vue"
 import ExamNewView from "./views/ExamNewView.vue"
 import ExamDetailView from "./views/ExamDetailView.vue"
 import EventDetailView from "./views/EventDetailView.vue"
-import DataView from "./views/DataView.vue"
 import AdminView from "./views/AdminView.vue"
 import NotFoundView from "./views/NotFoundView.vue"
 
 // Routes that only teachers (non-admin) may enter. Admin accounts get
 // redirected away — they are developers, not classroom teachers.
 const TEACHER_ROUTE_PREFIXES = [
-  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/events", "/comments", "/guardians", "/data",
+  "/", "/profile", "/classes", "/students", "/exams", "/visits", "/comments", "/guardians",
 ]
 
 function isTeacherRoute(path) {
@@ -43,33 +39,8 @@ export const router = createRouter({
     { path: "/login", name: "login", component: LoginView, meta: { title: "登录" } },
     { path: "/signup", name: "signup", component: SignupView, meta: { title: "注册" } },
     { path: "/profile", name: "profile", component: ProfileView, meta: { title: "个人中心" } },
-    {
-      path: "/events",
-      name: "events",
-      component: EventsView,
-      meta: { title: "事件" },
-    },
-    {
-      path: "/events/new",
-      name: "activityNew",
-      component: ActivityNewView,
-      meta: { title: "新建事件", parent: { label: "事件", to: "/events" } },
-    },
-    {
-      path: "/events/:id/edit",
-      name: "activityEdit",
-      component: ActivityNewView,
-      props: (r) => ({ eventId: r.params.id }),
-      meta: { title: "编辑事件", parent: { label: "事件", to: "/events" } },
-    },
-    {
-      path: "/events/:id",
-      name: "activityDetail",
-      component: ActivityDetailView,
-      props: true,
-      meta: { title: "事件详情", parent: { label: "事件", to: "/events" } },
-    },
-    { path: "/data", name: "data", component: DataView, meta: { title: "数据" } },
+    // 数据管理并入个人中心；旧链接重定向
+    { path: "/data", redirect: { name: "profile" } },
     {
       path: "/guardians/:id",
       name: "guardianDetail",
@@ -166,6 +137,7 @@ router.beforeEach(async (to) => {
   }
   if (AUTH_PATHS.has(to.path)) {
     if (!me.value) await loadMe()
+    if (!getToken()) return true
     return me.value?.role === "admin" ? "/admin" : "/"
   }
   if (!me.value) await loadMe()

@@ -22,7 +22,7 @@ SYSTEM_EVENT_TYPES = {
 
 # event types that teachers write by hand
 MANUAL_EVENT_TYPES = {
-    "home_visited", "talk", "tutoring", "parent_call", "note_added", "comment",
+    "home_visited", "comment",
 }
 
 # yearly birthdays are system-managed; calendar/timeline expand them from birth_date

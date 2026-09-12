@@ -148,7 +148,7 @@ async function submit() {
         >
           <select v-model="form.class_id" class="select">
             <option :value="null">{{ t("new.classPlaceholder") }}</option>
-            <option v-for="c in classes" :key="c.id" :value="c.id">
+            <option v-for="c in selectableClasses" :key="c.id" :value="c.id">
               {{ c.name }} · {{ c.academic_year }}（{{ t("profile.studentsCount", { n: c.student_count } ) }}）
             </option>
           </select>

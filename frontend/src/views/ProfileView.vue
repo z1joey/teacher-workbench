@@ -1,8 +1,10 @@
 <script setup>
-// 个人中心：资料、我的班级、教学足迹。退出登录需要确认，避免误触。
+// 个人中心：资料、偏好设置、教学足迹。退出登录需要确认，避免误触。
 import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
+import SelectMenu from "../components/SelectMenu.vue"
+import DataView from "./DataView.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
@@ -12,7 +14,7 @@ import { ask } from "../confirm"
 import { notify } from "../feedback"
 import { clearAll } from "../feedback"
 import { clearSearch } from "../search"
-import { friendlyError, genderLabel, t } from "../strings"
+import { friendlyError, t } from "../strings"
 
 const router = useRouter()
 
@@ -21,9 +23,40 @@ const error = ref("")
 const loading = ref(true)
 const editing = ref(false)
 const saving = ref(false)
-const editForm = ref({ name: "", email: "" })
+const editForm = ref({ name: "", phone: "" })
 const errors = ref({})
 const settingsSaving = ref(false)
+const clearingHomeVisitTags = ref(false)
+
+function normalizePhone(phone) {
+  return phone.replace(/[\s-]/g, "")
+}
+
+async function clearHomeVisitTags() {
+  const ok = await ask({
+    title: t("profile.clearHomeVisitTags"),
+    message: t("profile.clearHomeVisitTagsConfirm"),
+    confirmLabel: t("profile.clearHomeVisitTags"),
+    tone: "warn",
+  })
+  if (!ok) return
+  clearingHomeVisitTags.value = true
+  error.value = ""
+  try {
+    const { removed } = await api.post("/profile/clear-home-visit-tags")
+    notify({
+      tone: removed ? "ok" : "info",
+      title: removed
+        ? t("profile.clearHomeVisitTagsDone", { n: removed })
+        : t("profile.clearHomeVisitTagsEmpty"),
+      timeout: 2800,
+    })
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    clearingHomeVisitTags.value = false
+  }
+}
 
 async function saveSettings() {
   if (!profile.value) return
@@ -32,7 +65,7 @@ async function saveSettings() {
   try {
     const updated = await api.patch("/profile", {
       name: profile.value.user.name,
-      email: profile.value.user.email || null,
+      phone: profile.value.user.phone || null,
       auto_tags: profile.value.settings.auto_tags,
       calendar_birthdays: profile.value.settings.calendar_birthdays,
     })
@@ -69,7 +102,7 @@ onMounted(load)
 
 function startEdit() {
   const user = profile.value.user
-  editForm.value = { name: user.name || "", email: user.email || "" }
+  editForm.value = { name: user.name || "", phone: user.phone || "" }
   errors.value = {}
   editing.value = true
 }
@@ -81,6 +114,10 @@ function cancelEdit() {
 function validate() {
   const e = {}
   if (!editForm.value.name.trim()) e.name = t("login.name") + "不能为空"
+  const phone = normalizePhone(editForm.value.phone.trim())
+  if (editForm.value.phone.trim() && !/^\d{6,15}$/.test(phone)) {
+    e.phone = t("profile.phoneInvalid")
+  }
   errors.value = e
   return !Object.keys(e).length
 }
@@ -90,9 +127,10 @@ async function saveProfile() {
   saving.value = true
   error.value = ""
   try {
+    const phoneRaw = editForm.value.phone.trim()
     const updated = await api.patch("/profile", {
       name: editForm.value.name.trim(),
-      email: editForm.value.email.trim() || null,
+      phone: phoneRaw ? normalizePhone(phoneRaw) : null,
     })
     profile.value.user = { ...profile.value.user, ...updated }
     if (me.value) {
@@ -111,10 +149,47 @@ async function saveProfile() {
   }
 }
 
+// 毕业操作：个人中心集中入口。毕业不会删除数据，班级转为已归档。
+const graduatingClassId = ref("")
+const graduating = ref(false)
+// 归档班级名单默认收起，点「查看名单」展开
+const expandedClasses = ref(new Set())
+
+function toggleRoster(id) {
+  const next = new Set(expandedClasses.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  expandedClasses.value = next
+}
+
+async function graduateClass() {
+  const cls = profile.value.classes.find((c) => c.id === graduatingClassId.value)
+  if (!cls) return
+  const ok = await ask({
+    title: t("profile.graduateConfirmTitle", { n: cls.students.length, class: cls.name }),
+    message: t("profile.graduateConfirmHint"),
+    confirmLabel: t("profile.graduateConfirm"),
+    tone: "warn",
+  })
+  if (!ok) return
+  graduating.value = true
+  error.value = ""
+  try {
+    const res = await api.post(`/classes/${cls.id}/graduate`)
+    notify({ tone: "ok", title: t("profile.graduateDone", { n: res.graduated }), timeout: 3200 })
+    graduatingClassId.value = ""
+    await load()
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    graduating.value = false
+  }
+}
+
 async function logout() {
   const ok = await ask({
     title: "退出登录？",
-    message: "退出后需要重新输入手机号和密码。",
+    message: "退出后需要重新输入邮箱和密码。",
     confirmLabel: t("auth.logout"),
     tone: "warn",
   })
@@ -137,7 +212,7 @@ const activity = computed(() => {
   return [
     { label: t("profile.recordsLogged"), value: s.interactions, icon: "checklist" },
     { label: t("profile.resultsEntered"), value: s.results_entered, icon: "clipboard" },
-    { label: t("profile.notesAdded"), value: s.notes_added, icon: "note" },
+    { label: t("profile.commentsWritten"), value: s.comments_written, icon: "note" },
   ]
 })
 </script>
@@ -154,9 +229,8 @@ const activity = computed(() => {
     :rows="4"
     @retry="load"
   >
-    <div class="split">
-      <div>
-        <!-- 资料 -->
+    <div>
+      <!-- 资料 -->
         <div class="card">
           <div class="card__head">
             <h2 class="card__title"><Icon name="user" :size="16" /> 基本资料</h2>
@@ -171,9 +245,11 @@ const activity = computed(() => {
               <div class="grow">
                 <p style="font-size: 17px; font-weight: 600">{{ profile.user.name }}</p>
                 <div class="row-wrap" style="margin-top: 6px">
-                  <span class="pill pill--outline">{{ t("profile.loginPhone") }}：{{ profile.user.phone }}</span>
-                  <span v-if="profile.user.email" class="pill pill--outline">
-                    {{ t("profile.email") }}：{{ profile.user.email }}
+                  <span class="pill pill--outline">
+                    {{ t("profile.loginEmail") }}：{{ profile.user.email }}
+                  </span>
+                  <span v-if="profile.user.phone" class="pill pill--outline">
+                    {{ t("profile.phone") }}：{{ profile.user.phone }}
                   </span>
                 </div>
               </div>
@@ -185,8 +261,19 @@ const activity = computed(() => {
               <FormField :label="t('login.name')" required :error="errors.name || ''">
                 <input v-model="editForm.name" class="input" type="text" :aria-invalid="!!errors.name" />
               </FormField>
-              <FormField :label="t('profile.email')" optional>
-                <input v-model="editForm.email" class="input" type="email" />
+              <FormField
+                :label="t('profile.phone')"
+                optional
+                :error="errors.phone || ''"
+                :hint="t('profile.phoneHint')"
+              >
+                <input
+                  v-model="editForm.phone"
+                  class="input"
+                  type="tel"
+                  inputmode="numeric"
+                  :aria-invalid="!!errors.phone"
+                />
               </FormField>
             </div>
             <div class="form-actions">
@@ -199,6 +286,14 @@ const activity = computed(() => {
               </button>
             </div>
           </form>
+
+          <!-- 教学足迹：1 行 3 列 -->
+          <div class="profile-stats">
+            <div v-for="a in activity" :key="a.label" class="profile-stat">
+              <div class="profile-stat__value">{{ a.value }}</div>
+              <div class="profile-stat__label">{{ a.label }}</div>
+            </div>
+          </div>
         </div>
 
         <!-- 偏好设置 -->
@@ -231,55 +326,97 @@ const activity = computed(() => {
               </label>
               <p class="field__hint" style="margin-top: 8px">{{ t("profile.calendarBirthdaysHint") }}</p>
             </div>
+            <div class="profile-section">
+              <p style="font-weight: 600; margin: 0">{{ t("profile.clearHomeVisitTags") }}</p>
+              <p class="field__hint" style="margin-top: 8px">{{ t("profile.clearHomeVisitTagsHint") }}</p>
+              <button
+                type="button"
+                class="btn btn--sm"
+                style="margin-top: 12px"
+                :disabled="clearingHomeVisitTags || settingsSaving"
+                @click="clearHomeVisitTags"
+              >
+                <span v-if="clearingHomeVisitTags" class="spinner" />
+                {{ t("profile.clearHomeVisitTags") }}
+              </button>
+            </div>
           </div>
         </div>
-
-        <!-- 我的班级 -->
+        <!-- 毕业归档：标记毕业 + 查看归档班级与毕业生（名单默认收起） -->
         <div class="card">
           <div class="card__head">
-            <h2 class="card__title"><Icon name="building" :size="16" /> {{ t("profile.myClasses") }}</h2>
-            <span class="pill pill--muted pill--count">{{ profile.classes.length }}</span>
+            <div>
+              <h2 class="card__title"><Icon name="flag" :size="16" /> {{ t("profile.graduatedArchive") }}</h2>
+              <p class="card__desc">{{ t("profile.graduatedArchiveHint") }}</p>
+            </div>
           </div>
           <div class="card__body">
-            <div v-if="!profile.classes.length" class="state state--in-card">
-              <p class="state__desc">{{ t("profile.noClasses") }}</p>
+            <div v-if="profile.classes.length" class="row" style="gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px">
+              <SelectMenu
+                v-model="graduatingClassId"
+                :options="profile.classes.map((c) => ({ value: c.id, label: `${c.name}（${c.students.length} 人）` }))"
+                placeholder="选择班级"
+                aria-label="选择要毕业的班级"
+                :disabled="graduating"
+                trigger-class="input input--sm"
+              />
+              <button
+                type="button"
+                class="btn btn--sm"
+                :disabled="graduating || !graduatingClassId"
+                @click="graduateClass"
+              >
+                <span v-if="graduating" class="spinner" />
+                {{ t("profile.graduateAction") }}
+              </button>
             </div>
-            <div v-for="c in profile.classes" :key="c.id" class="stack" style="gap: 8px; margin-bottom: 20px">
-              <div class="row-wrap">
-                <router-link :to="`/classes/${c.id}`" class="pill">{{ c.name }}</router-link>
-                <span class="stat__sub">
-                  {{ c.academic_year }} · {{ t("profile.studentsCount", { n: c.students.length }) }}
-                </span>
-              </div>
-              <div class="chips">
-                <router-link
-                  v-for="s in c.students"
-                  :key="s.id"
-                  :to="`/students/${s.id}`"
-                  class="chip"
-                >
-                  {{ s.name }}
-                  <span class="muted" style="font-size: 12px">{{ genderLabel(s.gender) }}</span>
-                </router-link>
+
+            <p v-if="error" class="field__error" style="margin-bottom: 12px">
+              <Icon name="alert-circle" :size="12" /> {{ error }}
+            </p>
+
+            <div v-if="profile.archived_classes.length" class="stack" style="gap: 12px">
+              <div v-for="c in profile.archived_classes" :key="c.id" class="stack" style="gap: 8px">
+                <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between">
+                  <div class="row-wrap" style="align-items: center">
+                    <router-link :to="`/classes/${c.id}`" class="pill">
+                      {{ c.name }} <span class="muted" style="font-weight: 400">{{ t("profile.graduatedSuffix") }}</span>
+                    </router-link>
+                    <span class="stat__sub">
+                      {{ c.academic_year }}
+                      <template v-if="c.students.length"> · {{ t("profile.studentsCount", { n: c.students.length }) }}</template>
+                    </span>
+                  </div>
+                  <button
+                    v-if="c.students.length"
+                    type="button"
+                    class="btn btn--sm btn--ghost"
+                    @click="toggleRoster(c.id)"
+                  >
+                    {{ expandedClasses.has(c.id) ? t("profile.hideRoster") : t("profile.viewRoster") }}
+                  </button>
+                </div>
+                <div v-if="expandedClasses.has(c.id) && c.students.length" class="chips" style="padding-left: 4px">
+                  <router-link
+                    v-for="s in c.students"
+                    :key="s.id"
+                    :to="`/students/${s.id}`"
+                    class="chip"
+                  >
+                    {{ s.name }}
+                    <span class="muted" style="font-size: 12px">{{ s.admission_no }}</span>
+                  </router-link>
+                </div>
               </div>
             </div>
+            <p v-else class="muted" style="margin: 0">{{ t("profile.noArchivedClasses") }}</p>
           </div>
         </div>
       </div>
 
-      <!-- 教学足迹 -->
-      <div class="card">
-        <div class="card__head">
-          <h2 class="card__title"><Icon name="chart" :size="16" /> {{ t("profile.activity") }}</h2>
-        </div>
-        <div class="card__body">
-          <div v-for="a in activity" :key="a.label" class="stat stat--plain">
-            <div class="stat__label">{{ a.label }}</div>
-            <div class="stat__value tnum">{{ a.value }}</div>
-          </div>
-        </div>
-      </div>
-      </div>
+      <!-- 数据管理：花名册导入导出与演示数据（原「数据」页并入） -->
+      <DataView />
+
       <div class="form-actions" style="justify-content: center">
         <button type="button" class="btn btn--danger" @click="logout">
           <Icon name="logout" :size="15" /> {{ t("auth.logout") }}

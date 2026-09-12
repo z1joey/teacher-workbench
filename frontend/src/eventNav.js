@@ -19,7 +19,6 @@ export function eventRoute(e) {
   const id = e?.id
   if (!id || e?.event_type === "birthday") return null
   const type = e.event_type
-  if (type === "activity") return `/events/${id}`
   if (type === "exam") return `/exams/${id}`
   if (type === "comment") return `/comments/${id}`
   const sid = eventStudentId(e)

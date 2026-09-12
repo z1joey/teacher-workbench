@@ -15,8 +15,8 @@ Design notes and schema rationale: [docs/design.md](docs/design.md)
 有两种运行方式：**本地开发模式**（前后端分开跑，改代码实时生效）和 **Docker 模式**
 （一键构建，接近生产环境）。两者都占用 8001 端口，**不要同时运行**。
 
-演示账号：`13800000001 / 123456`（陈老师）、`13800000002 / 123456`（赵老师），
-也可以在登录页自行注册（邮箱选填）。
+演示账号：`chen@school.edu / 123456`（陈老师）、`admin@school.dev / admin123`（管理员），
+也可以在登录页自行注册（手机号可在个人中心选填）。
 
 ### 方式一：本地开发模式
 
@@ -121,7 +121,7 @@ docker compose up -d --build     # 修改代码后重新构建并启动
 
 | 路由 | 用途 |
 | --- | --- |
-| `/login` | 手机号注册 / 登录（标签页切换） |
+| `/login` | 邮箱注册 / 登录 |
 | `/` | 首页仪表盘：统计、考试倒计时、最新动态、待跟进家访、快捷操作 |
 | `/profile` | 个人中心：资料编辑、我的班级、教学足迹 |
 | `/classes`、`/classes/:id` | 班级列表（新建/编辑/删除）与班级详情（趋势图/平均成绩/名单） |
@@ -144,11 +144,11 @@ docker compose up -d --build     # 修改代码后重新构建并启动
 
 | 方法 | 路径 | 用途 |
 | --- | --- | --- |
-| POST | `/api/auth/register` | 手机号注册（姓名、手机号、密码，邮箱选填） |
-| POST | `/api/auth/login` | 手机号 + 密码 → bearer token |
+| POST | `/api/auth/register` | 邮箱注册（姓名、邮箱、密码） |
+| POST | `/api/auth/login` | 邮箱 + 密码 → bearer token |
 | POST | `/api/auth/logout` · GET `/api/auth/me` | 注销会话 · 当前教师 |
 | GET | `/api/dashboard` · `/api/calendar` | 首页聚合（统计、 upcoming 考试、待跟进、最新事件） · 日历视图 |
-| GET `/api/profile` · PATCH `/api/profile` | 教师资料（班级/学生/足迹） · 编辑姓名/邮箱/学科 |
+| GET `/api/profile` · PATCH `/api/profile` | 教师资料（班级/学生/足迹） · 编辑姓名/手机号 |
 | GET · POST | `/api/students` | 列表 · 新增（监护人电话必填） |
 | GET | `/api/students/{id}` | 档案、成绩、跟进记录（家访来自 `Event` type=`home_visited`） |
 | GET | `/api/students/{id}/timeline` | 时间线（最新在前，一切事件追加式写入 `event` 表） |
@@ -205,8 +205,8 @@ person ──< person_tags >── tag           学生标签（按约定仅学�
 **1. `person.payload`：角色即数据形状。** 全系统只有一张身份表，角色
 （student/teacher/admin）与该角色的全部档案字段都存在 payload JSONB 里，
 由 `app/payloads.py` 的校验注册表统一把关（新增角色 = 新增一种 payload
-形状 + 一条注册项，**无需 DDL**）。学生无手机号/不登录，教师/管理员用
-phone + 密码登录。
+形状 + 一条注册项，**无需 DDL**）。学生无邮箱/不登录，教师/管理员用
+email + 密码登录。
 
 **2. `enrollment`：带时间维度的班级归属。** 学生转班**从不修改旧记录**，
 而是关闭旧行（写入 `valid_to`）并追加新行，因此 `enrollment` 本身就是完整

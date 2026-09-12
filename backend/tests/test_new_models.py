@@ -20,7 +20,7 @@ def db():
 
 
 def test_legacy_event_types_are_valid(db):
-    ev = m.Event(type="talk", title="谈话", start_time=datetime(2026, 9, 5, 10, 0))
+    ev = m.Event(type="comment", title="评语", start_time=datetime(2026, 9, 5, 10, 0))
     db.add(ev)
     db.commit()
     assert ev.id is not None

@@ -124,11 +124,22 @@ const messages = {
   "classdetail.addStudentHint": "只能添加尚未分班的学生",
   "classdetail.addStudentEmpty": "没有待分配的学生",
   "classdetail.studentAdded": "已将 {name} 加入班级",
+  "classdetail.batchSelect": "批量操作",
+  "classdetail.batchExit": "退出多选",
+  "classdetail.batchAll": "全选",
+  "classdetail.batchNone": "清空",
+  "classdetail.batchSelected": "已选 {n} 人",
+  "classdetail.batchTarget": "转入",
+  "classdetail.batchConfirm": "确认分配",
+  "classdetail.batchConfirmTitle": "将 {n} 名学生转入「{class}」？",
+  "classdetail.batchConfirmHint": "转班记录会写入每个学生的时间线。",
+  "classdetail.batchDone": "已转入 {n} 人",
+  "classdetail.batchDoneSkipped": "已转入 {moved} 人，{skipped} 人已在目标班级，已跳过",
   "classdetail.noScores": "这个班级还没有成绩数据",
 
   // --- 登录 ---
   "login.name": "姓名",
-  "login.phone": "手机号",
+  "login.email": "邮箱",
   "login.password": "密码",
   "login.submit": "登录",
   "login.submitting": "正在登录…",
@@ -141,9 +152,8 @@ const messages = {
   // --- 注册 ---
   "signup.subtitle": "创建教师账号",
   "signup.nameRequired": "请填写姓名",
-  "signup.phoneHint": "6-15 位数字，可用空格或短横线分隔",
-  "signup.phoneRequired": "请输入手机号",
-  "signup.phoneInvalid": "手机号格式不正确，请输入 6-15 位数字",
+  "signup.emailRequired": "请输入邮箱",
+  "signup.emailInvalid": "邮箱格式不正确",
   "signup.passwordShort": "密码至少 6 位",
   "signup.password2": "确认密码",
   "signup.passwordMismatch": "两次输入的密码不一致",
@@ -263,20 +273,26 @@ const messages = {
   // --- 个人中心 ---
   "profile.title": "个人中心",
   "profile.subtitle": "个人信息、班级与教学足迹",
-  "profile.loginPhone": "登录手机号",
-  "profile.email": "邮箱",
-  "profile.myClasses": "我的班级",
-  "profile.noClasses": "暂时没有班级",
+  "profile.loginEmail": "登录邮箱",
+  "profile.phone": "手机号",
+  "profile.phoneEmpty": "未填写",
+  "profile.phoneHint": "6-15 位数字，可用空格或短横线分隔",
+  "profile.phoneInvalid": "手机号格式不正确，请输入 6-15 位数字",
   "profile.activity": "教学足迹",
   "profile.recordsLogged": "跟进记录",
   "profile.resultsEntered": "录入成绩",
-  "profile.notesAdded": "添加备注",
+  "profile.commentsWritten": "撰写评语",
   "profile.editInfo": "编辑资料",
   "profile.saved": "已保存",
   "profile.studentsCount": "{n} 人",
   "profile.settings": "偏好设置",
   "profile.autoTags": "家访完成后自动添加「已家访」标签",
   "profile.autoTagsHint": "关闭后，标记家访完成时不会自动给学生打标签",
+  "profile.clearHomeVisitTags": "清除所有「已家访」标签",
+  "profile.clearHomeVisitTagsHint": "只清除你工作区内学生身上的该标签，不影响家访记录",
+  "profile.clearHomeVisitTagsConfirm": "确定清除所有学生身上的「已家访」标签？家访记录不会删除。",
+  "profile.clearHomeVisitTagsDone": "已清除 {n} 个「已家访」标签",
+  "profile.clearHomeVisitTagsEmpty": "当前没有可清除的「已家访」标签",
   "profile.calendarBirthdays": "在日历中显示学生生日",
   "profile.calendarBirthdaysHint": "关闭后，首页月历不再显示根据出生日期推算的生日",
   "profile.settingsSaved": "偏好已保存",
@@ -398,7 +414,8 @@ const messages = {
   "detail.born": "出生日期",
   "detail.guardian": "监护人",
   "detail.scores": "考试成绩",
-  "detail.scoresHint": "点任意一个分数即可就地更正，每次修改都会留下痕迹",
+  "detail.scoresHint": "折线图展示历次考试；点选图中的场次或用 ← → 切换，下方显示该场成绩，可展开查看全部。点分数可就地更正，↑↓ 为较上一场，更正显示调整幅度",
+  "detail.scoreCorrected": "更正{n}",
   "detail.addScore": "添加成绩",
   "detail.scoreAdded": "成绩已添加",
   "detail.events": "事件记录",
@@ -451,8 +468,23 @@ const messages = {
   // --- 状态枚举 ---
   "status.active": "在读",
   "status.inactive": "已停用",
+  "status.graduated": "已毕业",
   "status.entered": "已录入",
   "status.absent": "缺考",
+  "classes.archived": "已归档",
+  "classdetail.unarchive": "取消归档",
+  "classdetail.unarchiveDone": "已取消归档",
+  "profile.graduatedArchive": "毕业归档",
+  "profile.graduatedArchiveHint": "将整个班级标记为毕业：学生带上「已毕业」标签并从默认列表隐藏，数据不会删除。",
+  "profile.graduatedSuffix": "已毕业",
+  "profile.viewRoster": "查看名单",
+  "profile.hideRoster": "收起名单",
+  "profile.noArchivedClasses": "暂无归档班级。",
+  "profile.graduateAction": "标记毕业",
+  "profile.graduateConfirmTitle": "将「{class}」的 {n} 名在读学生标记为已毕业？",
+  "profile.graduateConfirmHint": "数据不会删除：学生会带上「已毕业」标签并从默认列表隐藏，班级转为已归档，之后仍可查看或手动删除。",
+  "profile.graduateConfirm": "确认毕业",
+  "profile.graduateDone": "已毕业 {n} 人，班级已归档",
 
   "gender.F": "女",
   "gender.M": "男",
@@ -469,13 +501,10 @@ const messages = {
   "tl.seat_changed": "换座位",
   "tl.birthday": "生日",
   "tl.home_visited": "家访",
-  "tl.parent_call": "家长沟通",
-  "tl.activity": "活动",
-  "tl.talk": "谈心",
-  "tl.tutoring": "辅导",
-  "tl.note_added": "教师备注",
   "tl.comment": "评语",
   "tl.joined": "加入 {class}",
+  "tl.graduated": "毕业",
+  "tl.graduatedFrom": "从 {class} 毕业",
 
   // --- 404 ---
   "nf.title": "这一页被黑板擦擦掉了",
@@ -580,14 +609,27 @@ export function genderLabel(g) {
   return t(`gender.${g}`) === `gender.${g}` ? g : t(`gender.${g}`)
 }
 
+/** 班级页顶栏面包屑：七年级 1 班 • 2025/2026 */
+export function classBreadcrumbLabel(name, academicYear) {
+  const spaced = String(name || "")
+    .replace(/(\D)(\d)/g, "$1 $2")
+    .replace(/(\d)(?=\D)/g, "$1 ")
+    .replace(/\s+/g, " ")
+    .trim()
+  const year = String(academicYear || "").trim()
+  return year ? `${spaced} • ${year}` : spaced
+}
+
 // ------------------------------------------------------------------ 状态
 
-const STUDENT_STATUS = { active: "在读", inactive: "已停用" }
+const STUDENT_STATUS = { active: "在读", inactive: "已停用", graduated: "已毕业" }
 export function studentStatusLabel(s) {
   return (s && STUDENT_STATUS[s]) || s || "—"
 }
 export function studentStatusTone(s) {
-  return s === "active" ? "ok" : "muted"
+  if (s === "active") return "ok"
+  if (s === "graduated") return "warn"
+  return "muted"
 }
 
 const RESULT_STATUS = { entered: "已录入", absent: "缺考" }
@@ -604,13 +646,8 @@ const EVENT_TYPES = {
   exam_taken: { icon: "clipboard", color: "#2E6BA8" },
   result_changed: { icon: "pencil", color: "#B45309" },
   home_visited: { icon: "home", color: "#2F7D4F" },
-  parent_call: { icon: "phone", color: "#367C6B" },
-  talk: { icon: "note", color: "#4F6EAD" },
-  tutoring: { icon: "board", color: "#854D0E" },
-  note_added: { icon: "note", color: "#5C6B63" },
   comment: { icon: "note", color: "#7C5BA8" },
   birthday: { icon: "cake", color: "#9A5B07" },
-  activity: { icon: "flag", color: "#0E7490" },
   seat_changed: { icon: "swap", color: "#2B8A8A" },
   exam: { icon: "clipboard", color: "#2E6BA8" },
   score: { icon: "clipboard", color: "#1D4ED8" },
@@ -635,11 +672,24 @@ export function eventTypeLabel(type, payload = null) {
 }
 
 // 事件展示标题（卡片、时间线、动态流等标题位全局复用）。
-// 生日带 🎂；注意与 eventTypeLabel 区分——后者还用于
-// 「删除这条生日记录？」这类句子拼接，不能带 emoji。
+// 注意与 eventTypeLabel 区分——后者还用于
+// 「删除这条生日记录？」这类句子拼接。
 export function eventTitle(type, payload = null) {
-  const label = eventTypeLabel(type, payload)
-  return type === "birthday" ? `🎂 ${label}` : label
+  return eventTypeLabel(type, payload)
+}
+
+// 时间线/卡片展示名：优先 Event.title，再回退类型标签。
+export function eventDisplayName(event) {
+  const type = event.event_type
+  const payload = event.payload || {}
+  const name = (event.title || "").trim()
+
+  if (type === "birthday") return eventTitle(type, payload)
+  if (type === "result_changed" && payload.exam) {
+    return `${payload.exam} · ${subject(payload.subject)}`
+  }
+  if (name) return name
+  return eventTitle(type, payload)
 }
 
 export function describeEvent(type, p = {}) {
@@ -647,6 +697,9 @@ export function describeEvent(type, p = {}) {
     case "enrolled":
       if (p.notes) return p.notes
       return t("tl.joined", { class: p.class_name ?? p.class ?? "" })
+    case "graduated":
+      if (p.notes) return p.notes
+      return p.class_name ? t("tl.graduatedFrom", { class: p.class_name }) : t("tl.graduated")
     case "class_moved":
       if (p.notes) return p.notes
       if (!p.from_class && !p.from) {
@@ -673,14 +726,8 @@ export function describeEvent(type, p = {}) {
     case "birthday":
       // 全局约定：生日只显示标题（见 eventTitle），不渲染描述
       return ""
-    case "activity":
-      return p.notes ?? ""
     case "home_visited":
-    case "parent_call":
       return `${p.guardian ? `与${p.guardian} · ` : ""}${p.purpose ? p.purpose + " — " : ""}${p.summary || ""}`
-    case "talk":
-    case "tutoring":
-    case "note_added":
     case "comment": {
       const base = p.notes ?? p.summary ?? p.note ?? ""
       const names = (p.mentioned || []).map((m) => m.name).filter(Boolean)
@@ -702,8 +749,7 @@ export function describeEvent(type, p = {}) {
 export const RECORDABLE_EVENT_TYPES = [
   { value: "home_visited", label: "tl.home_visited" },
 ]
-// 手动记录暂时只开放家访；其余类型（家长沟通/谈心/辅导/教师备注）的历史
-// 记录仍可编辑。录入成绩走考试详情页和学生档案的成绩卡，不在这个表单里。
+// 手动记录暂时只开放家访；评语走独立入口。录入成绩走考试详情页和学生档案的成绩卡。
 export function recordableEventOptions() {
   return RECORDABLE_EVENT_TYPES.map((o) => ({ value: o.value, label: t(o.label) }))
 }
@@ -712,7 +758,8 @@ export function recordableEventOptions() {
 
 // 把后端/网络错误翻译成能指导下一步动作的话（错误可识别、可诊断、可恢复）
 const ERROR_HINTS = [
-  [/手机号已(注册|存在)|already registered/i, "该手机号已注册，可直接登录，或联系管理员重置密码"],
+  [/邮箱已(注册|存在)/i, "该邮箱已注册，可直接登录，或联系管理员重置密码"],
+  [/手机号已(注册|存在)|already registered/i, "该手机号已被使用，请换一个号码"],
   [/at least 6 characters/i, "密码至少 6 位"],
   [/internal server error|proxy|bad gateway|service unavailable/i, "服务器暂时出了问题，请稍后重试"],
   [/登录已过期|not authenticated|未登录/i, "登录已过期，请重新登录"],

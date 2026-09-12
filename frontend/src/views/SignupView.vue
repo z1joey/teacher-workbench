@@ -10,30 +10,24 @@ import { notify } from "../feedback"
 import { friendlyError, t } from "../strings"
 
 const router = useRouter()
-const form = ref({ name: "", phone: "", password: "", password2: "" })
-const errors = ref({ name: "", phone: "", password: "", password2: "" })
+const form = ref({ name: "", email: "", password: "", password2: "" })
+const errors = ref({ name: "", email: "", password: "", password2: "" })
 const error = ref("")
 const busy = ref(false)
 
-// 与后端 /auth/register 同规则：去掉空格/短横线后须为 6-15 位数字
-function normalizePhone(phone) {
-  return phone.replace(/[\s-]/g, "")
-}
-
-// 就地校验：错误出现在各自的输入框下，而不是提交后才弹一条笼统提示
 function validate() {
-  errors.value = { name: "", phone: "", password: "", password2: "" }
+  errors.value = { name: "", email: "", password: "", password2: "" }
   let ok = true
   if (!form.value.name.trim()) {
     errors.value.name = t("signup.nameRequired")
     ok = false
   }
-  const phone = normalizePhone(form.value.phone.trim())
-  if (!phone) {
-    errors.value.phone = t("signup.phoneRequired")
+  const email = form.value.email.trim()
+  if (!email) {
+    errors.value.email = t("signup.emailRequired")
     ok = false
-  } else if (!/^\d{6,15}$/.test(phone)) {
-    errors.value.phone = t("signup.phoneInvalid")
+  } else if (!email.includes("@")) {
+    errors.value.email = t("signup.emailInvalid")
     ok = false
   }
   if (form.value.password.length < 6) {
@@ -54,7 +48,7 @@ async function submit() {
   try {
     const res = await api.post("/auth/register", {
       name: form.value.name.trim(),
-      phone: normalizePhone(form.value.phone.trim()),
+      email: form.value.email.trim(),
       password: form.value.password,
     })
     setToken(res.token)
@@ -89,19 +83,17 @@ async function submit() {
         </FormField>
 
         <FormField
-          :label="t('login.phone')"
+          :label="t('login.email')"
           required
-          :error="errors.phone || ''"
-          :hint="t('signup.phoneHint')"
+          :error="errors.email || ''"
         >
           <input
-            v-model="form.phone"
+            v-model="form.email"
             class="input"
-            type="tel"
-            inputmode="numeric"
+            type="email"
             autocomplete="username"
             required
-            :aria-invalid="!!errors.phone"
+            :aria-invalid="!!errors.email"
           />
         </FormField>
 

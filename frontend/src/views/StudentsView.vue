@@ -4,10 +4,11 @@
 import { computed, onMounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
+import SelectMenu from "../components/SelectMenu.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
-import { searchQuery, searchStudents, studentMatchesQuery, matchedGuardiansOf } from "../search"
+import { ensureSearchStudents, searchQuery, studentMatchesQuery, matchedGuardiansOf } from "../search"
 import Highlight from "../components/Highlight.vue"
 import { friendlyError, tagStyle, t, eventTitle, describeEvent, dateLocale } from "../strings"
 
@@ -25,7 +26,8 @@ async function load() {
   error.value = ""
   try {
     students.value = await api.get("/students")
-    searchStudents.value = students.value // keep the top bar dropdown in sync
+    // 搜索目录是含已毕业的超集，且在数据变化后强制刷新
+    await ensureSearchStudents(true)
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -52,6 +54,12 @@ const classOptions = computed(() => {
 })
 const hasUngrouped = computed(() => students.value.some((s) => !s.class))
 const groupCount = computed(() => classOptions.value.length + (hasUngrouped.value ? 1 : 0))
+
+const switcherOptions = computed(() => {
+  const opts = classOptions.value.map((c) => ({ value: c.id, label: c.name }))
+  if (hasUngrouped.value) opts.push({ value: UNGROUPED, label: t("students.ungrouped") })
+  return opts
+})
 
 // 选中班：URL ?class= 优先（班 id 或 "ungrouped"），否则第一个班
 const selectedKey = computed(() => {
@@ -104,18 +112,18 @@ function guardianHits(s) {
     :subtitle="t('students.subtitle', { count: visibleStudents.length })"
   >
     <template v-if="groupCount > 1" #title>
-      <label class="class-switcher">
-        <select
-          class="class-switcher__select"
-          :value="selectedKey"
-          aria-label="选择班级"
-          @change="switchClass($event.target.value)"
-        >
-          <option v-for="c in classOptions" :key="c.id" :value="c.id">{{ c.name }}</option>
-          <option v-if="hasUngrouped" :value="UNGROUPED">{{ t("students.ungrouped") }}</option>
-        </select>
-        <Icon name="chevron-down" :size="18" class="class-switcher__chevron" />
-      </label>
+      <SelectMenu
+        :model-value="selectedKey"
+        :options="switcherOptions"
+        aria-label="选择班级"
+        trigger-class="class-switcher__select"
+        @update:model-value="switchClass"
+      >
+        <template #trigger="{ label }">
+          <span>{{ label }}</span>
+          <Icon name="chevron-down" :size="18" class="class-switcher__chevron" />
+        </template>
+      </SelectMenu>
     </template>
     <template #actions>
       <span v-if="searching" class="pill pill--info">

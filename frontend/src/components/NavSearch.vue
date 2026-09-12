@@ -134,7 +134,10 @@ function clear() {
           </span>
           <span class="search-results__meta">
             <Highlight :text="m.student.admission_no" :query="searchQuery" /> ·
-            <template v-if="m.student.class">
+            <template v-if="m.student.status === 'graduated'">
+              <span class="search-results__graduated">{{ t("status.graduated") }}</span>
+            </template>
+            <template v-else-if="m.student.class">
               <Highlight :text="m.student.class.name" :query="searchQuery" />
             </template>
             <template v-else>{{ t("students.ungrouped") }}</template>

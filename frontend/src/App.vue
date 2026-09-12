@@ -37,7 +37,15 @@ const navItems = computed(() => (isAdmin.value ? ADMIN_NAV : TEACHER_NAV))
 const crumbs = computed(() => {
   const meta = route.meta || {}
   const out = []
-  if (meta.parent) out.push({ ...meta.parent })
+  if (meta.parent) {
+    // 从班级页进入的学生档案：面包屑回来源班级页，而不是学生列表
+    if (route.name === "studentDetail" && route.query.from === "class" && route.query.classId) {
+      const label = String(route.query.className || t("classes.title"))
+      out.push({ label, to: `/classes?class=${route.query.classId}` })
+    } else {
+      out.push({ ...meta.parent })
+    }
+  }
   const label = pageTitle.value || meta.title
   if (label) out.push({ label })
   return out
@@ -74,7 +82,7 @@ async function logout() {
 async function onLogout() {
   const ok = await ask({
     title: "退出登录？",
-    message: "退出后需要重新输入手机号和密码。",
+    message: "退出后需要重新输入邮箱和密码。",
     confirmLabel: "退出登录",
     tone: "warn",
   })
@@ -95,8 +103,6 @@ const paletteActions = computed(() => {
     { id: "new-student", label: "添加学生", icon: "plus", hint: "新建", run: () => router.push("/students/new") },
     { id: "new-exam", label: "新建考试", icon: "clipboard", hint: "新建", run: () => router.push("/exams/new") },
     { id: "new-class", label: "新建班级", icon: "building", hint: "新建", run: () => router.push("/classes?create=1") },
-    { id: "events", label: "查看事件", icon: "checklist", run: () => router.push("/events") },
-    { id: "data", label: "数据导入导出", icon: "database", run: () => router.push("/data") },
     { id: "profile", label: "个人中心", icon: "user", run: () => router.push("/profile") },
     { id: "help", label: "帮助与快捷键", icon: "help", hint: "?", run: () => openHelp() },
     { id: "logout", label: "退出登录", icon: "logout", run: onLogout },
@@ -157,7 +163,7 @@ function onKeydown(e) {
     return
   }
   if (lastG && Date.now() - lastG < 1400) {
-    const to = { h: "/", s: "/students", c: "/classes", e: "/exams", v: "/visits", r: "/events", d: "/data", p: "/profile" }[
+    const to = { h: "/", s: "/students", c: "/classes", e: "/exams", v: "/visits", p: "/profile" }[
       e.key.toLowerCase()
     ]
     lastG = 0

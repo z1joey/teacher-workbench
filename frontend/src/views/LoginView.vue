@@ -12,7 +12,7 @@ import { loadMe } from "../auth"
 import { friendlyError, t } from "../strings"
 
 const router = useRouter()
-const form = ref({ phone: "", password: "" })
+const form = ref({ email: "", password: "" })
 const error = ref("")
 const busy = ref(false)
 const setup = ref(null)
@@ -30,7 +30,7 @@ async function submit() {
   busy.value = true
   try {
     const res = await api.post("/auth/login", {
-      phone: form.value.phone,
+      email: form.value.email,
       password: form.value.password,
     })
     setToken(res.token)
@@ -67,12 +67,11 @@ async function bootstrap() {
       <AppMeta layout="login" />
 
       <form @submit.prevent="submit" novalidate>
-        <FormField :label="t('login.phone')" required :error="''">
+        <FormField :label="t('login.email')" required :error="''">
           <input
-            v-model="form.phone"
+            v-model="form.email"
             class="input"
-            type="tel"
-            inputmode="numeric"
+            type="email"
             autocomplete="username"
             required
           />
