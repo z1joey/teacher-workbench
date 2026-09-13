@@ -2519,6 +2519,13 @@ a.chip:hover {
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+/* 长文本（如学生总结）在动态流里只露 3 行，全文点条目进详情看 */
+.feed__desc--clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
 .feed__date {
   display: block;
   margin-bottom: 2px;

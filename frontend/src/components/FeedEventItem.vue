@@ -157,7 +157,11 @@ function onClick() {
           {{ fmtDate(event.occurred_at) }}
         </time>
       </div>
-      <p v-if="describeEvent(event.event_type, event.payload)" class="feed__desc">
+      <p
+        v-if="describeEvent(event.event_type, event.payload)"
+        class="feed__desc"
+        :class="{ 'feed__desc--clamp': event.event_type === 'summary' }"
+      >
         {{ describeEvent(event.event_type, event.payload) }}
       </p>
       <p v-else-if="event.students?.length > 1" class="feed__desc">
