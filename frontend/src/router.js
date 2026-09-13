@@ -13,6 +13,7 @@ import ClassDetailView from "./views/ClassDetailView.vue"
 import StudentsView from "./views/StudentsView.vue"
 import StudentNewView from "./views/StudentNewView.vue"
 import StudentDetailView from "./views/StudentDetailView.vue"
+import StudentSummariesView from "./views/StudentSummariesView.vue"
 import ExamsView from "./views/ExamsView.vue"
 import ExamNewView from "./views/ExamNewView.vue"
 import ExamDetailView from "./views/ExamDetailView.vue"
@@ -80,6 +81,13 @@ export const router = createRouter({
       component: CommentNewView,
       props: (r) => ({ studentId: r.params.studentId, eventId: r.params.eventId }),
       meta: { title: "评语", parent: { label: "学生", to: "/students" } },
+    },
+    {
+      path: "/students/:studentId/summaries",
+      name: "studentSummaries",
+      component: StudentSummariesView,
+      props: (r) => ({ studentId: r.params.studentId }),
+      meta: { title: "总结", parent: { label: "学生", to: "/students" } },
     },
     {
       path: "/students/new",

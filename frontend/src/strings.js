@@ -37,6 +37,7 @@ const messages = {
   "common.loadFailed": "没能加载这部分内容",
   "common.undone": "已撤销，没有做任何改动",
   "common.saved": "已保存",
+  "common.edit": "编辑",
 
   // --- 管理后台 ---
   "admin.title": "开发者后台",
@@ -397,6 +398,40 @@ const messages = {
   "commentNew.submit": "保存评语",
   "commentNew.saving": "保存中…",
 
+  // --- 学生总结 ---
+  "summary.title": "学生总结",
+  "summary.subtitle": "根据学生的事件记录，用 AI 生成阶段性总结；总结只出现在你自己的动态里，学生时间线看不到",
+  "summary.rangeLabel": "时间段",
+  "summary.rangeAll": "全部",
+  "summary.range90d": "近90天",
+  "summary.rangeHalfYear": "近半年",
+  "summary.rangeCustom": "自定义",
+  "summary.rangeFrom": "开始日期",
+  "summary.rangeTo": "结束日期",
+  "summary.rangeInvalid": "开始日期不能晚于结束日期",
+  "summary.lengthLabel": "字数",
+  "summary.lengthBrief": "简短（约100字）",
+  "summary.lengthStandard": "标准（约250字）",
+  "summary.lengthDetailed": "详细（约500字）",
+  "summary.styleLabel": "风格",
+  "summary.styleFormal": "客观正式",
+  "summary.styleWarm": "亲切温暖",
+  "summary.styleMotivational": "鼓励向上",
+  "summary.generate": "生成总结",
+  "summary.generating": "生成中…",
+  "summary.regenerate": "重新生成",
+  "summary.previewLabel": "总结内容（可修改后保存）",
+  "summary.emptyRange": "所选时间段内没有学生记录，换个时间段试试",
+  "summary.save": "保存总结",
+  "summary.saved": "总结已保存",
+  "summary.historyTitle": "历史总结",
+  "summary.historyEmpty": "还没有保存过总结；生成并保存后会显示在这里",
+  "summary.edited": "已编辑",
+  "summary.count": "{n} 条总结",
+  "summary.deleteTitle": "删除这条总结？",
+  "summary.deleteConsequences": "删除后无法恢复（可在 {n} 秒内撤销）",
+  "summary.deleted": "总结已删除",
+
   "th.admissionNo": "学号",
   "th.name": "姓名",
   "th.gender": "性别",
@@ -649,6 +684,7 @@ const EVENT_TYPES = {
   seat_changed: { icon: "swap", color: "#2B8A8A" },
   exam: { icon: "clipboard", color: "#2E6BA8" },
   score: { icon: "clipboard", color: "#1D4ED8" },
+  summary: { icon: "clipboard", color: "#5B6FB8" },
 }
 
 export function eventTypeIcon(type) {

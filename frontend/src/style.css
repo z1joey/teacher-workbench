@@ -2534,6 +2534,34 @@ a.chip:hover {
   margin-left: 0;
 }
 
+/* 学生总结：历史总结列表 */
+.summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.summary-item {
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+.summary-item:last-child {
+  border-bottom: 0;
+}
+.summary-item__actions {
+  display: inline-flex;
+  gap: 6px;
+}
+.summary-item__meta {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.summary-item__content {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ==========================================================================
    17. 月历
    ========================================================================== */

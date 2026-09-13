@@ -5,7 +5,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .bootstrap_db import ensure_schema
 from .deps import get_current_user
-from .routers import admin, auth, classes, dashboard, data, exams, misc, profile, students
+from .routers import (
+    admin,
+    auth,
+    classes,
+    dashboard,
+    data,
+    exams,
+    misc,
+    profile,
+    students,
+    summaries,
+)
 from .version import APP_VERSION, IS_BETA
 
 
@@ -26,6 +37,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api")
 app.include_router(students.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(summaries.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(classes.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(exams.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(misc.router, prefix="/api", dependencies=[Depends(get_current_user)])

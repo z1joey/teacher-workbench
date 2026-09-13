@@ -632,6 +632,10 @@ function addComment() {
   router.push(`/students/${props.id}/comments/new`)
 }
 
+function goSummaries() {
+  router.push(`/students/${props.id}/summaries`)
+}
+
 function fmtDate(d) {
   return d
     ? new Date(d).toLocaleDateString(dateLocale(), { year: "numeric", month: "short", day: "numeric" })
@@ -740,6 +744,9 @@ const headerMeta = computed(() => {
           </button>
           <button class="btn" @click="addEvent">
             <Icon name="plus" :size="15" /> {{ t("detail.recordEvent") }}
+          </button>
+          <button class="btn" @click="goSummaries">
+            <Icon name="clipboard" :size="15" /> {{ t("summary.title") }}
           </button>
         </template>
       </PageHeader>
