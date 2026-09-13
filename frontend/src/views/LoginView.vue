@@ -97,6 +97,10 @@ async function bootstrap() {
           <span v-if="busy" class="spinner" />
           {{ busy ? t("login.submitting") : t("login.submit") }}
         </button>
+
+        <p class="muted" style="margin: 10px 0 0; text-align: right">
+          <router-link to="/forgot-password">{{ t("login.needHelp") }}</router-link>
+        </p>
       </form>
 
       <div class="auth-note stack" style="gap: 10px">
