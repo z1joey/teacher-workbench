@@ -90,6 +90,47 @@ async function load() {
 onMounted(load)
 watch(() => props.id, load)
 
+// ------------------------------------------------------------------ 时间线
+
+// 时间线上考试事件的成绩描述：任一科目录入了成绩才显示，成绩取当前值
+//（更正后 scores 里就是最新分），按固定科目顺序排列
+const examScoreDesc = computed(() => {
+  const desc = new Map()
+  for (const row of student.value?.scores ?? []) {
+    if (row.status !== "entered" || row.score == null) continue
+    const key = row.exam_id || `${row.exam_date}|${row.exam_name}`
+    let parts = desc.get(key)
+    if (!parts) {
+      parts = []
+      desc.set(key, parts)
+    }
+    const n = Number(row.score)
+    parts.push({ subject: row.subject, text: `${subject(row.subject)} ${n % 1 === 0 ? n : n.toFixed(1)}` })
+  }
+  const ordered = new Map()
+  for (const [key, parts] of desc) {
+    parts.sort(
+      (a, b) =>
+        (COMMON_SUBJECT_KEYS.indexOf(a.subject) === -1
+          ? 99
+          : COMMON_SUBJECT_KEYS.indexOf(a.subject)) -
+        (COMMON_SUBJECT_KEYS.indexOf(b.subject) === -1
+          ? 99
+          : COMMON_SUBJECT_KEYS.indexOf(b.subject))
+    )
+    ordered.set(key, parts.map((p) => p.text).join(" · "))
+  }
+  return ordered
+})
+
+const timelineWithScores = computed(() =>
+  timeline.value.map((e) =>
+    e.event_type === "exam" && examScoreDesc.value.has(e.id)
+      ? { ...e, score_summary: examScoreDesc.value.get(e.id) }
+      : e
+  )
+)
+
 // ------------------------------------------------------------------ 成绩
 
 const hiddenScoreCount = computed(() =>
@@ -817,7 +858,7 @@ const headerMeta = computed(() => {
               </div>
             </div>
             <div class="card__body">
-              <Timeline :events="timeline" :student-id="props.id" />
+              <Timeline :events="timelineWithScores" :student-id="props.id" />
               <p v-if="!timeline.length" class="state__desc" style="padding: 12px 0; text-align: center">
                 {{ t("detail.noEvents") }}
               </p>

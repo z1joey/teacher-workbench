@@ -50,6 +50,8 @@ function monthDayLabel(ts) {
 const NO_TIMELINE_DESC = new Set(["exam", "birthday"])
 
 function timelineDesc(event) {
+  // exam 节点默认不展示描述；学生档案页会在有成绩时带上 score_summary
+  if (event.score_summary) return event.score_summary
   if (NO_TIMELINE_DESC.has(event.event_type)) return ""
   return describeEvent(event.event_type, event.payload)
 }
