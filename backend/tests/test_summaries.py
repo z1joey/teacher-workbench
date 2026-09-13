@@ -188,7 +188,8 @@ def test_student_timeline_excludes_summary(db, make_client):
 
 
 def test_dashboard_includes_summary_for_teacher(db, client, engine):
-    """真实应用路由表：教师出席的 summary 出现在首页最新动态。"""
+    """真实应用路由表：刚保存的总结按 created_at 排到动态最前，
+    不会被未来日期（start_time 更晚）的记录挤出「最新动态」。"""
     from sqlalchemy.orm import sessionmaker
 
     Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -198,6 +199,15 @@ def test_dashboard_includes_summary_for_teacher(db, client, engine):
         student = _seed_student(db, teacher)
         token = "d" * 64
         db.add(AuthSession(token=token, person_id=teacher.id))
+        db.commit()
+        future = eventing.create_event(
+            db, event_type="home_visited", title="未来回访",
+            start_time=datetime(2026, 10, 20, 9, 0),
+            payload={"summary": "未来日期的记录"},
+            attendee_ids=[student.id, teacher.id], commit=True,
+        )
+        # 种子时间戳回拨：模拟“记录时间早于总结”
+        future.created_at = datetime(2026, 9, 1, 8, 0)
         db.commit()
         eventing.create_event(
             db, event_type="summary", title="学生总结", start_time=datetime(2026, 9, 13, 9, 0),
@@ -213,7 +223,9 @@ def test_dashboard_includes_summary_for_teacher(db, client, engine):
     r = tc.get("/api/dashboard")
     assert r.status_code == 200, r.text
     recent = r.json()["recent_events"]
+    types = [e["event_type"] for e in recent]
+    assert "summary" in types
+    assert types.index("summary") < types.index("home_visited")  # 总结排在最前
     summary_rows = [e for e in recent if e["event_type"] == "summary"]
-    assert len(summary_rows) == 1
     assert summary_rows[0]["title"] == "学生总结"
     assert summary_rows[0]["students"] == [{"id": str(student.id), "name": student.name}]

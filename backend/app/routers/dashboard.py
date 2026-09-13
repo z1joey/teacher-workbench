@@ -189,7 +189,9 @@ def dashboard(
             Event.type.notin_(list(_DIGEST_EXCLUDED_TYPES)),
             Event.attendees.any(Person.id == user.id),
         )
-        .order_by(Event.start_time.desc(), Event.created_at.desc())
+        # 「最近发生的记录」= 最近记录的：按 created_at 排序，刚保存的
+        # 总结/评语立刻可见，不会被未来日期的记录（如排期回访）挤掉
+        .order_by(Event.created_at.desc(), Event.start_time.desc())
         .limit(24)
         .all()
     )
