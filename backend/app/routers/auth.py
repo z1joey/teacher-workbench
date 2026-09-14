@@ -1,15 +1,32 @@
-"""Auth: register / login → bearer session → /me → logout."""
+"""Auth: register / login → bearer session → /me → logout.
+
+Forgot-password: POST /auth/password/forgot emails a 6-digit code (Aliyun
+DirectMail), POST /auth/password/reset verifies it against Redis (hashed,
+attempt-capped) and swaps the password — killing every session of that
+account. Both endpoints answer the same for unknown emails so account
+existence never leaks.
+"""
 import re
 
+import redis as redis_lib
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
+from ..directmail import MailError, send_html_mail
 from ..display_name import teacher_display_name
 from ..database import get_db
 from ..deps import bearer_scheme, get_current_person
 from ..models import AuthSession, Person
+from ..password_reset import (
+    CodeError,
+    PasswordCodeStore,
+    RateLimited,
+    build_reset_email,
+    get_code_store,
+)
 from ..payloads import validate_person_payload
 from ..security import hash_password, new_token, verify_password
 from ..seed import seed
@@ -164,3 +181,79 @@ def logout(
 @router.get("/me")
 def me(person: Person = Depends(get_current_person)):
     return user_out(person)
+
+
+# ------------------------------------------------------------- 忘记密码
+
+class ForgotIn(BaseModel):
+    email: str
+
+
+class ResetIn(BaseModel):
+    email: str
+    code: str = Field(min_length=4, max_length=8)
+    new_password: str = Field(min_length=6, max_length=64)
+
+
+def get_mailer():
+    """Dependency indirection so tests can stub the DirectMail call.
+    注意：不要加返回注解——Callable 注解会让 FastAPI 把邮件函数再解析成子依赖。"""
+    return send_html_mail
+
+
+@router.post("/password/forgot")
+def forgot_password(
+    body: ForgotIn,
+    db: Session = Depends(get_db),
+    store: PasswordCodeStore = Depends(get_code_store),
+    send_mail=Depends(get_mailer),
+):
+    """发送重置验证码。限流对任意邮箱一致生效（1 分钟冷却 / 每小时 5 封）；
+    账号不存在或已停用时同样返回 ok，不泄露账号存在性。"""
+    email = normalize_email(body.email)
+    validate_email_format(email)
+    try:
+        code, _ = store.request_code(email)
+    except RateLimited as e:
+        raise HTTPException(
+            status_code=429,
+            detail=f"发送太频繁，请 {e.retry_after} 秒后再试",
+            headers={"Retry-After": str(e.retry_after)},
+        )
+    except RedisError:
+        raise HTTPException(status_code=503, detail="验证码服务暂不可用，请稍后再试")
+    person = db.query(Person).filter(Person.email == email).first()
+    if person is not None and (person.payload or {}).get("is_active", True) is not False:
+        try:
+            send_mail(email, "重置密码验证码", build_reset_email(code))
+        except MailError:
+            raise HTTPException(status_code=502, detail="邮件发送失败，请稍后再试")
+    return {"ok": True}
+
+
+@router.post("/password/reset")
+def reset_password(
+    body: ResetIn,
+    db: Session = Depends(get_db),
+    store: PasswordCodeStore = Depends(get_code_store),
+):
+    """校验验证码并重置密码；成功后吊销该账号全部会话，强制重新登录。"""
+    email = normalize_email(body.email)
+    person = db.query(Person).filter(Person.email == email).first()
+    if person is None:
+        raise HTTPException(status_code=400, detail="验证码错误或已过期")
+    try:
+        store.verify_and_consume(email, body.code)
+    except CodeError as e:
+        detail = (
+            "尝试次数过多，请重新获取验证码"
+            if e.reason == "exhausted"
+            else "验证码错误或已过期"
+        )
+        raise HTTPException(status_code=400, detail=detail)
+    except RedisError:
+        raise HTTPException(status_code=503, detail="验证码服务暂不可用，请稍后再试")
+    person.password_hash = hash_password(body.new_password)
+    db.query(AuthSession).filter(AuthSession.person_id == person.id).delete()
+    db.commit()
+    return {"ok": True}

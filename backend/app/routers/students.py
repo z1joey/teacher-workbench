@@ -843,8 +843,10 @@ def student_timeline(student_id: uuid.UUID, db: Session = Depends(get_db)):
         .filter(
             Event.attendees.any(Person.id == student_id),
             # score events stay in the 考试成绩 card — one row per subject per
-            # exam floods the timeline with rows the scores table shows better
+            # exam floods the timeline with rows the scores table shows better;
+            # summaries belong to the teacher's own feed, not the student's
             Event.type != "score",
+            Event.type != "summary",
         )
         .order_by(Event.start_time.desc(), Event.created_at.desc())
         .all()
@@ -1021,7 +1023,7 @@ def list_student_events(
         db.query(Event)
         .filter(
             Event.attendees.any(Person.id == student_id),
-            Event.type.notin_(list(SYSTEM_EVENT_TYPES)),
+            Event.type.notin_(list(SYSTEM_EVENT_TYPES) + ["summary"]),
         )
         .order_by(Event.start_time.desc(), Event.created_at.desc())
         .all()

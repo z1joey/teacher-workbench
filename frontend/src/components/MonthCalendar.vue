@@ -237,15 +237,6 @@ function dotColor(it) {
           </template>
         </div>
 
-        <div class="cal-legend">
-          <span class="cal-legend__item">
-            <i class="cal-legend__swatch" style="background: #b42318" /> {{ t("home.calLegendExam") }}
-          </span>
-          <span class="cal-legend__item">
-            <i class="cal-legend__swatch" style="background: var(--primary)" /> {{ t("home.calLegendRecord") }}
-          </span>
-        </div>
-
         <div v-if="!selectedDate && nearTermBlocks.length" class="cal-notify">
           <section v-for="block in nearTermBlocks" :key="block.key" class="cal-notify__block">
             <header class="cal-notify__head">

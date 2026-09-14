@@ -21,6 +21,11 @@ export function eventRoute(e) {
   const type = e.event_type
   if (type === "exam") return `/exams/${id}`
   if (type === "comment") return `/comments/${id}`
+  // 总结：复用学生总结页（历史列表），定位到这条
+  if (type === "summary") {
+    const sid = eventStudentId(e)
+    if (sid) return { path: `/students/${sid}/summaries`, query: { focus: id } }
+  }
   const sid = eventStudentId(e)
   if (sid) return `/students/${sid}/events/${id}`
   return null

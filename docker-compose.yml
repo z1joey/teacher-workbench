@@ -22,6 +22,20 @@ services:
       timeout: 5s
       retries: 12
 
+  redis:
+    # 忘记密码验证码存储 + 限流计数；端口仅发布在回环地址供本地开发直连
+    image: redis:7-alpine
+    container_name: teacher-workbench-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   backend:
     build:
       context: ./backend
@@ -36,8 +50,15 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:?missing - copy .env.example to .env}:${POSTGRES_PASSWORD:?missing - copy .env.example to .env}@db:5432/${POSTGRES_DB:?missing - copy .env.example to .env}
+      # 忘记密码验证码存 Redis；ALI_* 为阿里云 DirectMail 发信凭据（见 .env）
+      - REDIS_URL=redis://redis:6379/0
+      - ALI_ACCESS_KEY_ID=${ALI_ACCESS_KEY_ID:-}
+      - ALI_ACCESS_KEY_SECRET=${ALI_ACCESS_KEY_SECRET:-}
+      - ALI_NO_REPLY_EMAIL=${ALI_NO_REPLY_EMAIL:-}
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       # 127.0.0.1 on purpose — deterministic, avoids localhost resolving to ::1

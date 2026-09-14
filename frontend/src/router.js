@@ -13,6 +13,8 @@ import ClassDetailView from "./views/ClassDetailView.vue"
 import StudentsView from "./views/StudentsView.vue"
 import StudentNewView from "./views/StudentNewView.vue"
 import StudentDetailView from "./views/StudentDetailView.vue"
+import StudentSummariesView from "./views/StudentSummariesView.vue"
+import ForgotPasswordView from "./views/ForgotPasswordView.vue"
 import ExamsView from "./views/ExamsView.vue"
 import ExamNewView from "./views/ExamNewView.vue"
 import ExamDetailView from "./views/ExamDetailView.vue"
@@ -82,6 +84,13 @@ export const router = createRouter({
       meta: { title: "评语", parent: { label: "学生", to: "/students" } },
     },
     {
+      path: "/students/:studentId/summaries",
+      name: "studentSummaries",
+      component: StudentSummariesView,
+      props: (r) => ({ studentId: r.params.studentId }),
+      meta: { title: "总结", parent: { label: "学生", to: "/students" } },
+    },
+    {
       path: "/students/new",
       name: "studentNew",
       component: StudentNewView,
@@ -123,12 +132,18 @@ export const router = createRouter({
       meta: { title: "考试详情", parent: { label: "考试", to: "/exams" } },
     },
     { path: "/admin", name: "admin", component: AdminView, meta: { title: "开发者后台" } },
+    {
+      path: "/forgot-password",
+      name: "forgotPassword",
+      component: ForgotPasswordView,
+      meta: { title: "忘记密码" },
+    },
     { path: "/:pathMatch(.*)*", name: "notFound", component: NotFoundView, meta: { title: "页面不存在" } },
   ],
 })
 
 // 免登录页 —— 路由守卫与 App 外壳（是否渲染导航）共用同一份口径
-export const AUTH_PATHS = new Set(["/login", "/signup"])
+export const AUTH_PATHS = new Set(["/login", "/signup", "/forgot-password"])
 
 router.beforeEach(async (to) => {
   const loggedIn = !!getToken()

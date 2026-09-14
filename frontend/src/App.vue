@@ -17,7 +17,7 @@ import { clearMe, loadMe, me } from "./auth"
 import { clearSearch } from "./search"
 import { ADMIN_NAV, TEACHER_NAV, isNavActive } from "./nav"
 import { t } from "./strings"
-import { pageTitle, setPageTitle } from "./title"
+import { pageCrumbs, pageTitle, setPageCrumbs, setPageTitle } from "./title"
 import { ask, closeConfirm, confirmDialog } from "./confirm"
 import { closeHelp, helpOpen, openHelp, toggleHelp } from "./help"
 import { clearAll } from "./feedback"
@@ -33,7 +33,8 @@ const loggingOut = ref(false)
 const isAuthPage = computed(() => AUTH_PATHS.has(route.path))
 const isAdmin = computed(() => me.value?.role === "admin")
 const navItems = computed(() => (isAdmin.value ? ADMIN_NAV : TEACHER_NAV))
-// 面包屑：父级 + 当前页（详情页会把真实名字写进 pageTitle）
+// 面包屑：父级 + 中间层级（子页插入的，如学生名）+ 当前页
+// （详情页会把真实名字写进 pageTitle）
 const crumbs = computed(() => {
   const meta = route.meta || {}
   const out = []
@@ -46,6 +47,7 @@ const crumbs = computed(() => {
       out.push({ ...meta.parent })
     }
   }
+  out.push(...pageCrumbs.value)
   const label = pageTitle.value || meta.title
   if (label) out.push({ label })
   return out
@@ -57,6 +59,7 @@ watch(
   (path) => {
     drawerOpen.value = false
     setPageTitle("") // 切换页面先清掉上一个详情页留下的名字
+    setPageCrumbs([])
     if (path !== "/login" && getToken() && !me.value) loadMe()
   }
 )
