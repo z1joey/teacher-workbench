@@ -5,7 +5,6 @@ const SYSTEM_TYPES = new Set([
   "enrolled",
   "class_moved",
   "exam_taken",
-  "result_changed",
 ])
 
 export function eventStudentId(e) {

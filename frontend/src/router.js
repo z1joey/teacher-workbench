@@ -13,6 +13,7 @@ import ClassDetailView from "./views/ClassDetailView.vue"
 import StudentsView from "./views/StudentsView.vue"
 import StudentNewView from "./views/StudentNewView.vue"
 import StudentDetailView from "./views/StudentDetailView.vue"
+import ScoreNewView from "./views/ScoreNewView.vue"
 import StudentSummariesView from "./views/StudentSummariesView.vue"
 import ForgotPasswordView from "./views/ForgotPasswordView.vue"
 import ExamsView from "./views/ExamsView.vue"
@@ -67,21 +68,28 @@ export const router = createRouter({
       name: "commentEdit",
       component: CommentNewView,
       props: (r) => ({ eventId: r.params.eventId }),
-      meta: { title: "评语" },
+      meta: { title: "记录" },
     },
     {
       path: "/students/:studentId/comments/new",
       name: "commentNew",
       component: CommentNewView,
       props: (r) => ({ studentId: r.params.studentId }),
-      meta: { title: "写评语", parent: { label: "学生", to: "/students" } },
+      meta: { title: "添加记录", parent: { label: "学生", to: "/students" } },
+    },
+    {
+      path: "/students/:studentId/scores/new",
+      name: "scoreNew",
+      component: ScoreNewView,
+      props: (r) => ({ studentId: r.params.studentId }),
+      meta: { title: "添加成绩", parent: { label: "学生", to: "/students" } },
     },
     {
       path: "/students/:studentId/comments/:eventId",
       name: "commentDetail",
       component: CommentNewView,
       props: (r) => ({ studentId: r.params.studentId, eventId: r.params.eventId }),
-      meta: { title: "评语", parent: { label: "学生", to: "/students" } },
+      meta: { title: "记录", parent: { label: "学生", to: "/students" } },
     },
     {
       path: "/students/:studentId/summaries",

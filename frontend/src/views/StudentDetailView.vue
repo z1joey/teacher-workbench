@@ -1,6 +1,6 @@
 <script setup>
 // 学生档案：资料、标签、成绩、时间线。
-// 所有删除都走「撤销窗口」，成绩更正会留下痕迹，标签可一键复用。
+// 所有删除都走「撤销窗口」，标签可一键复用。
 import { computed, onMounted, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import api from "../api"
@@ -124,11 +124,15 @@ const examScoreDesc = computed(() => {
 })
 
 const timelineWithScores = computed(() =>
-  timeline.value.map((e) =>
-    e.event_type === "exam" && examScoreDesc.value.has(e.id)
-      ? { ...e, score_summary: examScoreDesc.value.get(e.id) }
-      : e
-  )
+  timeline.value.map((e) => {
+    if (e.event_type !== "exam") return e
+    if (examScoreDesc.value.has(e.id)) {
+      return { ...e, score_summary: examScoreDesc.value.get(e.id) }
+    }
+    // 还没给这个学生录入过任何成绩行（含缺考标记）→ 副标题提示
+    const hasRows = (student.value?.scores ?? []).some((row) => row.exam_id === e.id)
+    return hasRows ? e : { ...e, score_summary: "成绩未录入" }
+  })
 )
 
 // ------------------------------------------------------------------ 成绩
@@ -265,21 +269,10 @@ function fmtDelta(delta) {
   return `${delta > 0 ? "↑" : "↓"}${Math.abs(delta).toFixed(1)}`
 }
 
-function fmtCorrectionDelta(correction) {
-  if (!correction || correction.old == null || correction.new == null) return ""
-  const d = Math.round((correction.new - correction.old) * 10) / 10
-  if (d === 0) return ""
-  return `${d > 0 ? "+" : ""}${d.toFixed(1)}`
-}
-
 function scorePillTitle(row) {
   const parts = [
     `${subject(row.subject)} ${fmtScore(row)}/${Number(row.full_score).toFixed(1)}`,
   ]
-  const cd = fmtCorrectionDelta(row.correction)
-  if (cd) {
-    parts.push(`已更正 ${cd}${row.correction.reason ? `（${row.correction.reason}）` : ""}`)
-  }
   const delta = scoreDelta(row.result_id)
   if (delta != null) parts.push(`较上一场 ${fmtDelta(delta)}`)
   parts.push("点击更正")
@@ -321,10 +314,7 @@ async function saveEdit(row) {
     return
   }
   try {
-    await api.patch(`/results/${row.result_id}`, {
-      score: value,
-      reason: t("detail.editReason"),
-    })
+    await api.patch(`/results/${row.result_id}`, { score: value })
     editingId.value = null
     await load()
     notify({ tone: "ok", title: `${subject(row.subject)} 成绩已更正为 ${value}`, timeout: 3000 })
@@ -333,97 +323,10 @@ async function saveEdit(row) {
   }
 }
 
-// ------------------------------------------------------------- 添加成绩弹窗
+// ------------------------------------------------------------- 添加成绩
 
-const scoreDialogOpen = ref(false)
-const scoreDialogError = ref("")
-const scoreSaving = ref(false)
-const examOptions = ref([])
-const examListOpen = ref(false)
-const scoreForm = ref({ examId: "", values: {}, attended: {} })
-
-const chosenExam = computed(
-  () => examOptions.value.find((e) => e.id === scoreForm.value.examId) ?? null
-)
-
-async function openScoreDialog() {
-  scoreDialogOpen.value = true
-  scoreDialogError.value = ""
-  examListOpen.value = false
-  scoreForm.value = { examId: "", values: {}, attended: {} }
-  if (!examOptions.value.length) {
-    try {
-      examOptions.value = await api.get("/exams")
-    } catch (e) {
-      scoreDialogError.value = friendlyError(e)
-    }
-  }
-}
-
-function closeScoreDialog() {
-  scoreDialogOpen.value = false
-  examListOpen.value = false
-}
-
-function pickExam(e) {
-  scoreForm.value.examId = e.id
-  examListOpen.value = false
-  onScoreExamChange()
-}
-
-function onScoreExamChange() {
-  // 换考试就重置：默认全部「参加考试」，取消勾选才记缺考
-  const attended = {}
-  for (const s of chosenExam.value?.subjects ?? []) attended[s.subject] = true
-  scoreForm.value.values = {}
-  scoreForm.value.attended = attended
-}
-
-async function saveScores() {
-  scoreDialogError.value = ""
-  const exam = chosenExam.value
-  if (!exam) {
-    scoreDialogError.value = "请先选择考试"
-    return
-  }
-  const scores = []
-  for (const s of exam.subjects) {
-    const raw = (scoreForm.value.values[s.subject] ?? "").toString().trim()
-    if (scoreForm.value.attended[s.subject] === false) {
-      // 取消了「参加考试」→ 记缺考
-      scores.push({ subject: s.subject, absent: true })
-      continue
-    }
-    if (!raw) continue // 参加了但这科没填分 → 不录入
-    const value = Number(raw)
-    if (Number.isNaN(value)) {
-      scoreDialogError.value = `${subject(s.subject)} 的成绩要填数字`
-      return
-    }
-    if (value < 0 || value > s.full_score) {
-      scoreDialogError.value = `${subject(s.subject)} 的成绩需在 0 到 ${s.full_score} 之间`
-      return
-    }
-    scores.push({ subject: s.subject, score: value })
-  }
-  if (!scores.length) {
-    scoreDialogError.value = "至少填写一科成绩，或勾选缺考"
-    return
-  }
-  scoreSaving.value = true
-  try {
-    await api.post(`/exams/${exam.id}/scores`, {
-      student_id: props.id,
-      scores,
-    })
-    scoreDialogOpen.value = false
-    await load()
-    notify({ tone: "ok", title: t("detail.scoreAdded"), timeout: 3000 })
-  } catch (e) {
-    scoreDialogError.value = friendlyError(e)
-  } finally {
-    scoreSaving.value = false
-  }
+function goAddScores() {
+  router.push(`/students/${props.id}/scores/new`)
 }
 
 // ------------------------------------------------------------------ 标签
@@ -743,10 +646,10 @@ const headerMeta = computed(() => {
             <Icon name="note" :size="15" /> {{ t("students.addComment") }}
           </button>
           <button class="btn" @click="addEvent">
-            <Icon name="plus" :size="15" /> {{ t("detail.recordEvent") }}
+            <Icon name="map-pin" :size="15" /> {{ t("detail.recordEvent") }}
           </button>
           <button class="btn" @click="goSummaries">
-            <Icon name="clipboard" :size="15" /> {{ t("summary.title") }}
+            <Icon name="clipboard" :size="15" /> {{ t("summary.open") }}
           </button>
         </template>
       </PageHeader>
@@ -761,7 +664,7 @@ const headerMeta = computed(() => {
                 <h2 class="card__title"><Icon name="chart" :size="16" /> {{ t("detail.scores") }}</h2>
                 <p class="card__desc">{{ t("detail.scoresHint") }}</p>
               </div>
-              <button class="btn btn--sm" @click="openScoreDialog">
+              <button class="btn btn--sm" @click="goAddScores">
                 <Icon name="plus" :size="14" /> {{ t("detail.addScore") }}
               </button>
             </div>
@@ -817,11 +720,6 @@ const headerMeta = computed(() => {
                           <span class="chart__dot" :style="{ background: rowColor(row) }" />
                           <span>{{ subject(row.subject) }}</span>
                           <b class="tnum score-pill__value">{{ fmtScore(row) }}</b>
-                          <span
-                            v-if="row.correction && fmtCorrectionDelta(row.correction)"
-                            class="tnum score-pill__correction"
-                            :title="row.correction.reason || ''"
-                          >{{ t("detail.scoreCorrected", { n: fmtCorrectionDelta(row.correction) }) }}</span>
                           <span
                             v-if="scoreDelta(row.result_id) != null"
                             class="tnum score-pill__delta"
@@ -1033,119 +931,4 @@ const headerMeta = computed(() => {
         </div>
       </div>
   </AsyncState>
-
-  <!-- 添加成绩弹窗：选考试 → 按科目填分/勾缺考 -->
-  <div
-    v-if="scoreDialogOpen"
-    class="overlay"
-    role="dialog"
-    aria-modal="true"
-    :aria-label="t('detail.addScore')"
-    @click.self="closeScoreDialog"
-  >
-    <div class="modal" style="width: min(480px, 92vw)">
-      <div class="modal__head">
-        <div class="grow">
-          <h2 class="modal__title">{{ t("detail.addScore") }}</h2>
-        </div>
-        <button class="icon-btn" aria-label="关闭" @click="closeScoreDialog">
-          <Icon name="close" :size="16" />
-        </button>
-      </div>
-      <div class="modal__body">
-        <!-- 考试选择用自绘列表：原生 select 弹出层在嵌入式 WebView 里会被
-             定位到屏幕底部，无法用样式修正 -->
-        <div class="field">
-          <span id="exam-picker-label" class="field__label">
-            考试 <span class="field__req" aria-hidden="true">*</span>
-          </span>
-          <div class="exam-picker">
-            <button
-              type="button"
-              class="exam-picker__trigger"
-              :class="{ 'is-placeholder': !chosenExam }"
-              aria-haspopup="listbox"
-              :aria-expanded="examListOpen"
-              aria-labelledby="exam-picker-label"
-              @click="examListOpen = !examListOpen"
-            >
-              <span class="grow">{{ chosenExam ? chosenExam.name : "选择考试" }}</span>
-              <Icon name="chevron-down" :size="14" style="flex-shrink: 0" />
-            </button>
-            <div v-if="examListOpen" class="exam-picker__menu" role="listbox">
-              <button
-                v-for="e in examOptions"
-                :key="e.id"
-                type="button"
-                role="option"
-                :aria-selected="e.id === scoreForm.examId"
-                class="exam-picker__option"
-                :class="{ 'is-active': e.id === scoreForm.examId }"
-                @click="pickExam(e)"
-              >
-                <span class="grow">
-                  {{ e.name }} <span class="muted">（{{ e.exam_date }}）</span>
-                </span>
-                <Icon v-if="e.id === scoreForm.examId" name="check" :size="14" />
-              </button>
-              <p v-if="!examOptions.length" class="muted" style="margin: 0; padding: 10px 12px">
-                还没有可选择的考试
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <template v-if="chosenExam">
-          <div class="stack" style="gap: 8px; margin-top: 4px">
-            <div
-              v-for="s in chosenExam.subjects"
-              :key="s.id"
-              class="row"
-              style="gap: 8px; align-items: center"
-            >
-              <span style="min-width: 4em">{{ subject(s.subject) }}</span>
-              <input
-                v-model="scoreForm.values[s.subject]"
-                class="input input--sm tnum"
-                type="number"
-                step="0.1"
-                min="0"
-                :max="s.full_score"
-                :disabled="!scoreForm.attended[s.subject]"
-                :placeholder="scoreForm.attended[s.subject] ? '' : '缺考'"
-                :aria-label="`${subject(s.subject)} 分数`"
-                style="width: 90px"
-              />
-              <span class="muted">/ {{ s.full_score }}</span>
-              <label class="check" style="margin: 0">
-                <input v-model="scoreForm.attended[s.subject]" type="checkbox" />
-                <span>参加考试</span>
-              </label>
-            </div>
-          </div>
-          <p class="field__hint" style="margin-top: 8px">
-            默认全部参加考试：填了分的科目才会录入；取消勾选记为缺考；已有成绩的科目会被覆盖。
-          </p>
-        </template>
-
-        <p v-if="scoreDialogError" class="field__error" style="margin-top: 10px">
-          <Icon name="alert-circle" :size="12" /> {{ scoreDialogError }}
-        </p>
-      </div>
-      <div class="modal__foot">
-        <button type="button" class="btn btn--ghost" @click="closeScoreDialog">
-          {{ t("action.cancel") }}
-        </button>
-        <button
-          type="button"
-          class="btn btn--primary"
-          :disabled="scoreSaving || !chosenExam"
-          @click="saveScores"
-        >
-          <span v-if="scoreSaving" class="spinner" />
-          {{ scoreSaving ? t("action.saving") : t("action.save") }}
-        </button>
-      </div>
-    </div>
-  </div>
 </template>

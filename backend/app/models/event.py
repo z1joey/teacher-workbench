@@ -24,7 +24,7 @@ from ._common import Base, JSONType, utcnow
 
 EVENT_TYPES = (
     "birthday", "exam", "score", "comment",
-    "enrolled", "class_moved", "exam_taken", "result_changed", "seat_changed",
+    "enrolled", "class_moved", "exam_taken", "seat_changed",
     "home_visited", "graduated", "summary",
 )
 

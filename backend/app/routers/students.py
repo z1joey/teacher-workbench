@@ -436,29 +436,6 @@ def get_guardian(
     }
 
 
-def _score_corrections(db: Session, person_id: uuid.UUID) -> dict[tuple[str, str], dict]:
-    """Latest 成绩更正 per (exam name, subject) for score-row badges."""
-    out: dict[tuple[str, str], dict] = {}
-    for ev in (
-        db.query(Event)
-        .filter(
-            Event.type == "result_changed",
-            Event.attendees.any(Person.id == person_id),
-        )
-        .order_by(Event.start_time.desc(), Event.created_at.desc())
-        .all()
-    ):
-        pl = ev.payload or {}
-        exam = pl.get("exam")
-        subj = pl.get("subject")
-        if not exam or not subj:
-            continue
-        key = (exam, subj)
-        if key not in out:
-            out[key] = pl
-    return out
-
-
 def _score_events(db: Session, person_id: uuid.UUID,
                   order_desc: bool = False) -> list[Event]:
     q = (
@@ -777,7 +754,6 @@ def get_student(
     cls = current_class(db, s.id)
     exam_id_cache: dict = {}
     subject_colors_cache: dict[str, dict] = {}
-    corrections = _score_corrections(db, s.id)
     scores = []
     for r in _score_events(db, s.id):
         pl = r.payload or {}
@@ -801,13 +777,6 @@ def get_student(
             "full_score": pl.get("max_score"),
             "status": "absent" if pl.get("absent") else "entered",
         }
-        correction = corrections.get((exam_name, subj))
-        if correction is not None:
-            row["correction"] = {
-                "old": correction.get("old"),
-                "new": correction.get("new"),
-                "reason": correction.get("reason"),
-            }
         scores.append(row)
     guardians = [
         {
@@ -1364,7 +1333,6 @@ def delete_event(
 
 class ScoreUpdateIn(BaseModel):
     score: float | None = None  # None marks the absence (absent=true, no score key)
-    reason: str | None = None
 
 
 @router.patch("/results/{result_id}")
@@ -1384,7 +1352,6 @@ def update_result(
     if body.score is not None and old is not None and abs(body.score - old) < 0.01:
         return {"id": str(ev.id), "score": old, "changed": False}
 
-    new_score: float | None
     if body.score is None:
         # absent convention: absent=true and no score key
         payload.pop("score", None)
@@ -1395,21 +1362,6 @@ def update_result(
         payload["absent"] = False
         new_score = body.score
     ev.payload = validate_event_payload("score", payload)  # validated + fresh dict
-    attendee = ev.attendees[0] if ev.attendees else None
-    create_event(
-        db,
-        event_type="result_changed",
-        title=f"{payload.get('subject')}成绩更正",
-        start_time=utcnow(),
-        payload={
-            "exam": _exam_name_of_score(ev),
-            "subject": payload.get("subject"),
-            "old": old,
-            "new": new_score,
-            "reason": body.reason,
-        },
-        attendee_ids=[attendee.id] if attendee else (),
-    )
     db.commit()
     return {"id": str(ev.id), "score": new_score, "changed": True}
 

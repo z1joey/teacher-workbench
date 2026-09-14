@@ -145,7 +145,7 @@ EVENT_PAYLOAD_SCHEMAS = {
     "exam": ExamPayload,
     "enrolled": EnrolledPayload,
     "class_moved": ClassMovedPayload,
-    # birthday / exam_taken / result_changed: free-form
+    # birthday / exam_taken: free-form
 }
 
 

@@ -30,9 +30,9 @@ Length = Literal["brief", "standard", "detailed"]
 Style = Literal["formal", "warm", "motivational"]
 
 LENGTH_TEXT = {
-    "brief": "约100字",
-    "standard": "约250字",
-    "detailed": "约500字",
+    "brief": "约50字",
+    "standard": "约100字",
+    "detailed": "约150字",
 }
 STYLE_TEXT = {
     "formal": "客观正式，条理清晰，适合写入教学档案",
@@ -107,15 +107,6 @@ def _record_line(event: Event) -> str | None:
         return "，".join(parts)
     if etype == "exam":
         return f"{day} 考试：{event.title}"
-    if etype == "result_changed":
-        old, new = pl.get("old"), pl.get("new")
-        reason = pl.get("reason") or ""
-        text = f"{pl.get('exam', '')} {pl.get('subject', '')}"
-        if old is not None and new is not None:
-            text += f" {old}→{new}"
-        if reason:
-            text += f"（{reason}）"
-        return f"{day} 成绩更正：{text.strip()}"
     if etype == "seat_changed":
         if pl.get("from") and pl.get("to"):
             return f"{day} 座位调整：{pl['from']} → {pl['to']}"
