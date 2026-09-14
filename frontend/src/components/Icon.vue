@@ -1,7 +1,7 @@
 <script setup>
 // Dependency-free stroke icon set (24×24, stroke = currentColor).
 // Drawn for this app: board = the classroom chalkboard, clipboard = exams,
-// home = visits, alert = problems, pencil = score corrections, swap = class moves.
+// home = visits, alert = problems, swap = class moves.
 // Navigation, status and action icons were added for the shell redesign.
 const PATHS = {
   /* --- 领域图标 --- */
@@ -50,6 +50,7 @@ const PATHS = {
   filter: `<path d="M4 6h16"/><path d="M7 12h10"/><path d="M10 18h4"/>`,
   external: `<path d="M14 4h6v6"/><path d="M20 4l-8.5 8.5"/><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>`,
   logout: `<path d="M14 4h3.5A1.5 1.5 0 0 1 19 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14"/><path d="M10 17l-5-5 5-5"/><path d="M5 12h10"/>`,
+  lock: `<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/><circle cx="12" cy="16" r="1.5"/>`,
   eye: `<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>`,
   "eye-off": `<path d="M9.9 5.7A8.9 8.9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.5 3.4"/><path d="M6.2 7.7A16.6 16.6 0 0 0 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.2-1.1"/><path d="M10 10a2.8 2.8 0 0 0 4 4"/><path d="M4 4l16 16"/>`,
 

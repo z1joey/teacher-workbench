@@ -257,3 +257,31 @@ def reset_password(
     db.query(AuthSession).filter(AuthSession.person_id == person.id).delete()
     db.commit()
     return {"ok": True}
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=6, max_length=64)
+
+
+@router.post("/password/change")
+def change_password(
+    body: ChangePasswordIn,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+):
+    """Authenticated password change: verifies the current password, keeps the
+    current session alive and revokes every other session of the account."""
+    if not verify_password(body.current_password, user.password_hash or ""):
+        raise HTTPException(status_code=400, detail="当前密码不正确")
+    if verify_password(body.new_password, user.password_hash or ""):
+        raise HTTPException(status_code=400, detail="新密码不能与当前密码相同")
+    user.password_hash = hash_password(body.new_password)
+    if credentials is not None:
+        db.query(AuthSession).filter(
+            AuthSession.person_id == user.id,
+            AuthSession.token != credentials.credentials,
+        ).delete(synchronize_session=False)
+    db.commit()
+    return {"ok": True}
