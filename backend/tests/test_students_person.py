@@ -1194,10 +1194,12 @@ def test_last_exam_summary_maps_from_score_events(make_client, db, headers):
     _score_event(db, s, "期中考试", "english", absent=True)
     _score_event(db, s, "月考", "math", score=80.0,
                  start=datetime(2026, 4, 1, 9, 0))
-    # the exam Event of the latest sitting resolves exam_id
+    # the exam Event of the latest sitting resolves exam_id (workspace-tagged,
+    # same as API-created sittings)
     exam_ev = eventing.create_event(db, event_type="exam", title="期中考试",
                                     start_time=datetime(2026, 5, 20, 9, 0),
-                                    payload={"term": "spring"})
+                                    payload={"term": "spring",
+                                             "workspace_id": ensure_workspace_id(_teacher_of(db))})
     db.commit()
     client = make_client(students.router)
 

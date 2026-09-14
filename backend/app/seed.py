@@ -178,7 +178,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                          payload=validate_person_payload("teacher", {}))
         db.add(teacher)
         db.flush()
-    ensure_workspace_id(teacher)
+    wid = ensure_workspace_id(teacher)
     c71 = Class(name="七年级1班", academic_year=ACADEMIC_YEAR, teacher_id=teacher.id)
     c72 = Class(name="七年级2班", academic_year=ACADEMIC_YEAR, teacher_id=teacher.id)
     db.add_all([c71, c72])
@@ -264,7 +264,8 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
             db, event_type="exam", title=exam_name,
             start_time=dt(exam_date, EXAM_HOUR),
             payload={"full_scores": dict(SUBJECT_FULL_SCORES),
-                     "subject_colors": dict(SUBJECT_COLORS)},
+                     "subject_colors": dict(SUBJECT_COLORS),
+                     "workspace_id": wid},
             attendee_ids=[teacher.id, *[s.id for s in students]],
         )
     db.flush()
@@ -334,7 +335,8 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                     base += hao_dip.get(exam_key, 0.0)
                 score = round(clamp(base, 0.0, SUBJECT_FULL_SCORES[subject]), 1)
                 payload: dict = {"subject": subject,
-                                 "max_score": SUBJECT_FULL_SCORES[subject]}
+                                 "max_score": SUBJECT_FULL_SCORES[subject],
+                                 "workspace_id": wid}
                 if (s.id, exam_key, subject) in ABSENCES:
                     payload["absent"] = True
                 else:

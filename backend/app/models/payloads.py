@@ -75,6 +75,8 @@ class ScorePayload(_Strict):
     max_score: float
     score: float | None = None  # omitted when absent
     absent: bool = False
+    # owning teacher workspace (exam isolation); unset on legacy rows
+    workspace_id: str | None = None
 
 
 class MentionedStudent(_Strict):
@@ -108,6 +110,8 @@ class ExamPayload(_Strict):
     # optional theme color per subject (hex); charts and pills fall back to
     # the frontend catalog when a subject has none stored
     subject_colors: dict[str, str] | None = None
+    # owning teacher workspace (exam isolation); unset on legacy rows
+    workspace_id: str | None = None
 
     @field_validator("subject_colors")
     @classmethod

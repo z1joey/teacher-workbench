@@ -109,11 +109,15 @@ def _create_exam(client, headers, name: str, day: date, subjects: list[dict],
 
 def _enter_scores(db, exam: Event, person: Person, subject_scores: dict[str, float | None]):
     """The score-entry flow: config full_score becomes the payload max_score;
-    score None marks an absence (absent=true, no score key)."""
+    score None marks an absence (absent=true, no score key). Scores inherit
+    the sitting's workspace (exam isolation)."""
     config = dict(exam.payload["full_scores"])
+    wid = (exam.payload or {}).get("workspace_id")
     day = exam.start_time.date()
     for subject, score in subject_scores.items():
         payload: dict = {"subject": subject, "max_score": config[subject]}
+        if wid:
+            payload["workspace_id"] = wid
         if score is None:
             payload["absent"] = True
         else:
@@ -218,8 +222,11 @@ def test_create_exam_creates_event_with_class_attendees(make_client, db, headers
     assert exam.start_time.date().isoformat() == "2026-05-20"
     teacher = db.query(Person).filter(Person.phone == "13800000001").one()
     assert {str(p.id) for p in exam.attendees} == {str(a.id), str(b.id), str(teacher.id)}
-    # the per-subject full_score config round-trips through the registry
-    assert exam.payload == {"full_scores": {"语文": 120.0, "数学": 100.0}}
+    # the per-subject full_score config round-trips through the registry,
+    # stamped with the creating teacher's workspace
+    wid = ensure_workspace_id(teacher)
+    assert exam.payload == {"full_scores": {"语文": 120.0, "数学": 100.0},
+                            "workspace_id": wid}
 
     # per-subject color is optional and round-trips next to full_scores
     colored = client.post(
@@ -233,6 +240,7 @@ def test_create_exam_creates_event_with_class_attendees(make_client, db, headers
     assert colored_exam.payload == {
         "full_scores": {"物理": 100.0},
         "subject_colors": {"物理": "#6d5bb8"},
+        "workspace_id": wid,
     }
     listed = client.get(f"/api/exams/{colored.json()['id']}", headers=headers).json()
     assert listed["subjects"][0]["color"] == "#6d5bb8"
@@ -511,9 +519,13 @@ def test_patch_exam_rewrites_score_titles_and_dates(make_client, db, headers):
     subjects = ok.json()["subjects"]
     assert [s["subject"] for s in subjects] == ["物理"]
     assert subjects[0]["full_score"] == 90.0
-    # the structure rewrite lands in the validated payload too
+    # the structure rewrite lands in the validated payload too (workspace
+    # stamp survives the rewrite)
     e2_row = db.get(Event, uuid.UUID(e2["id"]))
-    assert e2_row.payload == {"full_scores": {"物理": 90.0}}
+    assert e2_row.payload == {"full_scores": {"物理": 90.0},
+                              "workspace_id": ensure_workspace_id(
+                                  db.query(Person).filter(Person.phone == "13800000001").one()
+                              )}
 
 
 def test_delete_exam_keeps_score_events(make_client, db, headers):

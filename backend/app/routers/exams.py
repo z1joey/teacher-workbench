@@ -44,6 +44,7 @@ from ..deps import get_current_person
 from ..eventing import create_event
 from ..models import Class, Enrollment, Event, Person, person_events
 from ..payloads import validate_event_payload
+from ..workspace import workspace_id
 
 router = APIRouter(
     tags=["exams"],
@@ -67,24 +68,28 @@ def exam_days(e: Event) -> tuple[date, date]:
 
 
 def sitting_score_conds(title_prefix: str, start_day: date,
-                        end_day: date | None = None) -> list:
+                        end_day: date | None = None, *,
+                        wid: str) -> list:
     """Score Events of one sitting: title "<prefix>·<subject>", within the
     sitting's date window, entered only — absent=true excluded (validated
     payloads always carry absent:false explicitly, so NULL never occurs) and
-    score present."""
+    score present. `wid` keeps the title+date matching inside one teacher's
+    workspace (same-named sittings in other workspaces never collide)."""
     lo, hi = day_window(start_day, end_day)
     return [
         Event.type == "score",
         Event.title.startswith(f"{title_prefix}·", autoescape=True),
         Event.start_time >= lo,
         Event.start_time < hi,
+        Event.payload["workspace_id"].as_string() == wid,
         Event.payload["absent"].as_boolean().is_not(True),
         Event.payload["score"].is_not(None),
     ]
 
 
 def any_sitting_score_conds(title_prefix: str, start_day: date,
-                            end_day: date | None = None) -> list:
+                            end_day: date | None = None, *,
+                            wid: str) -> list:
     """Score Events of a sitting regardless of entered state (the
     structure-frozen check in PATCH /exams mirrors the old any-ExamResult rule)."""
     lo, hi = day_window(start_day, end_day)
@@ -93,16 +98,19 @@ def any_sitting_score_conds(title_prefix: str, start_day: date,
         Event.title.startswith(f"{title_prefix}·", autoescape=True),
         Event.start_time >= lo,
         Event.start_time < hi,
+        Event.payload["workspace_id"].as_string() == wid,
     ]
 
 
 def subject_averages(db: Session, title_prefix: str, start_day: date,
                      end_day: date | None = None,
-                     person_ids: list[uuid.UUID] | None = None) -> dict[str, dict]:
+                     person_ids: list[uuid.UUID] | None = None, *,
+                     wid: str) -> dict[str, dict]:
     """Per-subject aggregate over one sitting's entered score Events:
     {subject: {avg, min, max, count, full}} — full is the max payload
     max_score (the old ExamSubject.full_score now lives on every score row).
-    person_ids restricts the aggregate to those students (class attribution)."""
+    person_ids restricts the aggregate to those students (class attribution);
+    wid restricts it to one teacher workspace."""
     subject = Event.payload["subject"].as_string()
     q = (
         db.query(
@@ -119,21 +127,25 @@ def subject_averages(db: Session, title_prefix: str, start_day: date,
     )
     if person_ids is not None:
         q = q.filter(person_events.c.person_id.in_(person_ids))
-    rows = q.filter(*sitting_score_conds(title_prefix, start_day, end_day)).group_by(subject).all()
+    rows = q.filter(
+        *sitting_score_conds(title_prefix, start_day, end_day, wid=wid)
+    ).group_by(subject).all()
     return {
         s: {"avg": avg, "min": min_, "max": max_, "count": count, "full": full}
         for s, avg, min_, max_, count, full in rows
     }
 
 
-def find_exam_event(db: Session, name: str, day: date) -> Event | None:
+def find_exam_event(db: Session, name: str, day: date, *, wid: str) -> Event | None:
     """The sitting Event of a name whose [first_day, last_day] contains day
-    (students.py resolves score rows' exam_id with the same rule)."""
+    (students.py resolves score rows' exam_id with the same rule), scoped to
+    one teacher workspace."""
     return (
         db.query(Event)
         .filter(
             Event.type == "exam",
             Event.title == name,
+            Event.payload["workspace_id"].as_string() == wid,
             Event.start_time <= datetime.combine(day, time.max),
             func.coalesce(Event.end_time, Event.start_time)
             >= datetime.combine(day, time.min),
@@ -142,15 +154,31 @@ def find_exam_event(db: Session, name: str, day: date) -> Event | None:
     )
 
 
-def exam_events(db: Session) -> list[Event]:
-    """All sittings, chronological (start_time, then creation order — the old
-    auto-increment id tiebreak)."""
+def exam_events(db: Session, wid: str) -> list[Event]:
+    """All sittings of one teacher workspace, chronological (start_time, then
+    creation order — the old auto-increment id tiebreak)."""
     return (
         db.query(Event)
-        .filter(Event.type == "exam")
+        .filter(
+            Event.type == "exam",
+            Event.payload["workspace_id"].as_string() == wid,
+        )
         .order_by(Event.start_time, Event.created_at)
         .all()
     )
+
+
+def _owned_exam(db: Session, user: Person, exam_id: uuid.UUID) -> Event:
+    """The sitting of the caller's workspace; missing or foreign → 404 (no
+    existence leak across workspaces)."""
+    e = db.get(Event, exam_id)
+    if (
+        e is None
+        or e.type != "exam"
+        or (e.payload or {}).get("workspace_id") != workspace_id(user)
+    ):
+        raise HTTPException(status_code=404, detail="exam not found")
+    return e
 
 
 def subjects_config(exam: Event) -> list[dict]:
@@ -181,15 +209,19 @@ def subjects_config(exam: Event) -> list[dict]:
     return out
 
 
-def exam_config_payload(subjects: list["SubjectIn"], term: str | None = None) -> dict:
+def exam_config_payload(subjects: list["SubjectIn"], term: str | None = None,
+                        wid: str | None = None) -> dict:
     """Build the exam Event payload from the posted subject list. Duplicate
-    names are rejected; colors are stored only when at least one is set."""
+    names are rejected; colors are stored only when at least one is set.
+    `wid` stamps the owning teacher workspace (exam isolation)."""
     names = [s.subject.strip() for s in subjects]
     if len(names) != len(set(names)):
         raise HTTPException(status_code=400, detail="科目不能重复")
     payload: dict = {"full_scores": {s.subject.strip(): s.full_score for s in subjects}}
     if term:
         payload["term"] = term
+    if wid:
+        payload["workspace_id"] = wid
     colors = {
         s.subject.strip(): s.color.lower()
         for s in subjects
@@ -215,8 +247,9 @@ def exam_out(exam: Event) -> dict:
     }
 
 
-def _attendee_ids(db: Session, class_ids: list[uuid.UUID] | None) -> list[uuid.UUID]:
-    """给了班级列表就取这些班的在读学生并集；空列表 = 全校在读学生参加。"""
+def _attendee_ids(db: Session, user: Person,
+                  class_ids: list[uuid.UUID] | None) -> list[uuid.UUID]:
+    """给了班级列表就取这些班的在读学生并集；空列表 = 本工作区全部在读学生参加。"""
     if class_ids:
         return [
             row[0]
@@ -224,7 +257,7 @@ def _attendee_ids(db: Session, class_ids: list[uuid.UUID] | None) -> list[uuid.U
             .filter(Enrollment.class_id.in_(class_ids), Enrollment.valid_to.is_(None))
             .all()
         ]
-    # school-wide sitting: the active student body attends
+    # school-wide sitting: the owning workspace's active students attend
     active = or_(
         Person.payload["is_active"].as_boolean().is_(None),
         Person.payload["is_active"].as_boolean().is_not(False),
@@ -232,7 +265,11 @@ def _attendee_ids(db: Session, class_ids: list[uuid.UUID] | None) -> list[uuid.U
     return [
         row[0]
         for row in db.query(Person.id)
-        .filter(Person.payload["role"].as_string() == "student", active)
+        .filter(
+            Person.payload["role"].as_string() == "student",
+            Person.payload["workspace_id"].as_string() == workspace_id(user),
+            active,
+        )
         .all()
     ]
 
@@ -261,13 +298,16 @@ def create_exam(
     name = body.name.strip()
     if body.end_date is not None and body.end_date < body.exam_date:
         raise HTTPException(status_code=400, detail="结束日期不能早于考试日期")
+    wid = workspace_id(user)
     # duplicate rule: same-named exam overlapping the [start, end] span
+    # (scoped to the caller's workspace — other workspaces never collide)
     lo, hi = day_window(body.exam_date, body.end_date)
     overlap = (
         db.query(Event.id)
         .filter(
             Event.type == "exam",
             Event.title == name,
+            Event.payload["workspace_id"].as_string() == wid,
             Event.start_time <= hi,
             func.coalesce(Event.end_time, Event.start_time) >= lo,
         )
@@ -275,10 +315,11 @@ def create_exam(
     )
     if overlap is not None:
         raise HTTPException(status_code=409, detail="该日期已存在同名考试")
-    # 按班级圈定参加者：去重、校验班级存在；名单取各班当前在读学生并集
+    # 按班级圈定参加者：去重、校验班级存在且属于本工作区；名单取各班当前在读学生并集
     class_ids = list(dict.fromkeys(body.class_ids))
     for cid in class_ids:
-        if db.get(Class, cid) is None:
+        cls = db.get(Class, cid)
+        if cls is None or cls.teacher_id != user.id:
             raise HTTPException(status_code=400, detail="class not found")
     exam = create_event(
         db,
@@ -286,9 +327,9 @@ def create_exam(
         title=name,
         start_time=datetime.combine(body.exam_date, EXAM_HOUR),
         end_time=datetime.combine(body.end_date, time.max) if body.end_date else None,
-        payload=exam_config_payload(body.subjects, body.term),
+        payload=exam_config_payload(body.subjects, body.term, wid),
         # the sitting involves the teacher arranging it plus its students
-        attendee_ids=[user.id, *_attendee_ids(db, class_ids)],
+        attendee_ids=[user.id, *_attendee_ids(db, user, class_ids)],
     )
     db.commit()
     return {"id": str(exam.id), "name": exam.title,
@@ -297,8 +338,11 @@ def create_exam(
 
 
 @router.get("/exams")
-def list_exams(db: Session = Depends(get_db)):
-    exams = exam_events(db)
+def list_exams(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    exams = exam_events(db, workspace_id(user))
     exams.reverse()  # old listing was exam_date desc
     return [exam_out(e) for e in exams]
 
@@ -306,13 +350,14 @@ def list_exams(db: Session = Depends(get_db)):
 @router.get("/exams/trend")
 def exams_trend(db: Session = Depends(get_db), user: Person = Depends(get_current_person)):
     """School-wide per-subject averages across sittings (entered scores only)."""
-    exams = exam_events(db)
+    wid = workspace_id(user)
+    exams = exam_events(db, wid)
     index_of = {e.id: i for i, e in enumerate(exams)}
     per_subject: dict[str, dict] = {}
     for e in exams:
         start_day, end_day = exam_days(e)
         for subject, agg in subject_averages(
-            db, e.title, start_day, end_day
+            db, e.title, start_day, end_day, wid=wid
         ).items():
             rec = per_subject.setdefault(
                 subject, {"full_score": 0.0, "values": [None] * len(exams)}
@@ -337,10 +382,12 @@ def exams_trend(db: Session = Depends(get_db), user: Person = Depends(get_curren
 
 
 @router.get("/exams/{exam_id}")
-def get_exam(exam_id: uuid.UUID, db: Session = Depends(get_db)):
-    e = db.get(Event, exam_id)
-    if e is None or e.type != "exam":
-        raise HTTPException(status_code=404, detail="exam not found")
+def get_exam(
+    exam_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    e = _owned_exam(db, user, exam_id)
     # 参加班级回显：考试学生参与者当前在读班级的并集
     student_ids = [
         p.id for p in e.attendees if (p.payload or {}).get("role") == "student"
@@ -362,10 +409,13 @@ def get_exam(exam_id: uuid.UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/exams/{exam_id}/averages")
-def exam_averages(exam_id: uuid.UUID, db: Session = Depends(get_db)):
-    exam = db.get(Event, exam_id)
-    if exam is None or exam.type != "exam":
-        raise HTTPException(status_code=404, detail="exam not found")
+def exam_averages(
+    exam_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    exam = _owned_exam(db, user, exam_id)
+    wid = workspace_id(user)
     start_day, end_day = exam_days(exam)
 
     school = [
@@ -378,7 +428,7 @@ def exam_averages(exam_id: uuid.UUID, db: Session = Depends(get_db)):
             "count": agg["count"],
         }
         for subject, agg in sorted(
-            subject_averages(db, exam.title, start_day, end_day).items()
+            subject_averages(db, exam.title, start_day, end_day, wid=wid).items()
         )
     ]
 
@@ -405,7 +455,7 @@ def exam_averages(exam_id: uuid.UUID, db: Session = Depends(get_db)):
             ),
         )
         .join(Class, Class.id == Enrollment.class_id)
-        .filter(*sitting_score_conds(exam.title, start_day, end_day))
+        .filter(*sitting_score_conds(exam.title, start_day, end_day, wid=wid))
         .group_by(Class.id, Class.name, Event.payload["subject"].as_string())
         .order_by(Class.name, Event.payload["subject"].as_string())
         .all()
@@ -447,9 +497,8 @@ def update_exam(
     db: Session = Depends(get_db),
     user: Person = Depends(get_current_person),
 ):
-    e = db.get(Event, exam_id)
-    if e is None or e.type != "exam":
-        raise HTTPException(status_code=404, detail="exam not found")
+    e = _owned_exam(db, user, exam_id)
+    wid = workspace_id(user)
 
     old_name, (old_start, old_end) = e.title, exam_days(e)
     new_start = body.exam_date or old_start
@@ -468,7 +517,7 @@ def update_exam(
     if body.subjects is not None:
         if (
             db.query(Event.id)
-            .filter(*any_sitting_score_conds(old_name, old_start, old_end))
+            .filter(*any_sitting_score_conds(old_name, old_start, old_end, wid=wid))
             .first()
             is not None
         ):
@@ -478,7 +527,9 @@ def update_exam(
         payload = dict(e.payload or {})
         payload.pop("full_scores", None)
         payload.pop("subject_colors", None)
-        payload.update(exam_config_payload(body.subjects, payload.get("term")))
+        payload.update(exam_config_payload(
+            body.subjects, payload.get("term"), payload.get("workspace_id")
+        ))
         e.payload = validate_event_payload("exam", payload)
 
     if body.name is not None:
@@ -497,7 +548,7 @@ def update_exam(
         shift = (e.start_time.date() - old_start).days
         for score in (
             db.query(Event)
-            .filter(*any_sitting_score_conds(old_name, old_start, old_end))
+            .filter(*any_sitting_score_conds(old_name, old_start, old_end, wid=wid))
             .all()
         ):
             subject = score.title.rsplit("·", 1)[-1]
@@ -508,11 +559,12 @@ def update_exam(
     if "class_ids" in body.model_fields_set:
         class_ids = list(dict.fromkeys(body.class_ids))
         for cid in class_ids:
-            if db.get(Class, cid) is None:
+            cls = db.get(Class, cid)
+            if cls is None or cls.teacher_id != user.id:
                 raise HTTPException(status_code=400, detail="class not found")
         keep = {p.id for p in e.attendees if (p.payload or {}).get("role") != "student"}
         keep.add(user.id)
-        students = _attendee_ids(db, class_ids)
+        students = _attendee_ids(db, user, class_ids)
         e.attendees = db.query(Person).filter(
             Person.id.in_([user.id, *students, *keep])
         ).all()
@@ -531,9 +583,7 @@ def delete_exam(
     """Deletes the sitting Event only. Score events are individual rows with
     no parent link, so they deliberately survive the delete (the old cascade
     over exam_subject/exam_result has no equivalent to walk)."""
-    e = db.get(Event, exam_id)
-    if e is None or e.type != "exam":
-        raise HTTPException(status_code=404, detail="exam not found")
+    e = _owned_exam(db, user, exam_id)
     db.delete(e)
     db.commit()
     return {"ok": True}
@@ -633,14 +683,18 @@ def _locate_score_header(
     )
 
 
-def _active_students(db: Session) -> list[Person]:
+def _active_students(db: Session, wid: str) -> list[Person]:
     active = or_(
         Person.payload["is_active"].as_boolean().is_(None),
         Person.payload["is_active"].as_boolean().is_not(False),
     )
     return (
         db.query(Person)
-        .filter(Person.payload["role"].as_string() == "student", active)
+        .filter(
+            Person.payload["role"].as_string() == "student",
+            Person.payload["workspace_id"].as_string() == wid,
+            active,
+        )
         .order_by(Person.payload["admission_no"].as_string())
         .all()
     )
@@ -659,12 +713,14 @@ def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
 
 
 @router.get("/exams/{exam_id}/scores/import-template")
-def score_import_template(exam_id: uuid.UUID, db: Session = Depends(get_db)):
+def score_import_template(
+    exam_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
     """Import template pre-filled with the sitting's subjects and the active
     students' 学号/姓名 — teachers only type the score cells."""
-    exam = db.get(Event, exam_id)
-    if exam is None or exam.type != "exam":
-        raise HTTPException(status_code=404, detail="exam not found")
+    exam = _owned_exam(db, user, exam_id)
     subjects = subjects_config(exam)
     if not subjects:
         raise HTTPException(status_code=400, detail="该考试没有科目配置，无法生成模板")
@@ -677,7 +733,7 @@ def score_import_template(exam_id: uuid.UUID, db: Session = Depends(get_db)):
         f"{subject_label(s['subject'])}(满分{_full_label(s['full_score'])})" for s in subjects
     ]
     ws.append(headers)
-    for s in _active_students(db):
+    for s in _active_students(db, workspace_id(user)):
         ws.append([(s.payload or {}).get("admission_no") or "", s.name] + [""] * len(subjects))
     bold = Font(bold=True)
     ws.cell(row=1, column=1).font = bold
@@ -719,6 +775,8 @@ def _upsert_score_event(
     else:
         payload["score"] = score
         payload["absent"] = False
+    # 成绩归属考试所在的工作区（隔离后跨教师同名同日不会串数据）
+    payload["workspace_id"] = (exam.payload or {}).get("workspace_id")
     payload = validate_event_payload("score", payload)
     attendees = [student.id, *([entered_by.id] if entered_by else [])]
     if existing is not None:
@@ -790,9 +848,7 @@ def add_student_scores(
 ):
     """Manually record one student's scores for a sitting (the student page's
     添加成绩 dialog) — same upsert path as the Excel import."""
-    exam = db.get(Event, exam_id)
-    if exam is None or exam.type != "exam":
-        raise HTTPException(status_code=404, detail="exam not found")
+    exam = _owned_exam(db, user, exam_id)
     full_by_subject = {s["subject"]: s["full_score"] for s in subjects_config(exam)}
     if not full_by_subject:
         raise HTTPException(status_code=400, detail="该考试没有科目配置，无法录入成绩")
@@ -853,9 +909,7 @@ async def import_scores(
 ):
     """Bulk-import score rows from xlsx, matched by 学号. Every row reports
     success (with imported subjects) or failure (with reason)."""
-    exam = db.get(Event, exam_id)
-    if exam is None or exam.type != "exam":
-        raise HTTPException(status_code=404, detail="exam not found")
+    exam = _owned_exam(db, user, exam_id)
     subjects = subjects_config(exam)
     if not subjects:
         raise HTTPException(status_code=400, detail="该考试没有科目配置，无法导入成绩")
@@ -873,7 +927,8 @@ async def import_scores(
     )
 
     students_by_no = {
-        (s.payload or {}).get("admission_no"): s for s in _active_students(db)
+        (s.payload or {}).get("admission_no"): s
+        for s in _active_students(db, workspace_id(user))
     }
     report: list[dict] = []
     seen_rows: set[str] = set()
