@@ -1,5 +1,5 @@
 <script setup>
-// 写评语 / 编辑评语：可 @ 其他学生；所有相关学生的时间线都会出现这条记录。
+// 记录（原评语）新建 / 编辑：可 @ 其他学生；所有相关学生的时间线都会出现这条记录。
 import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
@@ -103,7 +103,7 @@ async function submit() {
       notify({ tone: "ok", title: t("common.saved"), timeout: 2400 })
     } else {
       await api.post("/comments", { student_id: resolvedStudentId.value, ...body })
-      notify({ tone: "ok", title: "已保存评语", timeout: 2400 })
+      notify({ tone: "ok", title: "已保存记录", timeout: 2400 })
     }
     router.push(`/students/${resolvedStudentId.value}`)
   } catch (e) {
@@ -115,7 +115,7 @@ async function submit() {
 
 async function remove() {
   const ok = await ask({
-    title: "删除这条评语？",
+    title: "删除这条记录？",
     consequences: [t("event.deleteConfirm")],
     confirmLabel: t("action.delete"),
   })
@@ -123,7 +123,7 @@ async function remove() {
   const sid = resolvedStudentId.value
   const name = primaryStudent.value?.name || ""
   runUndoable({
-    title: `已删除「${name}」的评语`,
+    title: `已删除「${name}」的记录`,
     run: () => api.delete(`/comments/${props.eventId}`),
     onDone: () => router.replace(sid ? `/students/${sid}` : "/"),
   })

@@ -209,13 +209,14 @@ function guardianHits(s) {
                 {{ fmtDate(s.last_event.occurred_at) }}
               </time>
             </div>
-            <p v-if="lastEventText(s.last_event)" class="student-card__event-desc muted">
-              {{ lastEventText(s.last_event) }}
+            <!-- 无文字也渲染：占住两行高度，让各卡片分隔线对齐 -->
+            <p class="student-card__event-desc muted">{{ lastEventText(s.last_event) }}</p>
+          </footer>
+          <footer v-else class="student-card__event">
+            <p class="student-card__empty muted">
+              <Icon name="clock" :size="12" /> {{ t("students.noRecentEvent") }}
             </p>
           </footer>
-          <p v-else class="student-card__empty muted">
-            <Icon name="clock" :size="12" /> {{ t("students.noRecentEvent") }}
-          </p>
         </article>
       </div>
     </section>
