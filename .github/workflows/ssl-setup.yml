@@ -59,12 +59,13 @@ jobs:
 
             echo ""
             echo "========== STEP 1: Obtain Let's Encrypt certificate =========="
-            sudo mkdir -p /etc/letsencrypt
-            echo "Running certbot via Docker (host has no apt-get)..."
-            docker run --rm \
-              -p 80:80 \
-              -v /etc/letsencrypt:/etc/letsencrypt \
-              certbot/certbot certonly --standalone \
+            if ! command -v certbot >/dev/null 2>&1; then
+              echo "Installing certbot on host OS..."
+              sudo apt-get update -qq
+              sudo apt-get install -y certbot
+            fi
+            certbot --version
+            sudo certbot certonly --standalone \
               -d joeyzhang.me \
               -m z1joey@iCloud.com \
               --agree-tos --no-eff-email \
