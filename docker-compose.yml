@@ -55,6 +55,9 @@ services:
       - ALI_ACCESS_KEY_ID=${ALI_ACCESS_KEY_ID:-}
       - ALI_ACCESS_KEY_SECRET=${ALI_ACCESS_KEY_SECRET:-}
       - ALI_NO_REPLY_EMAIL=${ALI_NO_REPLY_EMAIL:-}
+      # 管理员引导（python -m app.create_admin；幂等，已存在则跳过）
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     depends_on:
       db:
         condition: service_healthy

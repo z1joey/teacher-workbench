@@ -26,6 +26,9 @@ def test_full_app_client_smoke(client):
 
 def test_seed_loads_demo_data(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'seed.db'}")
+    # 隔离开发者 .env 里的 ADMIN_*：本测试断言的是演示默认账密
+    monkeypatch.setenv("ADMIN_EMAIL", "admin@school.dev")
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin123")
     for mod in list(sys.modules.keys()):
         if mod == "app" or mod.startswith("app."):
             del sys.modules[mod]
