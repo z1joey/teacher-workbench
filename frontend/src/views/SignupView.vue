@@ -10,18 +10,14 @@ import { notify } from "../feedback"
 import { friendlyError, t } from "../strings"
 
 const router = useRouter()
-const form = ref({ name: "", email: "", password: "", password2: "" })
-const errors = ref({ name: "", email: "", password: "", password2: "" })
+const form = ref({ email: "", password: "", password2: "" })
+const errors = ref({ email: "", password: "", password2: "" })
 const error = ref("")
 const busy = ref(false)
 
 function validate() {
-  errors.value = { name: "", email: "", password: "", password2: "" }
+  errors.value = { email: "", password: "", password2: "" }
   let ok = true
-  if (!form.value.name.trim()) {
-    errors.value.name = t("signup.nameRequired")
-    ok = false
-  }
   const email = form.value.email.trim()
   if (!email) {
     errors.value.email = t("signup.emailRequired")
@@ -47,7 +43,6 @@ async function submit() {
   busy.value = true
   try {
     const res = await api.post("/auth/register", {
-      name: form.value.name.trim(),
       email: form.value.email.trim(),
       password: form.value.password,
     })
@@ -71,17 +66,6 @@ async function submit() {
       <p class="auth-sub">{{ t("signup.subtitle") }}</p>
 
       <form @submit.prevent="submit" novalidate>
-        <FormField :label="t('login.name')" required :error="errors.name || ''">
-          <input
-            v-model="form.name"
-            class="input"
-            type="text"
-            autocomplete="name"
-            required
-            :aria-invalid="!!errors.name"
-          />
-        </FormField>
-
         <FormField
           :label="t('login.email')"
           required

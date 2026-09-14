@@ -4,5 +4,9 @@
 """
 
 
-def teacher_display_name(name: str | None) -> str:
-    return (name or "").strip()
+def teacher_display_name(name: str | None, email: str | None = None) -> str:
+    """姓名为空（注册未填或个人中心清空）时回退到邮箱前缀。"""
+    stripped = (name or "").strip()
+    if stripped:
+        return stripped
+    return (email or "").split("@", 1)[0].strip()

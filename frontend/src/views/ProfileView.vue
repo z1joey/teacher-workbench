@@ -164,7 +164,6 @@ function cancelEdit() {
 
 function validate() {
   const e = {}
-  if (!editForm.value.name.trim()) e.name = t("login.name") + "不能为空"
   const phone = normalizePhone(editForm.value.phone.trim())
   if (editForm.value.phone.trim() && !/^\d{6,15}$/.test(phone)) {
     e.phone = t("profile.phoneInvalid")
@@ -297,9 +296,9 @@ const activity = computed(() => {
 
           <div v-if="!editing && !pwdEditing" class="card__body">
             <div class="row" style="gap: 14px; align-items: flex-start">
-              <span class="avatar avatar--lg">{{ profile.user.name.charAt(0) }}</span>
+              <span class="avatar avatar--lg">{{ (profile.user.display_name || profile.user.name || "?").charAt(0) }}</span>
               <div class="grow">
-                <p style="font-size: 17px; font-weight: 600">{{ profile.user.name }}</p>
+                <p style="font-size: 17px; font-weight: 600">{{ profile.user.display_name || profile.user.name }}</p>
                 <div class="row-wrap" style="margin-top: 6px">
                   <span class="pill pill--outline">
                     {{ t("profile.loginEmail") }}：{{ profile.user.email }}
@@ -314,8 +313,13 @@ const activity = computed(() => {
 
           <form v-else-if="editing" class="card__body" @submit.prevent="saveProfile">
             <div class="form-grid">
-              <FormField :label="t('login.name')" required :error="errors.name || ''">
-                <input v-model="editForm.name" class="input" type="text" :aria-invalid="!!errors.name" />
+              <FormField
+                :label="t('login.name')"
+                optional
+                :hint="t('profile.nameHint')"
+                :error="errors.name || ''"
+              >
+                <input v-model="editForm.name" class="input" type="text" maxlength="100" :aria-invalid="!!errors.name" />
               </FormField>
               <FormField
                 :label="t('profile.phone')"

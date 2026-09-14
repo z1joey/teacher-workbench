@@ -171,7 +171,6 @@ const messages = {
 
   // --- 注册 ---
   "signup.subtitle": "创建教师账号",
-  "signup.nameRequired": "请填写姓名",
   "signup.emailRequired": "请输入邮箱",
   "signup.emailInvalid": "邮箱格式不正确",
   "signup.passwordShort": "密码至少 6 位",
@@ -300,6 +299,7 @@ const messages = {
   "profile.phoneEmpty": "未填写",
   "profile.phoneHint": "6-15 位数字，可用空格或短横线分隔",
   "profile.phoneInvalid": "手机号格式不正确，请输入 6-15 位数字",
+  "profile.nameHint": "选填；留空时将显示邮箱前缀",
   "profile.activity": "教学足迹",
   "profile.recordsLogged": "跟进记录",
   "profile.resultsEntered": "录入成绩",
@@ -318,6 +318,16 @@ const messages = {
   "profile.calendarBirthdays": "在日历中显示学生生日",
   "profile.calendarBirthdaysHint": "关闭后，首页月历不再显示根据出生日期推算的生日",
   "profile.settingsSaved": "偏好已保存",
+
+  // --- 首登称呼弹窗 ---
+  "namePrompt.title": "怎么称呼您？",
+  "namePrompt.placeholder": "您的称呼",
+  "namePrompt.hint": "可以先跳过，稍后在「个人中心」设置称呼",
+  "namePrompt.required": "请输入称呼，或点「跳过」",
+  "namePrompt.skip": "跳过",
+  "namePrompt.save": "保存",
+  "namePrompt.saving": "正在保存…",
+  "namePrompt.saved": "称呼已保存",
 
   // --- 考试 ---
   "examnew.title": "新建考试",
@@ -471,7 +481,7 @@ const messages = {
   "detail.born": "出生日期",
   "detail.guardian": "监护人",
   "detail.scores": "考试成绩",
-  "detail.scoresHint": "折线图展示历次考试；点选图中的场次或用 ← → 切换，下方显示该场成绩，可展开查看全部。点分数可就地更正，↑↓ 为较上一场，更正显示调整幅度",
+  "detail.scoresHint": "折线图展示历次考试，下方默认列出全部成绩，可收起只看选中的那一场（点选图中场次或用 ← → 切换）。点分数可就地更正，↑↓ 为较上一场，更正显示调整幅度",
   "detail.addScore": "添加成绩",
   "detail.scoreAdded": "成绩已添加",
   "scoreNew.groupUnentered": "未录入",
