@@ -83,6 +83,11 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      # 真实 TLS 证书（宿主机 acme.sh 续期）；镜像内自签兜底证书仅在
+      # 未挂载时生效，见 frontend/Dockerfile
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       backend:
         condition: service_healthy
