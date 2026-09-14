@@ -29,26 +29,20 @@ FROM nginx:alpine
 # /gao/assets/*，因此 dist 必须伺服在 /gao/ 子路径下
 COPY --from=builder /build/dist /usr/share/nginx/html/gao
 
-# SPA routing under /gao/ + /api reverse proxy
-RUN echo 'server { \
-  listen 80; \
-  root /usr/share/nginx/html; \
-  index index.html; \
-  location /api { \
-    proxy_pass http://backend:8001; \
-    proxy_set_header Host $host; \
-    proxy_set_header X-Real-IP $remote_addr; \
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; \
-    proxy_set_header X-Forwarded-Proto $scheme; \
-  } \
-  location /gao/ { \
-    try_files $uri $uri/ /gao/index.html; \
-  } \
-  location = /gao { return 302 /gao/; } \
-  location = / { return 302 /gao/; } \
-}' > /etc/nginx/conf.d/default.conf
+# SPA routing under /gao/ + /api reverse proxy, HTTP 与 HTTPS server 块。
+# 证书路径指向挂载的 /etc/letsencrypt（见 docker-compose.yml frontend volumes）。
+COPY nginx/default.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+# 自签兜底证书：本地开发/未挂载 /etc/letsencrypt 的环境 nginx 也能起 443 块；
+# 生产 compose 把真实证书挂进来后覆盖同路径文件，不受影响
+RUN apk add --no-cache openssl && \
+    mkdir -p /etc/letsencrypt/live/joeyzhang.me && \
+    openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+      -keyout /etc/letsencrypt/live/joeyzhang.me/privkey.pem \
+      -out /etc/letsencrypt/live/joeyzhang.me/fullchain.pem \
+      -days 3650 -subj "/CN=joeyzhang.me"
+
+EXPOSE 80 443
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://127.0.0.1/ || exit 1
