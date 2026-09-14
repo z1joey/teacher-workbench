@@ -598,8 +598,8 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
 
 
 def run() -> None:
-    # Alembic 0005 (event schema) is the path for existing PostgreSQL databases;
-    # fresh databases are created + seeded here.
+    # Local SQLite dev: create tables directly. Docker / PostgreSQL: run
+    # python -m app.bootstrap_db first, then seed.
     Base.metadata.create_all(engine)
     db = SessionLocal()
     try:

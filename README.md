@@ -104,9 +104,10 @@ docker compose up -d --build     # 修改代码后重新构建并启动
   db 未 healthy 前 backend 不会启动，backend 未 healthy 前 frontend 不会启动
   （`depends_on` 约束）。
 - **数据持久化在 PostgreSQL**（`pgdata` 数据卷），重启容器不会丢数据。容器
-  **不自动灌种子数据**。启动时 `python -m app.bootstrap_db` 会把 schema 迁到
-  最新：已有的 legacy 数据卷走 Alembic 0005 **原地迁移**到事件 schema，全新
-  数据卷则建表并 stamp 到 head。首次或想重置演示数据时手动执行：
+  **不自动灌种子数据**。启动时 `python -m app.bootstrap_db` 会执行
+  `alembic upgrade head` 建表/迁到最新 schema（v1 起为单条 `0001_initial`
+  迁移；**旧版预发布数据卷需先 `docker compose down -v` 清空**）。首次或想
+  重置演示数据时手动执行：
 
   ```bash
   docker compose exec backend python -m app.seed   # 全新库灌演示数据（已有库会重复灌入，先 down -v 删卷）
@@ -178,8 +179,8 @@ PostgreSQL 上落在 **JSONB** 列。
 > 自 2026-09 起数据模型整体切换为**以事件为中心**的 schema：person 是唯一的
 > 身份表（角色 student/teacher/admin 与角色专属档案都在 `person.payload`），
 > 一切动态都是 Event 行（考试、成绩、家访、备注…），标签挂人，班级/在读保持
-> 关系表。旧表的列式数据由 Alembic 0005 一次性迁移，旧 `app/models.py` /
-> `app/events.py` 已删除。
+> 关系表。旧版列式 schema 已在 v1 发布前废弃；迁移历史已压成单条
+> `0001_initial`。
 
 ### 实体关系总览
 
@@ -241,12 +242,10 @@ exam_taken / result_changed）由业务流程自动写入，教师手写事件�
 
 ### 建表与迁移
 
-迁移工具为 **Alembic**（链：0001 基线 → 0005 事件 schema 数据迁移）。
-部署入口是 `python -m app.bootstrap_db`：检测到 legacy 卷（有旧 `user` 表、
-无 `person`）时执行 `alembic upgrade head`——0005 把旧表数据原地迁移到事件
-schema；全新卷则 `create_all` 建表并 `stamp` 到 head，保证后续增量迁移从
-head 起步。本地 SQLite 开发库不做迁移——删掉文件重跑 `python -m app.seed`
-即可。
+迁移工具为 **Alembic**（v1 起单条 `0001_initial`，从当前模型建表）。
+部署入口是 `python -m app.bootstrap_db`，每次启动执行 `alembic upgrade head`。
+本地 SQLite 开发库可跳过 Alembic——删掉文件重跑 `python -m app.seed`（内部
+`create_all`）即可。
 
 ## 演示数据与故事线
 
@@ -276,9 +275,9 @@ backend/
     security.py        # PBKDF2 密码哈希 / token
     deps.py            # get_current_person 鉴权依赖
     seed.py            # 确定性演示数据（建表 + 灌数据）
-    bootstrap_db.py    # 部署入口：legacy 卷 Alembic 迁移 / 全新卷建表 + stamp
+    bootstrap_db.py    # 部署入口：alembic upgrade head + 运行时数据修补
     main.py            # FastAPI 应用与路由装配
-    alembic/           # 迁移链 0001→0005（0005 = legacy 数据原地迁移）
+    alembic/           # 迁移链（v1：0001_initial）
     routers/
       auth.py          # 注册 / 登录 / 登出 / me
       students.py      # 学生、时间线、事件、标签、成绩更正
@@ -302,7 +301,7 @@ docs/design.md
 Docker 部署已使用 PostgreSQL 17（JSONB、部分唯一索引、事件索引均已生效）；
 本地开发仍可用 SQLite，连接串由 `DATABASE_URL` 决定。数据库凭据统一放在
 `.env`（已 gitignore / dockerignore，compose 从中读取；模板见 `.env.example`，
-凭据仅在 pgdata 卷首次初始化时生效）。数据库迁移走 Alembic（0001→0005，
-容器启动时 `python -m app.bootstrap_db` 自动迁移/建表）。接入生产前还需处理：
+凭据仅在 pgdata 卷首次初始化时生效）。数据库迁移走 Alembic（`0001_initial`，
+容器启动时 `python -m app.bootstrap_db` 自动 `upgrade head`）。接入生产前还需处理：
 会话 token 无过期时间（需加过期与刷新机制）、CORS 允许任意来源（演示配置）、
 更换 `.env` 中的弱演示密码并考虑接入密钥管理服务。
