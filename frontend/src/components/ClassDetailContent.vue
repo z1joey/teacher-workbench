@@ -445,7 +445,8 @@ function fmtPct(score, full) {
       <!-- 座位表：未分班不显示 -->
       <SeatingBoard v-if="!isUnassigned" :class-id="classId" :students="detail.students" />
 
-      <div class="split">
+      <!-- 未分班时没有右侧各科平均栏，名单退成单列撑满，避免大屏下 340px 空列挤小名单 -->
+      <div class="split" :class="{ 'split--single': isUnassigned }">
         <div>
           <div v-if="!isUnassigned" class="card">
             <div class="card__head">
@@ -662,5 +663,8 @@ function fmtPct(score, full) {
 .switcher-chevron {
   flex-shrink: 0;
   color: var(--muted);
+}
+.split--single {
+  grid-template-columns: minmax(0, 1fr);
 }
 </style>

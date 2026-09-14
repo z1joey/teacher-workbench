@@ -411,7 +411,8 @@ function pct(score, full) {
             :y-max="trendChart.yMax"
             :highlight-index="trendChart.highlightIndex"
           />
-          <p v-else class="muted" style="padding: var(--sp-2) var(--sp-5)">
+          <!-- card__body 自带 20px 内边距，这里不再加水平 padding，保证与标题左对齐 -->
+          <p v-else class="muted">
             还没有成绩录入，录入后这里会显示全校平均分趋势。
           </p>
         </div>

@@ -618,10 +618,12 @@ def list_students(
 
 @router.get("/tags")
 def list_tags(db: Session = Depends(get_db)):
-    """All in-use tags (attached to at least one person)."""
+    """All in-use tags (attached to at least one person), for manual reuse.
+    系统自动挂载的标签（如毕业流程的「已毕业」）不在此列，避免手动重复添加。"""
     tags = (
         db.query(Tag, func.count(person_tags.c.person_id))
         .outerjoin(person_tags, person_tags.c.tag_id == Tag.id)
+        .filter(Tag.name != AUTO_GRADUATED_TAG_NAME)
         .group_by(Tag.id)
         .having(func.count(person_tags.c.person_id) > 0)
         .order_by(func.count(person_tags.c.person_id).desc(), Tag.name)
