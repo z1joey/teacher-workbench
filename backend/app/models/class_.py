@@ -18,6 +18,7 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
+    false,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -33,7 +34,7 @@ class Class(Base):
     academic_year: Mapped[str] = mapped_column(String(20))
     # 班级毕业（graduated）后置 True：数据保留，默认从列表隐藏
     archived: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default=text("0")
+        Boolean, default=False, server_default=false()
     )
     teacher_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("person.id"), index=True
