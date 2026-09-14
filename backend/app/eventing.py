@@ -16,7 +16,6 @@ SYSTEM_EVENT_TYPES = {
     "enrolled",
     "class_moved",
     "exam_taken",
-    "result_changed",
     "seat_changed",
 }
 

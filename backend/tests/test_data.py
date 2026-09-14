@@ -3,17 +3,19 @@ from __future__ import annotations
 
 import io
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 from openpyxl import Workbook, load_workbook
 
+from app.eventing import create_event
 from app.models import AuthSession, Class, Enrollment, Event, Person
 from app.payloads import validate_person_payload
 from app.routers import data
 from app.routers.students import _guardian_link
 from app.security import hash_password
 from app.unassigned import ensure_unassigned_class, is_unassigned_class
+from app.workspace import ensure_workspace_id, tag_student_workspace
 from tests.conftest import seed_person, seed_token
 
 TEACHER_TOKEN = "d" * 64
@@ -386,3 +388,70 @@ def test_roster_import_rejects_score_sheet(client, db):
         Person.payload["role"].as_string() == "student"
     ).count() == 0
     assert db.query(AuthSession).filter(AuthSession.token == TEACHER_TOKEN).count() == 1
+
+
+# ---------------------------------------------------------------------------
+# 演示数据加载保护：已有业务数据时必须先「清空业务数据」
+# ---------------------------------------------------------------------------
+
+def _teacher_row(db) -> Person:
+    return db.query(Person).filter(Person.phone == "13800000001").one()
+
+
+def _workspace_student(db, name: str, admission_no: str) -> Person:
+    teacher = _teacher_row(db)
+    p = _student(db, name, admission_no)
+    tag_student_workspace(p, teacher)
+    db.commit()
+    return p
+
+
+def test_demo_status_empty_workspace(client, db):
+    res = client.get("/api/data/demo/status", headers=AUTH)
+    assert res.status_code == 200
+    assert res.json() == {"has_business_data": False}
+
+
+def test_demo_status_detects_students(client, db):
+    _workspace_student(db, "林晓雨", "S770001")
+    res = client.get("/api/data/demo/status", headers=AUTH)
+    assert res.status_code == 200
+    assert res.json() == {"has_business_data": True}
+
+
+def test_demo_seed_blocked_when_students_exist(client, db):
+    s = _workspace_student(db, "林晓雨", "S770001")
+
+    res = client.post("/api/data/demo/seed", headers=AUTH)
+    assert res.status_code == 409, res.text
+    assert "清空业务数据" in res.json()["detail"]
+    # 拒收不能有任何副作用：学生还在，演示数据没有进来
+    db.expire_all()
+    assert db.get(Person, s.id) is not None
+    assert db.query(Class).filter(Class.name == "七年级1班").count() == 0
+
+
+def test_demo_seed_blocked_when_only_exam_exists(client, db):
+    """没有学生/班级、只有工作区考试时同样拦截。"""
+    teacher = _teacher_row(db)
+    create_event(
+        db, event_type="exam", title="期末考试",
+        start_time=datetime(2026, 9, 17, 9, 0),
+        payload={"full_scores": {"math": 100.0},
+                 "workspace_id": ensure_workspace_id(teacher)},
+        attendee_ids=[teacher.id],
+    )
+    db.commit()
+
+    res = client.post("/api/data/demo/seed", headers=AUTH)
+    assert res.status_code == 409, res.text
+
+
+def test_demo_seed_allowed_after_reset(client, db):
+    _workspace_student(db, "林晓雨", "S770001")
+    assert client.post("/api/data/demo/seed", headers=AUTH).status_code == 409
+
+    assert client.post("/api/data/demo/reset", headers=AUTH).status_code == 200
+    res = client.post("/api/data/demo/seed", headers=AUTH)
+    assert res.status_code == 200, res.text
+    assert len(_students(db)) >= 20

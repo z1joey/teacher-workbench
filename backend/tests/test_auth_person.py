@@ -299,3 +299,58 @@ def test_teachers_lists_only_teachers(make_client, db):
     rows = r.json()
     assert [row["name"] for row in rows] == ["张老师"]
     assert set(rows[0]) == {"id", "name", "email"}
+
+
+# ---------------------------------------------------------------------------
+# 修改密码：登录状态下验证当前密码，保留当前会话、踢掉其他会话
+# ---------------------------------------------------------------------------
+
+def test_password_change_flow(make_client, db):
+    client = _auth_client(make_client)
+    seed_person(db, "cp@test.example", name="赵老师")
+    db.commit()
+
+    r = client.post("/api/auth/login",
+                    json={"email": "cp@test.example", "password": "123456"})
+    token = r.json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    other = client.post("/api/auth/login",
+                        json={"email": "cp@test.example", "password": "123456"}).json()["token"]
+    other_headers = {"Authorization": f"Bearer {other}"}
+
+    # 当前密码错误 → 400，密码不变
+    r = client.post("/api/auth/password/change", headers=headers,
+                    json={"current_password": "wrong!", "new_password": "newpass123"})
+    assert r.status_code == 400, r.text
+    assert "当前密码" in r.json()["detail"]
+
+    # 新密码过短 → 422
+    r = client.post("/api/auth/password/change", headers=headers,
+                    json={"current_password": "123456", "new_password": "123"})
+    assert r.status_code == 422, r.text
+
+    # 新密码与当前相同 → 400
+    r = client.post("/api/auth/password/change", headers=headers,
+                    json={"current_password": "123456", "new_password": "123456"})
+    assert r.status_code == 400, r.text
+    assert "相同" in r.json()["detail"]
+
+    # 未登录 → 401
+    assert client.post("/api/auth/password/change",
+                       json={"current_password": "123456", "new_password": "newpass123"}
+                       ).status_code == 401
+
+    # 正确修改 → 200；当前会话保留，其他会话被踢
+    r = client.post("/api/auth/password/change", headers=headers,
+                    json={"current_password": "123456", "new_password": "newpass123"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True}
+    assert client.get("/api/auth/me", headers=headers).status_code == 200
+    assert client.get("/api/auth/me", headers=other_headers).status_code == 401
+
+    # 旧密码失效，新密码可登录
+    assert client.post("/api/auth/login",
+                       json={"email": "cp@test.example", "password": "123456"}).status_code == 401
+    r = client.post("/api/auth/login",
+                    json={"email": "cp@test.example", "password": "newpass123"})
+    assert r.status_code == 200, r.text

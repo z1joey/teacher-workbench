@@ -13,12 +13,23 @@ import { friendlyError, t } from "../strings"
 const loading = ref(true)
 const error = ref("")
 const classes = ref([])
+const hasBusinessData = ref(false)
+
+async function loadDemoStatus() {
+  try {
+    const status = await api.get("/data/demo/status")
+    hasBusinessData.value = !!status.has_business_data
+  } catch {
+    hasBusinessData.value = false
+  }
+}
 
 async function load() {
   loading.value = true
   error.value = ""
   try {
     classes.value = await api.get("/classes")
+    await loadDemoStatus()
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -74,6 +85,15 @@ async function importRoster() {
 const exportClassId = ref("")
 const exportingRoster = ref(false)
 
+// 系统未分班（is_unassigned）：导入默认就落未分班，无需重复列出；
+// 0 人时也没有可导出的名单，不进导出选项
+const importClassOptions = computed(() =>
+  classes.value.filter((c) => !c.is_unassigned)
+)
+const exportClassOptions = computed(() =>
+  classes.value.filter((c) => !(c.is_unassigned && !c.student_count))
+)
+
 async function exportRoster() {
   if (!exportClassId.value) {
     notify({ tone: "warn", title: "请选择要导出的班级" })
@@ -111,6 +131,20 @@ const seeding = ref(false)
 const resetting = ref(false)
 
 async function loadDemoData() {
+  await loadDemoStatus()
+  if (hasBusinessData.value) {
+    const goReset = await ask({
+      title: t("data.demoSeedBlocked"),
+      message: t("data.demoSeedMustClearFirst"),
+      consequences: [t("data.demoSeedMustClearHint")],
+      confirmLabel: t("data.demoReset"),
+      cancelLabel: t("action.cancel"),
+      tone: "warn",
+    })
+    if (goReset) await resetApp()
+    return
+  }
+
   const ok = await ask({
     title: t("data.demoSeed"),
     message: t("data.demoSeedWarn"),
@@ -128,7 +162,12 @@ async function loadDemoData() {
     notify({ tone: "ok", title: t("data.demoSeedDone"), timeout: 4000 })
     window.location.reload()
   } catch (e) {
-    notify({ tone: "error", title: t("data.demoSeedFail"), detail: friendlyError(e) })
+    if (e?.status === 409) {
+      hasBusinessData.value = true
+      notify({ tone: "warn", title: t("data.demoSeedBlocked"), detail: friendlyError(e), timeout: 8000 })
+    } else {
+      notify({ tone: "error", title: t("data.demoSeedFail"), detail: friendlyError(e) })
+    }
   } finally {
     seeding.value = false
   }
@@ -153,6 +192,7 @@ async function resetApp() {
     rosterResult.value = null
     rosterClassId.value = ""
     exportClassId.value = ""
+    hasBusinessData.value = false
     await load()
   } catch (e) {
     notify({ tone: "error", title: t("data.demoResetFail"), detail: friendlyError(e) })
@@ -188,7 +228,7 @@ async function resetApp() {
             >
               <select v-model="rosterClassId" class="input">
                 <option value="">{{ t("students.ungrouped") }}（默认）</option>
-                <option v-for="c in classes" :key="c.id" :value="c.id">
+                <option v-for="c in importClassOptions" :key="c.id" :value="c.id">
                   {{ c.name }}（{{ c.academic_year }}，{{ c.student_count }} 人）
                 </option>
               </select>
@@ -275,7 +315,7 @@ async function resetApp() {
             <FormField label="班级" required>
               <select v-model="exportClassId" class="input">
                 <option value="" disabled>选择班级</option>
-                <option v-for="c in classes" :key="c.id" :value="c.id">
+                <option v-for="c in exportClassOptions" :key="c.id" :value="c.id">
                   {{ c.name }}（{{ c.academic_year }}，{{ c.student_count }} 人）
                 </option>
               </select>

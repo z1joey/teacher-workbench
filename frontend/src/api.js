@@ -37,7 +37,9 @@ async function request(path, options = {}) {
       detail = detail.map((d) => (typeof d?.msg === "string" ? d.msg : "")).filter(Boolean).join("; ")
     }
     if (typeof detail !== "string" || !detail) detail = res.statusText
-    throw new Error(detail)
+    const err = new Error(detail)
+    err.status = res.status
+    throw err
   }
   if (res.status === 204 || res.status === 205) return null
   return res.json()

@@ -1105,7 +1105,7 @@ def test_teachers_me_event_types_returns_manual_list(make_client, db, headers):
 # PATCH /results/{id} — score event payload edits + absent toggle
 # ---------------------------------------------------------------------------
 
-def test_patch_result_edits_score_payload_and_records_change(make_client, db, headers):
+def test_patch_result_edits_score_payload_silently(make_client, db, headers):
     s = _seed_person(db, "林晓雨", "S001")
     ev = _score_event(db, s, "期中考试", "math", score=88.0, max_score=120.0)
     db.commit()
@@ -1117,9 +1117,7 @@ def test_patch_result_edits_score_payload_and_records_change(make_client, db, he
     assert r.status_code == 400
     assert r.json()["detail"] == "score out of range"
 
-    r = client.patch(f"/api/results/{ev.id}",
-                     json={"score": 92.0, "reason": "改错一道大题"},
-                     headers=headers)
+    r = client.patch(f"/api/results/{ev.id}", json={"score": 92.0}, headers=headers)
     assert r.status_code == 200, r.text
     assert r.json() == {"id": str(ev.id), "score": 92.0, "changed": True}
     db.refresh(ev)
@@ -1129,23 +1127,15 @@ def test_patch_result_edits_score_payload_and_records_change(make_client, db, he
     assert detail.status_code == 200, detail.text
     math_row = next(row for row in detail.json()["scores"] if row["subject"] == "math")
     assert math_row["score"] == 92.0
-    assert math_row["correction"] == {
-        "old": 88.0,
-        "new": 92.0,
-        "reason": "改错一道大题",
-    }
+    assert "correction" not in math_row  # 更正事件已废除：就地改分不留痕
     assert ev.payload["subject"] == "math"  # merge keeps sibling keys
-    changes = db.query(Event).filter(Event.type == "result_changed").all()
-    assert len(changes) == 1
-    assert changes[0].payload["old"] == 88.0
-    assert changes[0].payload["new"] == 92.0
-    assert changes[0].payload["reason"] == "改错一道大题"
+    assert db.query(Event).filter(Event.type == "result_changed").count() == 0
 
     # unchanged value short-circuits
     r = client.patch(f"/api/results/{ev.id}", json={"score": 92.0}, headers=headers)
     assert r.status_code == 200, r.text
     assert r.json() == {"id": str(ev.id), "score": 92.0, "changed": False}
-    assert db.query(Event).filter(Event.type == "result_changed").count() == 1
+    assert db.query(Event).filter(Event.type == "result_changed").count() == 0
 
     # a non-score event id is not a result
     enrolled = eventing.create_event(db, event_type="enrolled", title="入学",

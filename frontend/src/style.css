@@ -972,52 +972,42 @@ mark.hl {
   background-position: right 9px center;
 }
 
-/* 弹窗内考试选择：自绘下拉列表（原生 select 弹出层在嵌入式 WebView
-   里会被定位到屏幕底部，无法用样式修正） */
-.exam-picker__trigger {
+/* 成绩录入页：考试分组列表（未录入 / 已录入） */
+.score-exam-list {
   display: flex;
-  width: 100%;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: 7px var(--sp-3);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-sm);
-  background: var(--surface);
-  color: var(--ink);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  appearance: none;
-}
-.exam-picker__trigger.is-placeholder {
-  color: var(--muted);
-}
-.exam-picker__menu {
-  margin-top: 4px;
-  max-height: 240px;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 300px;
   overflow-y: auto;
   border: 1px solid var(--line-strong);
   border-radius: var(--r-sm);
-  background: var(--surface);
-  box-shadow: var(--shadow-lg);
+  padding: 4px;
 }
-.exam-picker__option {
+.score-exam-group-label {
+  margin: 6px var(--sp-2) 2px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.score-exam-option {
   display: flex;
   width: 100%;
   align-items: center;
   gap: var(--sp-2);
-  padding: 8px var(--sp-3);
+  padding: 8px var(--sp-2);
   border: 0;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.exam-picker__option:hover {
+.score-exam-option:hover {
   background: var(--surface-sunken);
 }
-.exam-picker__option.is-active {
+.score-exam-option.is-active {
   background: var(--primary-soft);
   color: var(--primary);
   font-weight: 600;
@@ -1366,6 +1356,9 @@ mark.hl {
   margin-top: auto;
   padding-top: var(--sp-2);
   border-top: 1px solid var(--line);
+  /* 统一页脚高度（边框 1 + 内边距 8 + 标题行约 20 + 两行描述约 39），
+     保证同一行卡片底部分隔线对齐 */
+  min-height: 68px;
 }
 .student-card__event-head {
   display: flex;
@@ -1387,6 +1380,8 @@ mark.hl {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  /* 无描述文字也预留两行高度，配合页脚 min-height 对齐分隔线 */
+  min-height: calc(2 * 1.45em);
   overflow: hidden;
 }
 .student-card__empty {
@@ -3223,11 +3218,6 @@ a.chip:hover {
 .score-pill__delta {
   font-size: var(--fs-xs);
   font-weight: 600;
-}
-.score-pill__correction {
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--warn);
 }
 .score-pill:hover {
   border-color: var(--primary);

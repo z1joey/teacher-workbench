@@ -8,6 +8,7 @@ import DataView from "./DataView.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
+import PasswordInput from "../components/PasswordInput.vue"
 import api, { setToken } from "../api"
 import { clearMe, me } from "../auth"
 import { ask } from "../confirm"
@@ -27,6 +28,55 @@ const editForm = ref({ name: "", phone: "" })
 const errors = ref({})
 const settingsSaving = ref(false)
 const clearingHomeVisitTags = ref(false)
+
+// 修改密码：验证当前密码；成功后其他设备自动下线，当前设备不受影响
+const pwdEditing = ref(false)
+const pwdForm = ref({ current: "", next: "", confirm: "" })
+const pwdSaving = ref(false)
+const pwdErrors = ref({})
+
+function startPwdEdit() {
+  editing.value = false
+  pwdForm.value = { current: "", next: "", confirm: "" }
+  pwdErrors.value = {}
+  pwdEditing.value = true
+}
+
+function cancelPwdEdit() {
+  pwdEditing.value = false
+  pwdForm.value = { current: "", next: "", confirm: "" }
+  pwdErrors.value = {}
+}
+
+async function changePassword() {
+  pwdErrors.value = {}
+  if (!pwdForm.value.current) {
+    pwdErrors.value.current = "请输入当前密码"
+    return
+  }
+  if (pwdForm.value.next.length < 6) {
+    pwdErrors.value.next = "新密码至少 6 位"
+    return
+  }
+  if (pwdForm.value.next !== pwdForm.value.confirm) {
+    pwdErrors.value.confirm = "两次输入的新密码不一致"
+    return
+  }
+  pwdSaving.value = true
+  try {
+    await api.post("/auth/password/change", {
+      current_password: pwdForm.value.current,
+      new_password: pwdForm.value.next,
+    })
+    notify({ tone: "ok", title: "密码已修改", detail: "其他设备已退出登录", timeout: 3600 })
+    pwdEditing.value = false
+    pwdForm.value = { current: "", next: "", confirm: "" }
+  } catch (e) {
+    notify({ tone: "error", title: "修改失败", detail: friendlyError(e) })
+  } finally {
+    pwdSaving.value = false
+  }
+}
 
 function normalizePhone(phone) {
   return phone.replace(/[\s-]/g, "")
@@ -101,6 +151,7 @@ async function load() {
 onMounted(load)
 
 function startEdit() {
+  pwdEditing.value = false
   const user = profile.value.user
   editForm.value = { name: user.name || "", phone: user.phone || "" }
   errors.value = {}
@@ -234,12 +285,17 @@ const activity = computed(() => {
         <div class="card">
           <div class="card__head">
             <h2 class="card__title"><Icon name="user" :size="16" /> 基本资料</h2>
-            <button v-if="!editing" class="btn btn--sm" @click="startEdit">
-              <Icon name="pencil" :size="13" /> {{ t("profile.editInfo") }}
-            </button>
+            <div v-if="!editing && !pwdEditing" class="row" style="gap: 8px">
+              <button type="button" class="btn btn--sm" @click="startPwdEdit">
+                <Icon name="lock" :size="13" /> 修改密码
+              </button>
+              <button type="button" class="btn btn--sm" @click="startEdit">
+                <Icon name="pencil" :size="13" /> {{ t("profile.editInfo") }}
+              </button>
+            </div>
           </div>
 
-          <div v-if="!editing" class="card__body">
+          <div v-if="!editing && !pwdEditing" class="card__body">
             <div class="row" style="gap: 14px; align-items: flex-start">
               <span class="avatar avatar--lg">{{ profile.user.name.charAt(0) }}</span>
               <div class="grow">
@@ -256,7 +312,7 @@ const activity = computed(() => {
             </div>
           </div>
 
-          <form v-else class="card__body" @submit.prevent="saveProfile">
+          <form v-else-if="editing" class="card__body" @submit.prevent="saveProfile">
             <div class="form-grid">
               <FormField :label="t('login.name')" required :error="errors.name || ''">
                 <input v-model="editForm.name" class="input" type="text" :aria-invalid="!!errors.name" />
@@ -282,6 +338,45 @@ const activity = computed(() => {
                 {{ saving ? t("action.saving") : t("action.save") }}
               </button>
               <button type="button" class="btn btn--ghost" @click="cancelEdit">
+                {{ t("action.cancel") }}
+              </button>
+            </div>
+          </form>
+
+          <form v-else-if="pwdEditing" class="card__body" @submit.prevent="changePassword">
+            <div class="form-grid">
+              <FormField label="当前密码" required :error="pwdErrors.current || ''">
+                <PasswordInput
+                  v-model="pwdForm.current"
+                  autocomplete="current-password"
+                  :invalid="!!pwdErrors.current"
+                />
+              </FormField>
+              <FormField label="新密码" required :error="pwdErrors.next || ''" hint="至少 6 位">
+                <PasswordInput
+                  v-model="pwdForm.next"
+                  autocomplete="new-password"
+                  :invalid="!!pwdErrors.next"
+                  :minlength="6"
+                />
+              </FormField>
+              <FormField label="确认新密码" required :error="pwdErrors.confirm || ''">
+                <PasswordInput
+                  v-model="pwdForm.confirm"
+                  autocomplete="new-password"
+                  :invalid="!!pwdErrors.confirm"
+                />
+              </FormField>
+            </div>
+            <p class="field__hint" style="margin: 0 0 4px">
+              修改成功后，其他设备会自动退出登录，当前设备不受影响。
+            </p>
+            <div class="form-actions">
+              <button type="submit" class="btn btn--primary" :disabled="pwdSaving">
+                <span v-if="pwdSaving" class="spinner" />
+                {{ pwdSaving ? t("action.saving") : "修改密码" }}
+              </button>
+              <button type="button" class="btn btn--ghost" @click="cancelPwdEdit">
                 {{ t("action.cancel") }}
               </button>
             </div>
@@ -342,6 +437,7 @@ const activity = computed(() => {
             </div>
           </div>
         </div>
+
         <!-- 毕业归档：标记毕业 + 查看归档班级与毕业生（名单默认收起） -->
         <div class="card">
           <div class="card__head">

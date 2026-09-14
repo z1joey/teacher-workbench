@@ -3,7 +3,7 @@
 `app.seed.run()` against a throwaway SQLite database (DATABASE_URL env +
 fresh `app.*` import, like the pre-migration test did) must load the demo
 content the frontend stories rely on: role counts, the event-type census
-(six graded sittings × nine subjects × 24 students, the correction story,
+(six graded sittings × nine subjects × 24 students,
 王浩's class move, visits + notes), tag usage, enrollments, working seeded
 logins, the "<exam>·<subject>" score-title convention, and the projected-
 birthday precondition — students carry an ISO birth_date in the payload and
@@ -57,8 +57,8 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         assert {s.name for s in grandmah.students} == {"王浩", "邓晓彤"}
 
         # events by type: 6 graded sittings + 1 upcoming exam, every
-        # student-subject of the graded sittings scored, 3 correction stories,
-        # 王浩's class move, 5 visits (one planned), 2 notes, teacher-written
+        # student-subject of the graded sittings scored,
+        # 王浩's class move, 15 visits (six planned), 2 notes, teacher-written
         # records (评语/家访), plus yearly birthdays — and the graduation
         # story: 6 入学 + 6 毕业 events for 六1班.
         types = dict(db.query(Event.type, func.count(Event.id)).group_by(Event.type).all())
@@ -68,20 +68,20 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
             "enrolled": 30,
             "class_moved": 1,
             "graduated": 6,
-            "home_visited": 12,
-            "result_changed": 3,
+            "home_visited": 15,
             "comment": 20,
+            "summary": 7,
             "seat_changed": 24,
             "birthday": 24,
         }
 
-        # every home visit carries a purpose; exactly one stays 未完成 so the
+        # every home visit carries a purpose; several stay 未完成 so the
         # 待跟进 queue is non-empty
         visit_payloads = [
             p for (p,) in db.query(Event.payload).filter(Event.type == "home_visited").all()
         ]
         assert all(p.get("purpose") for p in visit_payloads)
-        assert sum(1 for p in visit_payloads if not p.get("done")) == 1
+        assert sum(1 for p in visit_payloads if not p.get("done")) == 6
 
         # seating: both classes ship a persisted layout; 王浩 (moved to 七1)
         # keeps a seat there, and one class has empty seats for realism
@@ -146,7 +146,7 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
             .all()
         }
         assert tagged == done_visit_students
-        assert usage["已家访"] == len(done_visit_students) == 11
+        assert usage["已家访"] == len(done_visit_students) == 9
         grad_tag = next(t for t in tags if t.name == "已毕业")
         assert usage["已毕业"] == 6
 

@@ -53,7 +53,9 @@ function timelineDesc(event) {
   // exam 节点默认不展示描述；学生档案页会在有成绩时带上 score_summary
   if (event.score_summary) return event.score_summary
   if (NO_TIMELINE_DESC.has(event.event_type)) return ""
-  return describeEvent(event.event_type, event.payload)
+  const desc = describeEvent(event.event_type, event.payload)
+  // 评语/谈心等事件的标题就是正文本身，描述与标题重复时不渲染副标题
+  return desc === eventDisplayName(event) ? "" : desc
 }
 
 function row(e) {

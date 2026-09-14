@@ -210,13 +210,17 @@ const messages = {
   // --- 数据 ---
   "data.demoTitle": "演示数据",
   "data.demoSub": "用于本地试用或发布前验收：演示内容绑定当前教师账号，仅教师可操作。",
-  "data.demoBody": "包含两个班级、全年成绩曲线与更正留痕、座位表、家访、谈心、辅导、家长沟通、评语、比赛活动等真实场景。加载或清空后都会保留你当前登录的教师账号，无需重新登录。",
+  "data.demoBody": "包含两个班级、全年成绩曲线、座位表、家访、谈心、辅导、家长沟通、评语、学生总结、比赛活动等真实场景。加载或清空后都会保留你当前登录的教师账号，无需重新登录。",
   "data.demoSeed": "加载演示数据",
   "data.demoSeedWarn": "这会清空现有业务数据，并写入演示用的班级、学生、考试与跟进记录。",
   "data.demoSeedDone": "演示数据已加载",
   "data.demoSeedFail": "加载演示数据失败",
+  "data.demoSeedBlocked": "已有业务数据，无法直接加载",
+  "data.demoSeedMustClearFirst":
+    "当前工作台已有数据（真实数据或演示数据均可）。加载新的演示数据前，必须先「清空业务数据」。",
+  "data.demoSeedMustClearHint": "清空会删除全部学生、班级、考试、成绩与跟进记录，且无法恢复。",
   "data.demoReset": "清空业务数据",
-  "data.demoResetHint": "注意：「清空业务数据」删除的不只是演示数据——所有真实数据（学生、班级、考试、成绩、跟进记录）都会一并删除，且无法恢复。",
+  "data.demoResetHint": "注意：已有业务数据时，要先「清空业务数据」才能加载演示数据。清空会删除所有真实数据（学生、班级、考试、成绩、跟进记录），且无法恢复。",
   "data.demoResetWarn": "这会删除全部数据——不只是演示数据：你真实录入的所有学生、班级、考试、成绩和跟进记录都会被永久删除，回到空白工作台。",
   "data.demoResetConfirm": "清空数据",
   "data.demoResetDone": "业务数据已清空",
@@ -263,7 +267,7 @@ const messages = {
   "visits.title": "家访",
   "visits.subtitle": "共 {count} 次 · 覆盖 {students} 名学生",
   "visits.emptyTitle": "还没有家访记录",
-  "visits.emptyDesc": "在学生档案里点「记录家访」即可添加。",
+  "visits.emptyDesc": "在学生档案里点「家访」即可添加。",
   "visits.done": "已完成",
   "visits.markDone": "标记完成",
   "visits.record": "记录家访",
@@ -288,7 +292,7 @@ const messages = {
   "new.submit": "保存并打开档案",
   "new.saving": "保存中…",
   "students.add": "添加学生",
-  "students.addComment": "写评语",
+  "students.addComment": "记录",
 
   // --- 个人中心 ---
   "profile.title": "个人中心",
@@ -301,7 +305,7 @@ const messages = {
   "profile.activity": "教学足迹",
   "profile.recordsLogged": "跟进记录",
   "profile.resultsEntered": "录入成绩",
-  "profile.commentsWritten": "撰写评语",
+  "profile.commentsWritten": "记录事件",
   "profile.editInfo": "编辑资料",
   "profile.saved": "已保存",
   "profile.studentsCount": "{n} 人",
@@ -400,27 +404,28 @@ const messages = {
   "students.groupCollapsed": "已折叠",
 
   // --- 评语 ---
-  "commentNew.title": "写评语",
-  "commentNew.subtitle": "记录关于学生的评语；若涉及其他学生，他们也会在自己的时间线里看到",
+  "commentNew.title": "添加记录",
+  "commentNew.subtitle": "记录关于学生的情况；若涉及其他学生，他们也会在自己的时间线里看到",
   "commentNew.studentLabel": "学生",
-  "commentNew.studentHint": "这条评语主要关于哪位学生",
+  "commentNew.studentHint": "这条记录主要关于哪位学生",
   "commentNew.studentPlaceholder": "请选择学生",
   "commentNew.studentRequired": "请选择一名学生",
-  "commentNew.notesLabel": "评语内容",
+  "commentNew.notesLabel": "记录内容",
   "commentNew.notesHint": "例如课堂表现、同学矛盾、需要跟进的情况",
   "commentNew.notesPlaceholder": "写下你的观察或记录…",
-  "commentNew.notesRequired": "请填写评语内容",
+  "commentNew.notesRequired": "请填写记录内容",
   "commentNew.dateLabel": "日期",
   "commentNew.mentionLabel": "涉及的其他学生",
-  "commentNew.mentionHint": "可选；被提到的学生时间线也会显示这条评语",
+  "commentNew.mentionHint": "可选；被提到的学生时间线也会显示这条记录",
   "commentNew.showMentions": "选择涉及的学生",
   "commentNew.hideMentions": "收起学生列表",
   "commentNew.mentionCount": "已选 {n} 人",
-  "commentNew.submit": "保存评语",
+  "commentNew.submit": "保存记录",
   "commentNew.saving": "保存中…",
 
   // --- 学生总结 ---
   "summary.title": "学生总结",
+  "summary.open": "总结",
   "summary.subtitle": "根据学生的事件记录，用 AI 生成阶段性总结；总结只出现在你自己的动态里，学生时间线看不到",
   "summary.rangeLabel": "时间段",
   "summary.rangeAll": "全部",
@@ -431,9 +436,9 @@ const messages = {
   "summary.rangeTo": "结束日期",
   "summary.rangeInvalid": "开始日期不能晚于结束日期",
   "summary.lengthLabel": "字数",
-  "summary.lengthBrief": "简短（约100字）",
-  "summary.lengthStandard": "标准（约250字）",
-  "summary.lengthDetailed": "详细（约500字）",
+  "summary.lengthBrief": "简短（约50字）",
+  "summary.lengthStandard": "标准（约100字）",
+  "summary.lengthDetailed": "详细（约150字）",
   "summary.styleLabel": "风格",
   "summary.styleFormal": "客观正式",
   "summary.styleWarm": "亲切温暖",
@@ -469,9 +474,12 @@ const messages = {
   "detail.guardian": "监护人",
   "detail.scores": "考试成绩",
   "detail.scoresHint": "折线图展示历次考试；点选图中的场次或用 ← → 切换，下方显示该场成绩，可展开查看全部。点分数可就地更正，↑↓ 为较上一场，更正显示调整幅度",
-  "detail.scoreCorrected": "更正{n}",
   "detail.addScore": "添加成绩",
   "detail.scoreAdded": "成绩已添加",
+  "scoreNew.groupUnentered": "未录入",
+  "scoreNew.groupEntered": "已录入",
+  "scoreNew.badgeUnentered": "未录入",
+  "scoreNew.badgeEntered": "已录 {n} 科",
   "detail.events": "事件记录",
   "detail.timeline": "时间线",
   "detail.timelineSub": "由你添加的记录可以点开编辑；系统自动生成的不可编辑",
@@ -485,8 +493,7 @@ const messages = {
   "detail.tagInUse": "点一下就能复用",
   "detail.scoresExpand": "展开更早的 {n} 条成绩",
   "detail.scoresCollapse": "收起更早的成绩",
-  "detail.editReason": "工作台内更正",
-  "detail.recordEvent": "记录家访",
+  "detail.recordEvent": "家访",
   "detail.nameRequired": "请填写学生姓名",
   "detail.admissionNoRequired": "请填写学号",
   "detail.deleteConfirm": "如果他已有成绩或跟进记录，只会停用账号并保留数据；没有记录才会彻底删除。",
@@ -551,11 +558,10 @@ const messages = {
   "tl.exam": "考试",
   "tl.score": "成绩",
   "tl.exam_taken": "参加考试",
-  "tl.result_changed": "成绩更正",
   "tl.seat_changed": "换座位",
   "tl.birthday": "生日",
   "tl.home_visited": "家访",
-  "tl.comment": "评语",
+  "tl.comment": "记录",
   "tl.joined": "加入 {class}",
   "tl.graduated": "毕业",
   "tl.graduatedFrom": "从 {class} 毕业",
@@ -698,7 +704,6 @@ const EVENT_TYPES = {
   enrolled: { icon: "enroll", color: "#6B7A72" },
   class_moved: { icon: "swap", color: "#6D5BB8" },
   exam_taken: { icon: "clipboard", color: "#2E6BA8" },
-  result_changed: { icon: "pencil", color: "#B45309" },
   home_visited: { icon: "home", color: "#2F7D4F" },
   comment: { icon: "note", color: "#7C5BA8" },
   birthday: { icon: "cake", color: "#9A5B07" },
@@ -740,9 +745,6 @@ export function eventDisplayName(event) {
   const name = (event.title || "").trim()
 
   if (type === "birthday") return eventTitle(type, payload)
-  if (type === "result_changed" && payload.exam) {
-    return `${payload.exam} · ${subject(payload.subject)}`
-  }
   if (name) return name
   return eventTitle(type, payload)
 }
@@ -769,9 +771,6 @@ export function describeEvent(type, p = {}) {
         : ""
       return `${p.exam ?? ""}${scores ? " — " + scores : ""}`
     }
-    case "result_changed":
-      if (p.notes) return p.notes
-      return `${p.exam ?? ""} · ${subject(p.subject)}: ${p.old} → ${p.new}${p.reason ? " · " + p.reason : ""}`
     case "seat_changed":
       // from/to 是「第X排第Y列」或空：空 to = 移出座位表，空 from = 首次安排
       if (p.notes) return p.notes
@@ -790,8 +789,9 @@ export function describeEvent(type, p = {}) {
       return `${base}${base ? " · " : ""}涉及：${names.join("、")}`
     }
     case "exam": {
+      // 没有科目/学期信息时返回空（标题行已有类型标注，"考试" 二字是噪音）
       const subjects = p.full_scores ? Object.keys(p.full_scores).map(subject).join("、") : ""
-      return [p.term ? `${p.term}考试` : "", subjects].filter(Boolean).join(" · ") || "考试"
+      return [p.term ? `${p.term}考试` : "", subjects].filter(Boolean).join(" · ")
     }
     case "score":
       return `${subject(p.subject)}：${p.absent ? "缺考" : `${p.score ?? "-"}/${p.max_score ?? "-"}`}`
