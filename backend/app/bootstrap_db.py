@@ -189,8 +189,10 @@ def _ensure_class_archived() -> None:
     if "archived" in cols:
         return
     with engine.begin() as conn:
+        dialect = conn.dialect.name
+        default = "false" if dialect == "postgresql" else "0"
         conn.execute(text(
-            "ALTER TABLE class ADD COLUMN archived BOOLEAN NOT NULL DEFAULT 0"
+            f"ALTER TABLE class ADD COLUMN archived BOOLEAN NOT NULL DEFAULT {default}"
         ))
 
 

@@ -257,7 +257,7 @@ jobs:
             #    - --wait 等待容器通过自身 healthcheck，不健康则本步骤失败
             #    - --no-deps 只重建应用服务，不动 db
             echo "🔄 更新服务..."
-            docker compose up -d --wait --wait-timeout 120 db
+            docker compose up -d --wait --wait-timeout 120 db redis
             docker compose up -d --wait --wait-timeout 300 --no-deps backend frontend
 
             echo "📊 服务状态："
