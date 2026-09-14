@@ -248,7 +248,7 @@ def dashboard(
         "user": {
             "id": str(user.id),
             "name": user.name,
-            "display_name": teacher_display_name(user.name),
+            "display_name": teacher_display_name(user.name, email=user.email),
         },
         "counts": counts,
         "upcoming_exams": [

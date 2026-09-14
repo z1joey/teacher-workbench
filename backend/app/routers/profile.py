@@ -26,11 +26,8 @@ def user_out(u: Person) -> dict:
         "phone": u.phone,
         "email": u.email,
         "role": role,
+        "display_name": teacher_display_name(name, email=u.email),
     }
-    if role == "teacher":
-        out["display_name"] = teacher_display_name(name)
-    else:
-        out["display_name"] = name or ""
     return out
 
 
@@ -42,7 +39,8 @@ def settings_out(payload: dict) -> dict:
 
 
 class ProfileIn(BaseModel):
-    name: str = Field(min_length=1, max_length=100)
+    # name 为 patch 语义：仅在请求里出现时更新；允许空串 = 清空姓名（显示回退邮箱前缀）
+    name: str | None = Field(default=None, max_length=100)
     phone: str | None = None
     auto_tags: bool | None = None
     calendar_birthdays: bool | None = None
@@ -161,7 +159,8 @@ def update_profile(
     person: Person = Depends(get_current_person),
 ):
     payload = dict(person.payload or {})
-    person.name = body.name.strip()
+    if "name" in body.model_fields_set:
+        person.name = (body.name or "").strip()
 
     if "phone" in body.model_fields_set:
         raw = (body.phone or "").strip()

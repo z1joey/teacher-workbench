@@ -8,6 +8,7 @@ import Icon from "./components/Icon.vue"
 import NavSearch from "./components/NavSearch.vue"
 import AppToasts from "./components/AppToasts.vue"
 import ConfirmHost from "./components/ConfirmHost.vue"
+import NamePromptModal from "./components/NamePromptModal.vue"
 import HelpDrawer from "./components/HelpDrawer.vue"
 import CommandPalette from "./components/CommandPalette.vue"
 import AppMeta from "./components/AppMeta.vue"
@@ -63,6 +64,26 @@ watch(
     if (path !== "/login" && getToken() && !me.value) loadMe()
   }
 )
+
+// ------------------------------------------------------------------ 首登称呼弹窗
+
+// 姓名为空 = 未设置（注册没填或在个人中心清空）。跳过/保存后按用户 id 记忆，
+// 同一浏览器不再弹；换浏览器会再问一次。主动去个人中心清空也不会再弹。
+const NAME_PROMPT_KEY = "namePromptDismissed"
+const showNamePrompt = ref(false)
+watch(
+  me,
+  (u) => {
+    const dismissed = u && localStorage.getItem(`${NAME_PROMPT_KEY}:${u.id}`) === "1"
+    showNamePrompt.value = !!u && !u.name && !dismissed
+  },
+  { immediate: true }
+)
+
+function dismissNamePrompt() {
+  if (me.value) localStorage.setItem(`${NAME_PROMPT_KEY}:${me.value.id}`, "1")
+  showNamePrompt.value = false
+}
 
 // ------------------------------------------------------------------ 退出
 
@@ -226,7 +247,7 @@ watch(paletteOpen, (v) => {
 
       <div class="sidebar__foot">
         <router-link v-if="!isAdmin && me" to="/profile" class="sidebar-user" @click="drawerOpen = false">
-          <span class="avatar">{{ me.name.charAt(0) }}</span>
+          <span class="avatar">{{ (me.display_name || me.name || "?").charAt(0) }}</span>
           <span class="sidebar-user__meta">
             <span class="sidebar-user__name">{{ me.display_name || me.name }}</span>
             <span class="sidebar-user__role">{{ t("nav.profile") }}</span>
@@ -288,6 +309,7 @@ watch(paletteOpen, (v) => {
   <!-- 全局浮层 -->
   <AppToasts />
   <ConfirmHost />
+  <NamePromptModal v-if="showNamePrompt" @close="dismissNamePrompt" />
   <HelpDrawer v-if="helpOpen" />
   <CommandPalette
     v-if="paletteOpen"

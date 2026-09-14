@@ -50,12 +50,15 @@ def test_register_cannot_mint_admin(make_client):
     assert r.json()["user"]["role"] == "teacher"
 
 
-def test_register_without_name_defaults_to_email_local_part(make_client):
+def test_register_without_name_stores_empty_and_displays_email_prefix(make_client):
+    """注册未填姓名：入库为空串（=未设置），display_name 回退邮箱前缀。"""
     client = _auth_client(make_client)
     r = _register(client, "localpart@example.com", password="123456")
-    assert r.json()["user"]["name"] == "localpart"
+    assert r.json()["user"]["name"] == ""
+    assert r.json()["user"]["display_name"] == "localpart"
     r = _register(client, "other@example.com", password="123456", name="  ")
-    assert r.json()["user"]["name"] == "other"
+    assert r.json()["user"]["name"] == ""
+    assert r.json()["user"]["display_name"] == "other"
 
 
 def test_register_duplicate_email_409(make_client):
@@ -141,6 +144,31 @@ def test_profile_patch_get_round_trips_name(make_client, db):
         "calendar_birthdays": True,
     }
     assert r.json()["user"]["name"] == "陈老师"
+
+
+def test_profile_patch_name_is_optional_and_clearable(make_client, db):
+    """姓名为 patch 语义：可不带（只改设置）、可传空串清空（显示回退邮箱前缀）。"""
+    client = make_client(profile.router)
+    person = seed_person(db, "noname@test.example", name="陈老师")
+    token = seed_token(db, person, "h" * 64)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 不带 name 键：姓名保持不变
+    r = client.patch("/api/profile", json={"auto_tags": False}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "陈老师"
+
+    # 传空串：清空姓名，display_name 回退邮箱前缀
+    r = client.patch("/api/profile", json={"name": "  "}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == ""
+    assert r.json()["display_name"] == "noname"
+
+    # 再补填生效
+    r = client.patch("/api/profile", json={"name": "新名字"}, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "新名字"
+    assert r.json()["display_name"] == "新名字"
 
 
 def test_profile_patch_phone_round_trip(make_client, db):

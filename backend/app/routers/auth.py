@@ -75,11 +75,8 @@ def user_out(u: Person) -> dict:
         "phone": u.phone,
         "email": u.email,
         "role": role,
+        "display_name": teacher_display_name(name, email=u.email),
     }
-    if role == "teacher":
-        out["display_name"] = teacher_display_name(name)
-    else:
-        out["display_name"] = name or ""
     return out
 
 
@@ -106,7 +103,7 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
     ensure_unassigned_class(db)
     payload = validate_person_payload("teacher", {})
     person = Person(
-        name=(body.name or "").strip() or email.split("@")[0],
+        name=(body.name or "").strip(),
         email=email,
         phone=phone,
         password_hash=hash_password(body.password),
