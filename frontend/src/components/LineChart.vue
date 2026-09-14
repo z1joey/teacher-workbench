@@ -1,7 +1,7 @@
 <script setup>
 // 纯 SVG 折线图。除鼠标悬停外，也可点选某一场，或用键盘左右箭头逐场切换，
 // 每次选择通过 select 事件通知父组件（如联动下方的成绩明细）。
-import { computed, ref, watch } from "vue"
+import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 
 const props = defineProps({
   // x categories, one per exam, already localized by the caller
@@ -49,13 +49,46 @@ const MIN_GAP = 84
 const BASE_H = 380
 const PAD = { top: 24, right: 24, bottom: 58, left: 48 }
 
+const viewportRef = ref(null)
+const viewportW = ref(0)
+let viewportObserver = null
+
+onMounted(() => {
+  const el = viewportRef.value
+  if (!el || typeof ResizeObserver === "undefined") return
+  viewportObserver = new ResizeObserver(([entry]) => {
+    viewportW.value = entry.contentRect.width
+  })
+  viewportObserver.observe(el)
+  viewportW.value = el.clientWidth
+})
+
+onUnmounted(() => {
+  viewportObserver?.disconnect()
+})
+
 const layout = computed(() => {
   const n = props.labels.length
-  const plotW = n <= 1 ? 160 : Math.max(520, (n - 1) * MIN_GAP)
-  const W = PAD.left + PAD.right + plotW
   const H = BASE_H
   const plotH = H - PAD.top - PAD.bottom
+  let W
+  if (n <= 1 && viewportW.value > 0) {
+    W = Math.max(viewportW.value, PAD.left + PAD.right + 160)
+  } else if (n <= 1) {
+    W = PAD.left + PAD.right + 160
+  } else {
+    const plotW = Math.max(520, (n - 1) * MIN_GAP)
+    W = PAD.left + PAD.right + plotW
+  }
+  const plotW = W - PAD.left - PAD.right
   return { W, H, plotW, plotH, PAD }
+})
+
+const chartStyle = computed(() => {
+  if (props.labels.length <= 1 && viewportW.value > 0) {
+    return { width: "100%" }
+  }
+  return { width: `${layout.value.W}px` }
 })
 
 function yFor(v) {
@@ -270,9 +303,9 @@ const xLabels = computed(() => {
 
 <template>
   <div>
-    <div class="chart__viewport">
-      <!-- 宽度锁定为绘制宽度：SVG 若跟随容器拉伸，高度会等比膨胀（考试少时尤甚） -->
-      <div class="chart" :style="{ width: `${layout.W}px` }">
+    <div ref="viewportRef" class="chart__viewport">
+      <!-- 多场考试时按绘制宽度横向滚动；仅一场时铺满视口宽度 -->
+      <div class="chart" :class="{ 'chart--fluid': labels.length <= 1 }" :style="chartStyle">
         <svg
           :viewBox="`0 0 ${layout.W} ${layout.H}`"
           class="chart__svg"

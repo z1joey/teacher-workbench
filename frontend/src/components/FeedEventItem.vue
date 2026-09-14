@@ -5,11 +5,11 @@ import Icon from "./Icon.vue"
 import { isEventClickable, openEvent } from "../eventNav"
 import {
   dateLocale,
-  describeEvent,
   eventDisplayName,
   eventTitle,
   eventTypeColor,
   eventTypeIcon,
+  feedEventDesc,
   t,
 } from "../strings"
 
@@ -61,6 +61,7 @@ function normalizeEvent(raw) {
 
 const event = computed(() => normalizeEvent(props.event))
 const displayName = computed(() => eventDisplayName(event.value))
+const description = computed(() => feedEventDesc(event.value))
 const clickable = computed(() => isEventClickable(event.value))
 const slots = useSlots()
 const showDone = computed(
@@ -158,11 +159,11 @@ function onClick() {
         </time>
       </div>
       <p
-        v-if="describeEvent(event.event_type, event.payload)"
+        v-if="description"
         class="feed__desc"
         :class="{ 'feed__desc--clamp': event.event_type === 'summary' }"
       >
-        {{ describeEvent(event.event_type, event.payload) }}
+        {{ description }}
       </p>
       <p v-else-if="event.students?.length > 1" class="feed__desc">
         <template v-for="(s, i) in event.students" :key="s.id">

@@ -1,7 +1,7 @@
 <script setup>
 // 登录：错误就地说明怎么改，而不是弹出一个看不懂的提示。
-// 空库时可一键初始化演示环境；新用户请前往注册页。
-import { onMounted, ref } from "vue"
+// 新用户请前往注册页。
+import { ref } from "vue"
 import { useRouter } from "vue-router"
 import AppMeta from "../components/AppMeta.vue"
 import Icon from "../components/Icon.vue"
@@ -15,15 +15,6 @@ const router = useRouter()
 const form = ref({ email: "", password: "" })
 const error = ref("")
 const busy = ref(false)
-const setup = ref(null)
-
-onMounted(async () => {
-  try {
-    setup.value = await api.get("/auth/setup")
-  } catch {
-    setup.value = null
-  }
-})
 
 async function submit() {
   error.value = ""
@@ -36,21 +27,6 @@ async function submit() {
     setToken(res.token)
     await loadMe()
     router.push(res.user?.role === "admin" ? "/admin" : "/")
-  } catch (e) {
-    error.value = friendlyError(e)
-  } finally {
-    busy.value = false
-  }
-}
-
-async function bootstrap() {
-  error.value = ""
-  busy.value = true
-  try {
-    const res = await api.post("/auth/bootstrap")
-    setToken(res.token)
-    await loadMe()
-    router.push("/")
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -103,22 +79,8 @@ async function bootstrap() {
         </p>
       </form>
 
-      <div class="auth-note stack" style="gap: 10px">
-        <template v-if="setup?.needs_bootstrap">
-          <p class="muted" style="margin: 0">
-            {{ t("login.emptyDb") }}
-          </p>
-          <router-link to="/signup" class="btn btn--sm btn--block">{{ t("login.goSignup") }}</router-link>
-          <button
-            type="button"
-            class="btn btn--primary btn--sm btn--block"
-            :disabled="busy"
-            @click="bootstrap"
-          >
-            <Icon name="refresh" :size="14" /> {{ t("login.bootstrap") }}
-          </button>
-        </template>
-        <p v-else class="muted" style="margin: 0">
+      <div class="auth-note">
+        <p class="muted" style="margin: 0">
           {{ t("login.noAccount") }}
           <router-link to="/signup">{{ t("login.goSignup") }}</router-link>
         </p>

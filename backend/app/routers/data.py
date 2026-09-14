@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from ..database import Base, engine, get_db
 from ..deps import get_current_person
-from ..eventing import create_event
+from ..eventing import create_event, sync_birthday_event
 from ..gender import gender_label, parse_gender
 from ..models import AuthSession, Class, Enrollment, Event, Person
 from ..models._common import utcnow
@@ -410,6 +410,8 @@ async def import_roster(
                 item["status"] = "updated"
                 if changes:
                     item["changes"] = "；".join(changes)
+
+            sync_birthday_event(db, person_row)
 
             # 监护人列：给了姓名或电话就把该监护人挂到学生上（按电话/姓名合并），
             # 已有的其他监护人不改动；三列都为空则完全跳过

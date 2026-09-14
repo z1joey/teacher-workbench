@@ -168,8 +168,6 @@ const messages = {
   "forgot.submitting": "正在重置…",
   "forgot.success": "密码已重置，请用新密码登录",
   "forgot.backToLogin": "返回登录",
-  "login.emptyDb": "当前还没有任何教师账号。你可以注册新账号，或一键初始化演示环境。",
-  "login.bootstrap": "初始化演示环境",
 
   // --- 注册 ---
   "signup.subtitle": "创建教师账号",
@@ -480,6 +478,10 @@ const messages = {
   "scoreNew.groupEntered": "已录入",
   "scoreNew.badgeUnentered": "未录入",
   "scoreNew.badgeEntered": "已录 {n} 科",
+  "scoreNew.scoreNaN": "{subject} 的成绩要填数字",
+  "scoreNew.scoreRange": "{subject} 的成绩需在 0 到 {max} 之间",
+  "scoreNew.needScore": "至少填写一科成绩，或勾选缺考",
+  "scoreNew.pickExam": "请先选择考试",
   "detail.events": "事件记录",
   "detail.timeline": "时间线",
   "detail.timelineSub": "由你添加的记录可以点开编辑；系统自动生成的不可编辑",
@@ -640,6 +642,23 @@ export function subjectColor(s, override) {
   return SUBJECT_COLORS[s] || "#64748b"
 }
 
+/** exam_taken / 时间线副标题：只展示各科成绩，不含考试名前缀。 */
+export function formatExamScoreSummary(scores) {
+  if (!scores || typeof scores !== "object") return ""
+  const order = (s) => {
+    const i = COMMON_SUBJECT_KEYS.indexOf(s)
+    return i === -1 ? 99 : i
+  }
+  return Object.entries(scores)
+    .sort(([a], [b]) => order(a) - order(b))
+    .map(([s, v]) => {
+      const n = Number(v)
+      const text = Number.isFinite(n) && n % 1 !== 0 ? n.toFixed(1) : String(v)
+      return `${subject(s)} ${text}`
+    })
+    .join(" · ")
+}
+
 const EXAM_TYPES = ["monthly", "midterm", "final", "quiz"]
 export function exatypeLabel(ty) {
   return EXAM_TYPES.includes(ty) ? t(`exatype.${ty}`) : (ty ?? "")
@@ -749,6 +768,19 @@ export function eventDisplayName(event) {
   return eventTitle(type, payload)
 }
 
+/** Feed / timeline subtitle — drop text already shown in the title row. */
+export function feedEventDesc(event) {
+  const desc = describeEvent(event.event_type, event.payload || {})
+  if (!desc) return ""
+  const title = eventDisplayName(event)
+  if (desc === title) return ""
+  if (title && desc.startsWith(title)) {
+    const rest = desc.slice(title.length).replace(/^\s*·\s*/, "").trim()
+    return rest
+  }
+  return desc
+}
+
 export function describeEvent(type, p = {}) {
   switch (type) {
     case "enrolled":
@@ -766,10 +798,7 @@ export function describeEvent(type, p = {}) {
       return `${p.from_class ?? p.from ?? ""} → ${p.to_class ?? p.to ?? ""}${p.reason ? " · " + p.reason : ""}`
     case "exam_taken": {
       if (p.notes) return p.notes
-      const scores = p.scores
-        ? Object.entries(p.scores).map(([s, v]) => `${subject(s)} ${v}`).join(", ")
-        : ""
-      return `${p.exam ?? ""}${scores ? " — " + scores : ""}`
+      return formatExamScoreSummary(p.scores)
     }
     case "seat_changed":
       // from/to 是「第X排第Y列」或空：空 to = 移出座位表，空 from = 首次安排
@@ -780,8 +809,11 @@ export function describeEvent(type, p = {}) {
     case "birthday":
       // 全局约定：生日只显示标题（见 eventTitle），不渲染描述
       return ""
-    case "home_visited":
-      return `${p.guardian ? `与${p.guardian} · ` : ""}${p.purpose ? p.purpose + " — " : ""}${p.summary || ""}`
+    case "home_visited": {
+      const head = [p.guardian ? `与${p.guardian}` : "", p.purpose || ""].filter(Boolean).join(" · ")
+      if (p.summary) return head ? `${head} — ${p.summary}` : p.summary
+      return head
+    }
     case "comment": {
       const base = p.notes ?? p.summary ?? p.note ?? ""
       const names = (p.mentioned || []).map((m) => m.name).filter(Boolean)

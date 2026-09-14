@@ -27,6 +27,31 @@ const chosenExam = computed(
   () => examOptions.value.find((e) => e.id === selectedExamId.value) ?? null
 )
 
+function scoreFieldError(s) {
+  if (attended.value[s.subject] === false) return ""
+  const raw = (values.value[s.subject] ?? "").toString().trim()
+  if (!raw) return ""
+  const value = Number(raw)
+  if (Number.isNaN(value)) return t("scoreNew.scoreNaN", { subject: subject(s.subject) })
+  if (value < 0 || value > s.full_score) {
+    return t("scoreNew.scoreRange", { subject: subject(s.subject), max: s.full_score })
+  }
+  return ""
+}
+
+const subjectErrors = computed(() => {
+  const exam = chosenExam.value
+  if (!exam) return {}
+  const errs = {}
+  for (const s of exam.subjects) {
+    const msg = scoreFieldError(s)
+    if (msg) errs[s.subject] = msg
+  }
+  return errs
+})
+
+const hasSubjectErrors = computed(() => Object.keys(subjectErrors.value).length > 0)
+
 // 每场考试该学生已录的科目数：用于把考试分成「未录入 / 已录入」两组
 const enteredCount = computed(() => {
   const map = new Map()
@@ -84,37 +109,42 @@ function goBack() {
   router.push(`/students/${props.studentId}`)
 }
 
-async function save() {
-  error.value = ""
-  const exam = chosenExam.value
-  if (!exam) {
-    error.value = "请先选择考试"
-    return
-  }
+function buildScores(exam) {
   const scores = []
   for (const s of exam.subjects) {
     const raw = (values.value[s.subject] ?? "").toString().trim()
     if (attended.value[s.subject] === false) {
-      // 取消了「参加考试」→ 记缺考
       scores.push({ subject: s.subject, absent: true })
       continue
     }
-    if (!raw) continue // 参加了但这科没填分 → 不录入
+    if (!raw) continue
     const value = Number(raw)
     if (Number.isNaN(value)) {
-      error.value = `${subject(s.subject)} 的成绩要填数字`
-      return
+      return { error: t("scoreNew.scoreNaN", { subject: subject(s.subject) }) }
     }
     if (value < 0 || value > s.full_score) {
-      error.value = `${subject(s.subject)} 的成绩需在 0 到 ${s.full_score} 之间`
-      return
+      return { error: t("scoreNew.scoreRange", { subject: subject(s.subject), max: s.full_score }) }
     }
     scores.push({ subject: s.subject, score: value })
   }
-  if (!scores.length) {
-    error.value = "至少填写一科成绩，或勾选缺考"
+  if (!scores.length) return { error: t("scoreNew.needScore") }
+  return { scores }
+}
+
+async function save() {
+  error.value = ""
+  const exam = chosenExam.value
+  if (!exam) {
+    error.value = t("scoreNew.pickExam")
     return
   }
+  if (hasSubjectErrors.value) return
+  const built = buildScores(exam)
+  if (built.error) {
+    error.value = built.error
+    return
+  }
+  const scores = built.scores
   saving.value = true
   try {
     await api.post(`/exams/${exam.id}/scores`, {
@@ -189,30 +219,37 @@ async function save() {
 
       <template v-if="chosenExam">
         <div class="stack" style="gap: 8px; margin-top: 4px">
-          <div
-            v-for="s in chosenExam.subjects"
-            :key="s.id"
-            class="row"
-            style="gap: 8px; align-items: center"
-          >
-            <span style="min-width: 4em">{{ subject(s.subject) }}</span>
-            <input
-              v-model="values[s.subject]"
-              class="input input--sm tnum"
-              type="number"
-              step="0.1"
-              min="0"
-              :max="s.full_score"
-              :disabled="!attended[s.subject]"
-              :placeholder="attended[s.subject] ? '' : '缺考'"
-              :aria-label="`${subject(s.subject)} 分数`"
-              style="width: 90px"
-            />
-            <span class="muted">/ {{ s.full_score }}</span>
-            <label class="check" style="margin: 0">
-              <input v-model="attended[s.subject]" type="checkbox" />
-              <span>参加考试</span>
-            </label>
+          <div v-for="s in chosenExam.subjects" :key="s.id" class="stack" style="gap: 4px">
+            <div class="row" style="gap: 8px; align-items: center">
+              <span style="min-width: 4em">{{ subject(s.subject) }}</span>
+              <input
+                v-model="values[s.subject]"
+                class="input input--sm tnum"
+                type="number"
+                step="0.1"
+                min="0"
+                :max="s.full_score"
+                :disabled="!attended[s.subject]"
+                :placeholder="attended[s.subject] ? '' : '缺考'"
+                :aria-label="`${subject(s.subject)} 分数`"
+                :aria-invalid="!!subjectErrors[s.subject]"
+                :aria-describedby="subjectErrors[s.subject] ? `score-err-${s.id}` : undefined"
+                style="width: 90px"
+              />
+              <span class="muted">/ {{ s.full_score }}</span>
+              <label class="check" style="margin: 0">
+                <input v-model="attended[s.subject]" type="checkbox" />
+                <span>参加考试</span>
+              </label>
+            </div>
+            <p
+              v-if="subjectErrors[s.subject]"
+              :id="`score-err-${s.id}`"
+              class="field__error"
+              style="margin: 0 0 0 calc(4em + 8px)"
+            >
+              <Icon name="alert-circle" :size="12" /> {{ subjectErrors[s.subject] }}
+            </p>
           </div>
         </div>
         <p class="field__hint" style="margin-top: 8px">
@@ -231,7 +268,7 @@ async function save() {
         <button
           type="button"
           class="btn btn--primary"
-          :disabled="saving || !chosenExam"
+          :disabled="saving || !chosenExam || hasSubjectErrors"
           @click="save"
         >
           <span v-if="saving" class="spinner" />

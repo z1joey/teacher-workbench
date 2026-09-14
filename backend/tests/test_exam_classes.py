@@ -85,6 +85,18 @@ def test_create_exam_without_classes_is_school_wide(ctx, db):
         assert ctx["attendee_ids"](s) == {"全校统考"}
 
 
+def test_exam_averages_empty_exam(ctx):
+    """GET /exams/{id}/averages must succeed before any scores are entered."""
+    r = _create(ctx, "其中考试", None)
+    assert r.status_code == 201, r.text
+    exam_id = r.json()["id"]
+    r2 = ctx["client"].get(f"/api/exams/{exam_id}/averages", headers=ctx["headers"])
+    assert r2.status_code == 200, r2.text
+    data = r2.json()
+    assert data["school"] == []
+    assert data["classes"] == []
+
+
 def test_create_exam_rejects_unknown_class(ctx):
     r = _create(ctx, "幽灵考试", [str(uuid.uuid4())])
     assert r.status_code == 400
