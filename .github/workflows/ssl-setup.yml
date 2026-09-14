@@ -1,0 +1,131 @@
+# One-time (re-runnable) Let's Encrypt + Nginx HTTPS setup for production.
+# Trigger manually via workflow_dispatch after port 80 is free on the host.
+name: SSL 证书配置（Let's Encrypt）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ssl-setup
+  cancel-in-progress: false
+
+jobs:
+  ssl-setup:
+    name: 配置 HTTPS（production）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+
+    steps:
+      - name: 检出代码（获取 docker-compose.yml）
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: 上传 docker-compose.yml 到服务器
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: docker-compose.yml
+          target: ${{ secrets.PROJECT_DIR }}
+          overwrite: true
+
+      - name: 执行 SSL 配置步骤
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          PROJECT_DIR: ${{ secrets.PROJECT_DIR }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          envs: PROJECT_DIR
+          script: |
+            set -euo pipefail
+            cd "$PROJECT_DIR"
+
+            echo "========== STEP 0: Free port 80 for certbot standalone =========="
+            docker compose stop frontend || true
+            if ss -tlnp 2>/dev/null | grep -q ':80 '; then
+              echo "ERROR: port 80 still in use:" >&2
+              ss -tlnp | grep ':80 ' || true
+              exit 1
+            fi
+            echo "Port 80 is free."
+
+            echo ""
+            echo "========== STEP 1: Obtain Let's Encrypt certificate =========="
+            if ! command -v certbot >/dev/null 2>&1; then
+              echo "Installing certbot on host OS..."
+              sudo apt-get update -qq
+              sudo apt-get install -y certbot
+            fi
+            certbot --version
+            sudo certbot certonly --standalone \
+              -d joeyzhang.me \
+              -m z1joey@iCloud.com \
+              --agree-tos --no-eff-email \
+              --non-interactive
+            echo "Certificate files:"
+            sudo ls -la /etc/letsencrypt/live/joeyzhang.me/
+
+            echo ""
+            echo "========== STEP 2: Verify docker-compose.yml HTTPS settings =========="
+            grep -A8 '^  frontend:' docker-compose.yml | head -12
+            if ! grep -q '443:443' docker-compose.yml; then
+              echo "ERROR: docker-compose.yml missing 443:443 mapping" >&2
+              exit 1
+            fi
+            if ! grep -q '/etc/letsencrypt:/etc/letsencrypt:ro' docker-compose.yml; then
+              echo "ERROR: docker-compose.yml missing letsencrypt volume" >&2
+              exit 1
+            fi
+            echo "docker-compose.yml OK."
+
+            echo ""
+            echo "========== STEP 3: Start frontend and configure Nginx HTTPS =========="
+            docker compose up -d frontend
+            docker compose ps frontend
+
+            echo "--- Existing Nginx config ---"
+            docker exec teacher-workbench-frontend cat /etc/nginx/conf.d/default.conf
+
+            docker exec -i teacher-workbench-frontend tee /etc/nginx/conf.d/ssl.conf >/dev/null <<'NGINXEOF'
+            server {
+              listen 443 ssl;
+              root /usr/share/nginx/html;
+              index index.html;
+              ssl_certificate /etc/letsencrypt/live/joeyzhang.me/fullchain.pem;
+              ssl_certificate_key /etc/letsencrypt/live/joeyzhang.me/privkey.pem;
+              location /api {
+                proxy_pass http://backend:8001;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+              }
+              location /gao/ {
+                try_files $uri $uri/ /gao/index.html;
+              }
+              location = /gao { return 302 /gao/; }
+              location = / { return 302 /gao/; }
+            }
+            NGINXEOF
+
+            echo "--- New ssl.conf ---"
+            docker exec teacher-workbench-frontend cat /etc/nginx/conf.d/ssl.conf
+
+            docker exec teacher-workbench-frontend nginx -t
+            docker exec teacher-workbench-frontend nginx -s reload
+            echo "Nginx reloaded."
+
+            echo ""
+            echo "========== STEP 4: Verify HTTPS =========="
+            curl -I --max-time 15 https://joeyzhang.me
+
+            echo ""
+            echo "========== SSL setup complete =========="
