@@ -129,18 +129,21 @@ def _roster_at(db: Session, class_id: uuid.UUID, day: date) -> list[uuid.UUID]:
     ]
 
 
-def _avg_trend(db: Session, class_id: uuid.UUID) -> list[dict]:
+def _avg_trend(db: Session, wid: str, class_id: uuid.UUID) -> list[dict]:
     """Chronological per-sitting per-subject class averages; roster
     attribution uses the enrollment valid at each exam date (the old rule,
     same as the class-detail trend and the exam averages page). exam_id
     resolves the sitting Event by title + date (None when there is no such
     row, mirroring students.py)."""
-    # candidate sittings: entered score events school-wide, deduped to one
-    # (exam name, date) per sitting — score titles vary per subject
+    # candidate sittings: entered score events of this workspace, deduped to
+    # one (exam name, date) per sitting — score titles vary per subject
     sittings = sorted(
         {(t.rsplit("·", 1)[0] if "·" in t else t, s.date())
          for t, s in db.query(Event.title, Event.start_time)
-                        .filter(Event.type == "score").all()},
+                        .filter(
+                            Event.type == "score",
+                            Event.payload["workspace_id"].as_string() == wid,
+                        ).all()},
         key=lambda pair: (pair[1], pair[0]),
     )
     out = []
@@ -151,13 +154,15 @@ def _avg_trend(db: Session, class_id: uuid.UUID) -> list[dict]:
         averages = {
             subject: round(float(agg["avg"]), 1)
             for subject, agg in sorted(
-                subject_averages(db, exam_name, day, person_ids=person_ids).items()
+                subject_averages(
+                    db, exam_name, day, person_ids=person_ids, wid=wid
+                ).items()
             )
             if agg["avg"] is not None
         }
         if not averages:
             continue
-        exam = find_exam_event(db, exam_name, day)
+        exam = find_exam_event(db, exam_name, day, wid=wid)
         out.append(
             {
                 "exam_id": str(exam.id) if exam else None,
@@ -211,6 +216,7 @@ def list_classes(
     user: Person = Depends(get_current_person),
 ):
     out = []
+    wid = workspace_id(user)
     unassigned = ensure_unassigned_class(db)
     pool = current_students(db, unassigned.id, user)
     pool_ids = [s.id for s in pool]
@@ -224,7 +230,7 @@ def list_classes(
         ids = [s.id for s in students]
         visited = _visited_ids(db, ids)
         base = class_out(c, students, visited)
-        base["avg_trend"] = _avg_trend(db, c.id)
+        base["avg_trend"] = _avg_trend(db, wid, c.id)
         base["recent_events"] = _recent_events(db, ids)
         out.append(base)
     return out
@@ -341,7 +347,8 @@ def get_class(
 
     # per-sitting, per-subject class averages; roster attribution uses the
     # enrollment valid at each exam date (same rule as the exam averages page)
-    exams = exam_events(db)
+    wid = workspace_id(user)
+    exams = exam_events(db, wid)
     index_of = {e.id: i for i, e in enumerate(exams)}
     per_subject: dict[str, dict] = {}
     overall: dict[str, dict] = {}
@@ -351,7 +358,7 @@ def get_class(
         if not person_ids:
             continue
         for subject, agg in sorted(
-            subject_averages(db, e.title, day, person_ids=person_ids).items()
+            subject_averages(db, e.title, day, person_ids=person_ids, wid=wid).items()
         ):
             if agg["avg"] is None:
                 continue

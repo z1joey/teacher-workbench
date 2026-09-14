@@ -471,21 +471,27 @@ def _score_events(db: Session, person_id: uuid.UUID,
 
 
 def _exam_event_id(db: Session, exam_name: str, exam_date: str,
+                   wid: str | None = None,
                    cache: dict | None = None) -> str | None:
     """The exam Event of a sitting, matched by title + the day falling inside
-    its [first_day, last_day] span (str id), or None."""
+    its [first_day, last_day] span (str id), or None. `wid` keeps the match
+    inside the student's workspace (same-named sittings in other workspaces
+    never shadow it); legacy untagged students match unscoped."""
     if cache is not None and (exam_name, exam_date) in cache:
         return cache[(exam_name, exam_date)]
     day = date.fromisoformat(exam_date)
+    conds = [
+        Event.type == "exam",
+        Event.title == exam_name,
+        Event.start_time <= datetime.combine(day, time.max),
+        func.coalesce(Event.end_time, Event.start_time)
+        >= datetime.combine(day, time.min),
+    ]
+    if wid:
+        conds.append(Event.payload["workspace_id"].as_string() == wid)
     row = (
         db.query(Event.id)
-        .filter(
-            Event.type == "exam",
-            Event.title == exam_name,
-            Event.start_time <= datetime.combine(day, time.max),
-            func.coalesce(Event.end_time, Event.start_time)
-            >= datetime.combine(day, time.min),
-        )
+        .filter(*conds)
         .first()
     )
     exam_id = str(row[0]) if row else None
@@ -544,7 +550,8 @@ def last_event_summary(db: Session, person_id: uuid.UUID) -> dict | None:
     }
 
 
-def last_exam_summary(db: Session, person_id: uuid.UUID) -> dict | None:
+def last_exam_summary(db: Session, person_id: uuid.UUID,
+                      wid: str | None = None) -> dict | None:
     """The student's most recent graded exam: name + per-subject scores.
 
     Old response keys, new sources: exam_name ← score-event title prefix
@@ -572,7 +579,7 @@ def last_exam_summary(db: Session, person_id: uuid.UUID) -> dict | None:
             continue
         scores[pl.get("subject")] = pl.get("score")
     return {
-        "exam_id": _exam_event_id(db, exam_name, exam_date),
+        "exam_id": _exam_event_id(db, exam_name, exam_date, wid),
         "exam_name": exam_name,
         "exam_date": exam_date,
         "scores": scores,
@@ -622,7 +629,9 @@ def list_students(
                 "status": _status_of(s),
                 "class": class_for_api(cls),
                 "guardians": guardians_by_student.get(s.id, []),
-                "last_exam": last_exam_summary(db, s.id),
+                "last_exam": last_exam_summary(
+                    db, s.id, (s.payload or {}).get("workspace_id")
+                ),
                 "last_event": last_event_summary(db, s.id),
                 "tags": _tags_for_student(db, s.id),
             }
@@ -775,7 +784,10 @@ def get_student(
         exam_name = _exam_name_of_score(r)
         exam_date = r.start_time.date().isoformat()
         subj = pl.get("subject")
-        exam_id = _exam_event_id(db, exam_name, exam_date, exam_id_cache)
+        exam_id = _exam_event_id(
+            db, exam_name, exam_date, (s.payload or {}).get("workspace_id"),
+            exam_id_cache,
+        )
         row = {
             "result_id": str(r.id),
             "exam_id": exam_id,

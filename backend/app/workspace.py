@@ -11,7 +11,7 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from .models import Class, Person
+from .models import Class, Event, Person
 from .payloads import validate_person_payload
 from .unassigned import is_unassigned_class
 
@@ -94,7 +94,7 @@ def migrate_legacy_workspace(db: Session) -> None:
     if not teachers:
         return
     owner = teachers[0]
-    ensure_workspace_id(owner)
+    wid = ensure_workspace_id(owner)
     db.flush()
     for student in db.query(Person).filter(role == "student").all():
         if (student.payload or {}).get("workspace_id"):
@@ -104,3 +104,15 @@ def migrate_legacy_workspace(db: Session) -> None:
         if is_unassigned_class(cls) or cls.teacher_id is not None:
             continue
         cls.teacher_id = owner.id
+    # exam sittings + score rows predate workspace isolation: claim them for
+    # the first teacher so other workspaces never see legacy exam data
+    from .payloads import validate_event_payload
+
+    for ev in (
+        db.query(Event).filter(Event.type.in_(("exam", "score"))).all()
+    ):
+        payload = dict(ev.payload or {})
+        if payload.get("workspace_id"):
+            continue
+        payload["workspace_id"] = wid
+        ev.payload = validate_event_payload(ev.type, payload)
