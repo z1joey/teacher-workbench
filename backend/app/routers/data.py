@@ -29,7 +29,7 @@ from ..database import Base, engine, get_db
 from ..deps import get_current_person
 from ..eventing import create_event
 from ..gender import gender_label, parse_gender
-from ..models import AuthSession, Class, Enrollment, Person
+from ..models import AuthSession, Class, Enrollment, Event, Person
 from ..models._common import utcnow
 from ..payloads import validate_person_payload
 from ..security import hash_password
@@ -190,6 +190,29 @@ def _rebind_teacher_workspace(
     return teacher
 
 
+def _has_business_data(db: Session) -> bool:
+    """演示加载前的保护性检查：库里已有任何学生 / 班级 / 考试即视为有业务
+    数据（`__system__` 未分班是系统班级，不计入）。加载演示数据会清空**全部**
+    数据——包括其他教师工作区的真实数据——所以只要存在业务数据就必须先显式
+    清空。"""
+    role = Person.payload["role"].as_string()
+    if db.query(Person.id).filter(role == "student").first() is not None:
+        return True
+    if db.query(Class.id).filter(Class.teacher_id.is_not(None)).first() is not None:
+        return True
+    return db.query(Event.id).filter(Event.type == "exam").first() is not None
+
+
+@router.get("/data/demo/status")
+def demo_data_status(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Whether the workspace already has business data (real or demo)."""
+    _require_teacher(user)
+    return {"has_business_data": _has_business_data(db)}
+
+
 @router.post("/data/demo/seed")
 def load_demo_data(
     db: Session = Depends(get_db),
@@ -200,6 +223,11 @@ def load_demo_data(
     _require_teacher(user)
     if credentials is None:
         raise HTTPException(status_code=401, detail="未登录")
+    if _has_business_data(db):
+        raise HTTPException(
+            status_code=409,
+            detail="系统中已有业务数据（可能属于其他教师账号），加载演示数据会清空全部数据；请先「清空业务数据」后再加载演示数据",
+        )
     try:
         teacher = _rebind_teacher_workspace(
             db, user, credentials.credentials, load_seed=True

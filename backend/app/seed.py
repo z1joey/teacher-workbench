@@ -146,6 +146,9 @@ def _seed_list_card_events(db: Session, students: list[Person], teacher: Person)
         else:
             purpose, summary = _CARD_VISIT_SUMMARIES[i % len(_CARD_VISIT_SUMMARIES)]
             guardians = _guardians_of(db, student.id)
+            # Leave a couple of routine visits open so the visits page shows
+            # follow-up work beyond the main story arcs.
+            done = student.name not in {"吴一凡", "潘书涵"}
             create_event(
                 db,
                 event_type="home_visited",
@@ -154,7 +157,7 @@ def _seed_list_card_events(db: Session, students: list[Person], teacher: Person)
                 payload={
                     "summary": summary,
                     "purpose": purpose,
-                    "done": True,
+                    "done": done,
                     "guardian": guardians[0][0].name if guardians else None,
                 },
                 attendee_ids=[student.id, teacher.id],
@@ -318,9 +321,6 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
         (lin.id, "mar", "politics"),
     }
 
-    lin_math_old: float | None = None
-    lin_math_new: float | None = None
-
     for exam_key in SCORED_EXAMS:
         exam = exams_by_key[exam_key]
         for subject in ALL_SUBJECTS:
@@ -340,26 +340,12 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
                 if (s.id, exam_key, subject) in ABSENCES:
                     payload["absent"] = True
                 else:
-                    # story: 陈老师 corrects an addition error on 林晓雨's
-                    # midterm math score (+5) — the score Event carries the
-                    # corrected value; a result_changed Event documents it.
-                    if (s.id, exam_key, subject) == (lin.id, "midterm", "math"):
-                        lin_math_old = score
-                        score = round(clamp(score + 5.0, 0.0, SUBJECT_FULL_SCORES["math"]), 1)
-                        lin_math_new = score
                     payload["score"] = score
                 create_event(db, event_type="score",
                              title=f"{exam.title}·{subject}",
                              start_time=dt(exam.start_time.date(), EXAM_HOUR),
                              payload=payload, attendee_ids=[s.id, teacher.id])
     db.flush()
-
-    create_event(db, event_type="result_changed", title="math成绩更正",
-                 start_time=dt(date(2026, 4, 16), time(16, 30)),
-                 payload={"exam": exams_by_key["midterm"].title,
-                          "subject": "math", "old": lin_math_old, "new": lin_math_new,
-                          "reason": "评分册登记错误更正"},
-                 attendee_ids=[lin.id])
 
     # story: 王浩 moves 七年级2班 -> 七年级1班 on 2026-03-01 (spring semester;
     # his 3月月考 onwards are recorded with the new class)
@@ -424,8 +410,8 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     # Visits involve 陈老师 (the visiting teacher), the student and the
     # guardian of record (snapshotted from the linked guardian Person); notes
     # involve her and the student. Home-visit purpose folds into the summary
-    # (HomeVisitPayload has summary/purpose/guardian only). One visit is left
-    # undone so the 待跟进 queue has content.
+    # (HomeVisitPayload has summary/purpose/guardian only). Several visits stay
+    # undone so the 待跟进 queue has realistic follow-up work.
     visits = [
         (hao, datetime(2026, 3, 20, 19, 0), "行为习惯", True,
          "频繁迟到：父母上早班，商定由爷爷负责早餐和晨间作息。"),
@@ -435,8 +421,14 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
          "父母反映回家作业拖拉，约定使用番茄钟计划表，每周末电话跟进一次。"),
         (guo, datetime(2026, 6, 5, 18, 30), "期末走访", True,
          "期末走访：家庭支持到位，学生自述备考状态良好。"),
-        (deng, datetime(2026, 7, 2, 19, 0), "期末回访", False,
+        (deng := by_name["邓晓彤"], datetime(2026, 7, 2, 19, 0), "期末回访", False,
          "约期末后回访，了解转班前后学习状态的变化，准备暑期建议。"),
+        (by_name["张悦"], datetime(2026, 8, 28, 18, 30), "开学适应", False,
+         "新学期第一周家访：了解假期作业完成情况与作息调整，协助制定学习计划。"),
+        (by_name["任凯文"], datetime(2026, 9, 8, 19, 0), "作业质量", False,
+         "近期作业潦草、订正不及时，约家长面谈辅导方案与家校配合方式。"),
+        (by_name["袁志远"], datetime(2026, 9, 12, 18, 0), "学业预警", False,
+         "数学小测连续偏低，计划与家长沟通课后辅导安排，观察两周后回访。"),
     ]
     for student, when, purpose, done, summary in visits:
         guardians = _guardians_of(db, student.id)
@@ -502,35 +494,53 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
             "高子辰获二等奖，王浩坚持完成全部赛题。",
             mentioned=[hao], title="数学趣味竞赛")
 
-    # --- 更多成绩更正（成绩变化留痕）-----------------------------------------
-    def correct_score(student, exam_key, subject, delta, reason, when):
-        """Rewrite one already-written score payload and document the change."""
-        exam = exams_by_key[exam_key]
-        ev = (
-            db.query(Event)
-            .filter(
-                Event.type == "score",
-                Event.title == f"{exam.title}·{subject}",
-                Event.start_time == exam.start_time,
-                Event.attendees.any(Person.id == student.id),
-            )
-            .one()
-        )
-        payload = dict(ev.payload or {})
-        old = payload.get("score")
-        new = round(clamp(old + delta, 0.0, SUBJECT_FULL_SCORES[subject]), 1)
-        payload["score"] = new
-        ev.payload = payload
-        create_event(db, event_type="result_changed", title=f"{subject}成绩更正",
-                     start_time=when,
-                     payload={"exam": exam.title, "subject": subject,
-                              "old": old, "new": new, "reason": reason},
-                     attendee_ids=[student.id])
+    # --- 学生总结（AI 生成的阶段性总结，只进教师自己的动态）-------------------
+    def summary(about, when, content, params):
+        create_event(db, event_type="summary", title="学生总结", start_time=when,
+                     payload={"summary": content, "params": params,
+                              "about": {"id": str(about.id), "name": about.name}},
+                     attendee_ids=[about.id, teacher.id])
 
-    correct_score(guo, "final", "english", 3.0,
-                  "作文漏判，补记3分", datetime(2026, 6, 28, 16, 30))
-    correct_score(zhou, "mar", "physics", -2.0,
-                  "誊录串行，纠正为本人实际得分", datetime(2026, 3, 19, 15, 40))
+    summary(lin, datetime(2026, 1, 23, 17, 0),
+            "林晓雨本学期整体表现稳定，语文阅读理解进步明显，数学应用题是主要短板。"
+            "10月起实施数学提升计划，每周两次画图法专项练习，期末数学较期中提升明显。"
+            "课堂上乐于发言，与同学相处融洽。下学期建议继续巩固计算准确率，养成错题整理习惯。",
+            {"length": "standard", "style": "formal",
+             "date_from": "2025-09-01", "date_to": "2026-01-22"})
+    summary(lin, datetime(2026, 6, 26, 16, 0),
+            "林晓雨本学年学业持续进步，数学通过一学期的专项辅导，画图法应用明显熟练，"
+            "期末各科成绩较秋季学期均有提升。英语口语表达更自信，班级活动中积极参与。"
+            "家庭配合度高，母亲能按约定跟进每日作业自查。升入八年级前建议保持当前节奏，重点补强物理入门。",
+            {"length": "detailed", "style": "formal",
+             "date_from": "2025-09-01", "date_to": "2026-06-25"})
+    summary(hao, datetime(2026, 3, 20, 17, 30),
+            "王浩这学期经历转班适应期，起初因频繁迟到数学有所下滑，但3月起出勤明显改善，"
+            "课堂参与度提高。他性格开朗，与同学关系好，数学趣味竞赛坚持完成全部赛题值得肯定。"
+            "希望家长继续督促早睡早起，稳定出勤后成绩会稳步回升。",
+            {"length": "standard", "style": "warm",
+             "date_from": "2026-01-22", "date_to": "2026-03-20"})
+    summary(guo, datetime(2026, 6, 26, 17, 0),
+            "郭浩然是班级的理科小明星，数学趣味竞赛获二等奖，物理化学稳居班级前列，语文成绩稳中有升。"
+            "若能在英语听力上再下功夫，总分还有上升空间。继续保持这份钻研劲头，"
+            "八年级期待你带动更多同学一起进步！",
+            {"length": "standard", "style": "motivational",
+             "date_from": "2026-03-01", "date_to": "2026-06-25"})
+    summary(xu, datetime(2026, 5, 12, 17, 0),
+            "徐曼怡近来作业完成节奏偏慢，但课堂听讲专注、态度端正。已与家长建立每周电话跟进机制，"
+            "使用番茄钟计划表后回家效率有所提高。建议继续强化时间管理能力，英语单词背诵需每日坚持。",
+            {"length": "standard", "style": "warm",
+             "date_from": "2026-01-22", "date_to": "2026-05-10"})
+    summary(deng, datetime(2026, 7, 5, 16, 30),
+            "邓晓彤转班后整体适应良好，与原班级相比课堂发言更积极。期末回访待完成，"
+            "需进一步了解暑期学习安排与作息调整情况。数学基础扎实，语文阅读可再加强。",
+            {"length": "brief", "style": "formal",
+             "date_from": "2026-03-01", "date_to": "2026-07-02"})
+    summary(song, datetime(2026, 5, 1, 17, 0),
+            "宋雅轩综合素质突出，校运会女子800米夺冠，班级活动组织能力强，"
+            "平时乐于帮助同学解题。学业方面各科均衡，语文朗诵比赛获最佳朗诵奖。"
+            "是学校活动的骨干力量，建议在学习上进一步挑战更高难度的数学题目。",
+            {"length": "detailed", "style": "motivational",
+             "date_from": "2025-09-01", "date_to": "2026-04-30"})
 
     sync_all_birthday_events(db)
     _seed_list_card_events(db, students, teacher)
