@@ -23,18 +23,26 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from ..database import Base, engine, get_db
+from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import create_event, sync_birthday_event
 from ..gender import gender_label, parse_gender
-from ..models import AuthSession, Class, Enrollment, Event, Person
+from ..models import AuthSession, Class, ClassSeating, Enrollment, Event, Person, Tag
 from ..models._common import utcnow
+from ..models.associations import person_events, person_tags, student_guardians
 from ..payloads import validate_person_payload
 from ..security import hash_password
 from ..seed import seed
-from ..unassigned import class_for_api, ensure_unassigned_class, is_unassigned_class
+from ..unassigned import (
+    UNASSIGNED_ACADEMIC_YEAR,
+    UNASSIGNED_CLASS_NAME,
+    class_for_api,
+    ensure_unassigned_class,
+    is_unassigned_class,
+)
 from ..workspace import tag_student_workspace
 from .students import _find_or_create_guardian, _guardian_link, _guardians_of
 
@@ -145,49 +153,50 @@ def _move_student(
     )
 
 
-def _wipe_db(bind=engine) -> None:
-    Base.metadata.drop_all(bind=bind)
-    Base.metadata.create_all(bind=bind)
-
-
 def _require_teacher(user: Person) -> None:
     if not user.is_teacher:
         raise HTTPException(status_code=403, detail="仅教师账号可使用演示数据功能")
 
 
-def _teacher_snapshot(user: Person) -> dict:
-    payload = dict(user.payload or {})
-    payload.pop("semesters", None)
-    return {
-        "name": user.name,
-        "phone": user.phone,
-        "email": user.email,
-        "password_hash": user.password_hash,
-        "payload": validate_person_payload("teacher", payload),
-    }
-
-
-def _rebind_teacher_workspace(
+def _clear_business_data(
     db: Session,
-    user: Person,
+    teacher: Person,
     token: str,
     *,
     load_seed: bool,
 ) -> Person:
-    """Wipe business data, keep the current teacher account and bearer session."""
-    teacher_snap = _teacher_snapshot(user)
-    _wipe_db(db.get_bind())
-    db.rollback()
-    db.expire_all()
-    db.expunge(user)
-    ensure_unassigned_class(db)
-    teacher = Person(**teacher_snap)
-    db.add(teacher)
+    """Delete all business data; keep the current teacher signed in.
+
+    Uses row DELETEs instead of drop_all/create_all. On PostgreSQL, DDL on a
+    second connection while this request still holds a read transaction (from
+    auth) deadlocks until rollback — which used to run only after the wipe.
+    """
+    teacher_id = teacher.id
+    db.execute(delete(person_events))
+    db.execute(delete(person_tags))
+    db.execute(delete(student_guardians))
+    db.execute(delete(ClassSeating))
+    db.execute(delete(Enrollment))
+    db.execute(delete(Event))
+    db.execute(delete(Tag))
+    db.execute(
+        delete(Class).where(
+            ~(
+                (Class.name == UNASSIGNED_CLASS_NAME)
+                & (Class.academic_year == UNASSIGNED_ACADEMIC_YEAR)
+            )
+        )
+    )
+    db.execute(delete(AuthSession).where(AuthSession.token != token))
+    db.execute(delete(Person).where(Person.id != teacher_id))
     db.flush()
+    ensure_unassigned_class(db)
+    kept = db.get(Person, teacher_id)
+    if kept is None:
+        raise RuntimeError("teacher row missing after clear")
     if load_seed:
-        seed(db, teacher=teacher, include_admin=False)
-    db.add(AuthSession(token=token, person_id=teacher.id))
-    return teacher
+        seed(db, teacher=kept, include_admin=False)
+    return kept
 
 
 def _has_business_data(db: Session) -> bool:
@@ -229,7 +238,7 @@ def load_demo_data(
             detail="系统中已有业务数据（可能属于其他教师账号），加载演示数据会清空全部数据；请先「清空业务数据」后再加载演示数据",
         )
     try:
-        teacher = _rebind_teacher_workspace(
+        teacher = _clear_business_data(
             db, user, credentials.credentials, load_seed=True
         )
         db.commit()
@@ -253,7 +262,7 @@ def reset_app_data(
     if credentials is None:
         raise HTTPException(status_code=401, detail="未登录")
     try:
-        teacher = _rebind_teacher_workspace(
+        teacher = _clear_business_data(
             db, user, credentials.credentials, load_seed=False
         )
         db.commit()

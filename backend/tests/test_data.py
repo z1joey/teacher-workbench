@@ -393,12 +393,17 @@ def test_demo_reset_clears_database(client, db):
     seed_res = client.post("/api/data/demo/seed", headers=AUTH)
     assert seed_res.status_code == 200
     assert len(_students(db)) >= 20
+    teacher_id = db.query(Person).filter(Person.phone == "13800000001").one().id
 
     reset_res = client.post("/api/data/demo/reset", headers=AUTH)
     assert reset_res.status_code == 200
     body = reset_res.json()
     assert body["ok"] is True
     assert body["teacher"]["phone"] == "13800000001"
+    db.expire_all()
+    assert db.get(Person, teacher_id) is not None  # DELETE path keeps the signed-in teacher
+    session = db.get(AuthSession, TEACHER_TOKEN)
+    assert session is not None and session.person_id == teacher_id
     assert len(_students(db)) == 0
     assert db.query(Event).count() == 0
     assert db.query(Class).filter(Class.name == "七年级1班").count() == 0
