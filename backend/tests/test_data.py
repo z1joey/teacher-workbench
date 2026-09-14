@@ -276,6 +276,40 @@ def test_roster_export_unassigned_class_404(client, db):
     assert res.status_code == 404
 
 
+def test_roster_import_creates_birthday_events(client, db):
+    """花名册导入写入 birth_date 后应同步生日 Event，日历才能展示。"""
+    wb = Workbook()
+    ws = wb.active
+    ws.append(_ROSTER_HEADERS_WITH_GUARDIAN)
+    ws.append(["2025070801", "林晓雨", "女", "2012-05-14", "", "", "", ""])
+    res = _upload(client, _xlsx_bytes(wb))
+    assert res.status_code == 200, res.text
+    assert res.json()["created"] == 1
+
+    student = db.query(Person).filter(
+        Person.payload["admission_no"].as_string() == "2025070801"
+    ).one()
+    birthdays = db.query(Event).filter(
+        Event.type == "birthday",
+        Event.attendees.any(Person.id == student.id),
+    ).all()
+    assert len(birthdays) == 1
+    assert birthdays[0].payload == {"birth_date": "2012-05-14"}
+
+    # 再导入更新出生日期 → 仍是一条生日 Event
+    ws.cell(2, 4).value = "2013-06-01"
+    res2 = _upload(client, _xlsx_bytes(wb))
+    assert res2.status_code == 200
+    assert res2.json()["updated"] == 1
+    db.expire_all()
+    birthdays = db.query(Event).filter(
+        Event.type == "birthday",
+        Event.attendees.any(Person.id == student.id),
+    ).all()
+    assert len(birthdays) == 1
+    assert birthdays[0].payload == {"birth_date": "2013-06-01"}
+
+
 def test_roster_import_links_guardian_and_merges_shared_guardian(client, db):
     """监护人列：挂接 + 关系写入；两行填同名同电话的监护人时合并为同一位。"""
     wb = Workbook()

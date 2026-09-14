@@ -435,11 +435,14 @@ def exam_averages(
     # per-class averages attribute each score to the class roster valid at the
     # exam date (the old enrollment-valid-at-exam_date rule; attribution uses
     # the first day — scores follow the sitting window)
+    # Reuse one subject expression — PostgreSQL rejects GROUP BY when SELECT and
+    # GROUP BY bind the same JSON path as separate parameters.
+    subject_col = Event.payload["subject"].as_string()
     class_rows = (
         db.query(
             Class.id,
             Class.name,
-            Event.payload["subject"].as_string(),
+            subject_col,
             func.avg(Event.payload["score"].as_numeric(10, 2)),
             func.count(Event.id),
         )
@@ -456,8 +459,8 @@ def exam_averages(
         )
         .join(Class, Class.id == Enrollment.class_id)
         .filter(*sitting_score_conds(exam.title, start_day, end_day, wid=wid))
-        .group_by(Class.id, Class.name, Event.payload["subject"].as_string())
-        .order_by(Class.name, Event.payload["subject"].as_string())
+        .group_by(Class.id, Class.name, subject_col)
+        .order_by(Class.name, subject_col)
         .all()
     )
 

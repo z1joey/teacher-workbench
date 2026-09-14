@@ -6,10 +6,10 @@ import Icon from "./Icon.vue"
 import { openEvent, isEventClickable } from "../eventNav"
 import {
   dateLocale,
-  describeEvent,
   eventDisplayName,
   eventTypeColor,
   eventTypeIcon,
+  feedEventDesc,
 } from "../strings"
 
 const props = defineProps({
@@ -53,9 +53,8 @@ function timelineDesc(event) {
   // exam 节点默认不展示描述；学生档案页会在有成绩时带上 score_summary
   if (event.score_summary) return event.score_summary
   if (NO_TIMELINE_DESC.has(event.event_type)) return ""
-  const desc = describeEvent(event.event_type, event.payload)
-  // 评语/谈心等事件的标题就是正文本身，描述与标题重复时不渲染副标题
-  return desc === eventDisplayName(event) ? "" : desc
+  // 评语/谈心等：标题已是正文时，副标题只保留额外信息（如「涉及：…」）
+  return feedEventDesc(event)
 }
 
 function row(e) {

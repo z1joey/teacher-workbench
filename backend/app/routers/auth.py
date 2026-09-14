@@ -29,13 +29,10 @@ from ..password_reset import (
 )
 from ..payloads import validate_person_payload
 from ..security import hash_password, new_token, verify_password
-from ..seed import seed
 from ..unassigned import ensure_unassigned_class
 from ..workspace import ensure_workspace_id
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-DEMO_TEACHER_EMAIL = "chen@school.edu"
 
 
 class RegisterIn(BaseModel):
@@ -92,18 +89,6 @@ def create_session(db: Session, person_id) -> str:
     return token
 
 
-@router.get("/setup")
-def setup_status(db: Session = Depends(get_db)):
-    """Tell the login page whether first-time bootstrap is available."""
-    role = Person.payload["role"].as_string()
-    teachers = db.query(Person).filter(role == "teacher").count()
-    demo = db.query(Person).filter(Person.email == DEMO_TEACHER_EMAIL).first()
-    return {
-        "needs_bootstrap": teachers == 0,
-        "has_demo_account": demo is not None,
-    }
-
-
 @router.post("/register", status_code=201)
 def register(body: RegisterIn, db: Session = Depends(get_db)):
     email = normalize_email(body.email)
@@ -133,25 +118,6 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
     token = create_session(db, person.id)
     db.commit()
     return {"token": token, "user": user_out(person)}
-
-
-@router.post("/bootstrap")
-def bootstrap_demo(db: Session = Depends(get_db)):
-    """First-run only: load CLI demo data and sign in as the demo teacher."""
-    role = Person.payload["role"].as_string()
-    if db.query(Person).filter(role == "teacher").count() > 0:
-        raise HTTPException(status_code=400, detail="已有教师账号，无法重复初始化")
-    try:
-        ensure_unassigned_class(db)
-        seed(db)
-        db.commit()
-    except Exception as exc:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"初始化失败: {exc}") from exc
-    teacher = db.query(Person).filter(Person.email == DEMO_TEACHER_EMAIL).one()
-    token = create_session(db, teacher.id)
-    db.commit()
-    return {"token": token, "user": user_out(teacher)}
 
 
 @router.post("/login")

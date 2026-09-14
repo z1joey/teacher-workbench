@@ -2746,6 +2746,9 @@ a.chip:hover {
   /* 图表按 1:1 绘制；容器更宽时居中，更窄时回到左对齐并横向滚动 */
   margin-inline: auto;
 }
+.chart--fluid {
+  margin-inline: 0;
+}
 .chart svg {
   display: block;
   width: 100%;

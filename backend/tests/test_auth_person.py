@@ -73,28 +73,6 @@ def test_register_without_phone_succeeds(make_client):
     assert r.json()["user"]["email"] == "nophone@test.example"
 
 
-def test_setup_and_bootstrap_empty_db(make_client, db):
-    client = _auth_client(make_client)
-    status = client.get("/api/auth/setup")
-    assert status.status_code == 200
-    assert status.json()["needs_bootstrap"] is True
-    assert status.json()["has_demo_account"] is False
-
-    boot = client.post("/api/auth/bootstrap")
-    assert boot.status_code == 200, boot.text
-    body = boot.json()
-    assert body["user"]["email"] == "chen@school.edu"
-    headers = {"Authorization": f"Bearer {body['token']}"}
-    assert client.get("/api/auth/me", headers=headers).status_code == 200
-
-    again = client.post("/api/auth/bootstrap")
-    assert again.status_code == 400
-
-    after = client.get("/api/auth/setup")
-    assert after.json()["needs_bootstrap"] is False
-    assert after.json()["has_demo_account"] is True
-
-
 def test_login_me_logout_flow(make_client, db):
     client = _auth_client(make_client)
     person = seed_person(db, "teacher@test.example", name="李老师")

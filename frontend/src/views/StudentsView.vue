@@ -10,7 +10,7 @@ import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
 import { ensureSearchStudents, searchQuery, studentMatchesQuery, matchedGuardiansOf } from "../search"
 import Highlight from "../components/Highlight.vue"
-import { friendlyError, tagStyle, t, eventTitle, describeEvent, dateLocale } from "../strings"
+import { friendlyError, tagStyle, t, eventTitle, feedEventDesc, dateLocale } from "../strings"
 
 const route = useRoute()
 const router = useRouter()
@@ -96,7 +96,7 @@ function fmtDate(ts) {
 
 function lastEventText(ev) {
   if (!ev) return ""
-  return describeEvent(ev.event_type, ev.payload)
+  return feedEventDesc(ev)
 }
 
 // 搜索时该学生被监护人命中的记录；卡片上单独一行展示（否则看不到匹配依据）

@@ -813,8 +813,11 @@ def student_timeline(student_id: uuid.UUID, db: Session = Depends(get_db)):
             Event.attendees.any(Person.id == student_id),
             # score events stay in the 考试成绩 card — one row per subject per
             # exam floods the timeline with rows the scores table shows better;
+            # exam sittings are teacher-facing — students see exam_taken once
+            # scores are recorded (same sitting would otherwise appear twice);
             # summaries belong to the teacher's own feed, not the student's
             Event.type != "score",
+            Event.type != "exam",
             Event.type != "summary",
         )
         .order_by(Event.start_time.desc(), Event.created_at.desc())

@@ -139,8 +139,9 @@ def test_import_creates_scores_and_exam_taken_timeline(ctx):
     ).first()
     assert math_row.start_time.date() == date(2026, 9, 8)
 
-    # 时间线：exam_taken 汇总一行，缺考科目不出现在 scores 里
+    # 时间线：exam_taken 汇总一行，缺考科目不出现在 scores 里；exam 场次不重复出现
     tl = ctx["client"].get(f"/api/students/{lin.id}/timeline", headers=ctx["headers"]).json()
+    assert all(t["event_type"] != "exam" for t in tl)
     taken = [t for t in tl if t["event_type"] == "exam_taken"]
     assert len(taken) == 1
     assert taken[0]["payload"]["exam"] == "九月月考"
