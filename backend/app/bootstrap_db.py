@@ -5,7 +5,8 @@ workspace backfill, projected birthdays). Demo data: python -m app.seed
 
 Pre-release volumes that still record an old revision id (e.g. 0011) are
 reconciled by stamping the squashed head when the event schema is present.
-Legacy columnar schema (``user`` table, no ``person``) must be wiped first.
+Any legacy pre-``person`` schema (the ``user`` era, the older
+``student``/``teacher`` era) must be wiped first.
 """
 from pathlib import Path
 
@@ -44,9 +45,14 @@ def _revision_in_script(cfg: alembic.config.Config, revision_id: str | None) -> 
 def _reconcile_squashed_migration(cfg: alembic.config.Config) -> None:
     """Stamp squashed head when a pre-release volume still records 0002–0011."""
     insp = inspect(engine)
-    if insp.has_table("user") and not insp.has_table("person"):
+    # Any non-empty volume without the person table predates the squashed
+    # chain; create_all would half-run against it and die on the first
+    # UUID-vs-integer FK (the 2026-09-14 production crash-loop). Reject it
+    # before alembic touches the schema. Covers both the user-table era and
+    # the older student/teacher era.
+    if insp.get_table_names() and not insp.has_table("person"):
         raise SystemExit(
-            "legacy schema detected (user table, no person). "
+            "legacy pre-person schema detected (no person table). "
             "Wipe the database volume before deploying: docker compose down -v"
         )
     if not insp.has_table("alembic_version"):
