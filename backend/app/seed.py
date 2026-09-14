@@ -15,6 +15,7 @@ are NOT persisted — the timeline projects them from payload["birth_date"].
 Re-seeding an existing database duplicates the demo data — remove the SQLite
 file (or drop the schema) first.
 """
+import os
 import random
 import uuid
 from datetime import date, datetime, time
@@ -172,8 +173,11 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     """
     if teacher is None:
         if include_admin:
-            admin = Person(name="开发者", phone="13800000000", email="admin@school.dev",
-                           password_hash=hash_password("admin123"),
+            # 演示场景回退固定账密；配置了 ADMIN_EMAIL/ADMIN_PASSWORD 时以环境变量为准
+            admin_email = os.environ.get("ADMIN_EMAIL", "admin@school.dev")
+            admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
+            admin = Person(name="开发者", phone="13800000000", email=admin_email,
+                           password_hash=hash_password(admin_password),
                            payload=validate_person_payload("admin", {}))
             db.add(admin)
         teacher = Person(name="陈老师", phone="13800000001", email="chen@school.edu",
@@ -618,7 +622,7 @@ def run() -> None:
         print(f"  tags: {db.query(Tag).count()}")
         print(f"  enrollments: {db.query(Enrollment).count()}")
         print("  demo login: chen@school.edu / 123456")
-        print("  admin login: admin@school.dev / admin123  → hidden /admin dashboard")
+        print(f"  admin login: {os.environ.get('ADMIN_EMAIL', 'admin@school.dev')} / (ADMIN_PASSWORD) → hidden /admin dashboard")
     except Exception:
         db.rollback()
         raise
