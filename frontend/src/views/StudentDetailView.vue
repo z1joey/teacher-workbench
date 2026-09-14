@@ -41,9 +41,9 @@ const editingId = ref(null)
 const editValue = ref(null)
 const editError = ref("")
 
-// default to the latest exam; expand to see full history
+// 默认展示全部成绩；收起后只看选中的那一场
 const SCORE_EXAMS_VISIBLE = 1
-const showAllScores = ref(false)
+const showAllScores = ref(true)
 
 // tag editor
 const tagFormOpen = ref(false)
@@ -67,7 +67,7 @@ const STATUS_OPTIONS = [
 async function load() {
   loading.value = true
   error.value = ""
-  showAllScores.value = false
+  showAllScores.value = true
   try {
     const tasks = [
       api.get(`/students/${props.id}`),
@@ -732,7 +732,7 @@ const headerMeta = computed(() => {
                 </div>
 
                 <button
-                  v-if="hiddenScoreCount > 0 || showAllScores"
+                  v-if="hiddenScoreCount > 0"
                   class="btn btn--sm btn--ghost btn--block"
                   style="margin-top: 12px"
                   @click="showAllScores = !showAllScores"
