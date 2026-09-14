@@ -372,9 +372,6 @@ const activity = computed(() => {
                 />
               </FormField>
             </div>
-            <p class="field__hint" style="margin: 0 0 4px">
-              修改成功后，其他设备会自动退出登录，当前设备不受影响。
-            </p>
             <div class="form-actions">
               <button type="submit" class="btn btn--primary" :disabled="pwdSaving">
                 <span v-if="pwdSaving" class="spinner" />
