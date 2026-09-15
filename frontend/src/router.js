@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router"
-import { getToken } from "./api"
+import { getToken, setToken } from "./api"
 import { loadMe, me } from "./auth"
 import HomeView from "./views/HomeView.vue"
 import LoginView from "./views/LoginView.vue"
@@ -161,10 +161,19 @@ router.beforeEach(async (to) => {
   if (AUTH_PATHS.has(to.path)) {
     if (!me.value) await loadMe()
     if (!getToken()) return true
-    return me.value?.role === "admin" ? "/admin" : "/"
+    // token 还在却拉不到账号（网络故障/会话失效）：清掉登录态留在登录页，
+    // 否则会和下面的 return "/login" 互相重定向，页面白屏
+    if (!me.value) {
+      setToken(null)
+      return true
+    }
+    return me.value.role === "admin" ? "/admin" : "/"
   }
   if (!me.value) await loadMe()
-  if (!me.value) return "/login"
+  if (!me.value) {
+    setToken(null)
+    return "/login"
+  }
 
   // Admin gate #1 — teacher-role users who guess /admin get bounced.
   if (to.path.startsWith("/admin") && me.value.role !== "admin") return "/"

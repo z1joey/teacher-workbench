@@ -221,7 +221,7 @@ function pct(score, full) {
     :loading="loading"
     :error="error"
     :empty="!loading && !error && !(averages && exam)"
-    empty-title="考试详情没能加载"
+    :empty-title="t('exam.loadEmptyTitle')"
     :rows="4"
     @retry="load"
   >
