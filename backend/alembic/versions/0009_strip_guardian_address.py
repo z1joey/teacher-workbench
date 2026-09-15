@@ -21,12 +21,12 @@ def upgrade() -> None:
     bind = op.get_bind()
     if not sa.inspect(bind).has_table("person"):
         return
-    rows = bind.execute(
-        sa.text(
-            "SELECT id, payload FROM person "
-            "WHERE json_extract(payload, '$.role') = 'guardian'"
-        )
-    ).fetchall()
+    # PG has no json_extract(); there payload is jsonb, so use the ->>
+    # operator and cast rewritten payloads back to jsonb explicitly.
+    if bind.dialect.name == "sqlite":
+        rows = bind.exec_driver_sql("SELECT id, payload FROM person WHERE json_extract(payload, '$.role') = 'guardian'").fetchall()
+    else:
+        rows = bind.exec_driver_sql("SELECT id, payload FROM person WHERE payload ->> 'role' = 'guardian'").fetchall()
     for row in rows:
         raw = row[1]
         if not raw:
@@ -35,10 +35,11 @@ def upgrade() -> None:
         if "address" not in payload:
             continue
         payload.pop("address", None)
-        bind.execute(
-            sa.text("UPDATE person SET payload = :payload WHERE id = :id"),
-            {"payload": json.dumps(payload, ensure_ascii=False), "id": row[0]},
-        )
+        dumped = json.dumps(payload, ensure_ascii=False)
+        if bind.dialect.name == "sqlite":
+            bind.exec_driver_sql("UPDATE person SET payload = ? WHERE id = ?", (dumped, row[0]))
+        else:
+            bind.exec_driver_sql("UPDATE person SET payload = CAST(%s AS jsonb) WHERE id = %s", (dumped, row[0]))
 
 
 def downgrade() -> None:

@@ -223,6 +223,7 @@ jobs:
       # 通过 SSH 部署：secrets 经环境变量传递，不在脚本里明文内插
       # -----------------------------------------------------------------------
       - name: 部署到服务器
+        id: deploy
         uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
         env:
           IMAGE_TAG: ${{ steps.meta.outputs.tag }}
@@ -274,6 +275,31 @@ jobs:
             echo "=========================================="
             echo "✅ 部署完成"
             echo "=========================================="
+
+      # -----------------------------------------------------------------------
+      # 部署失败时导出服务器现场（容器状态 + backend/db 日志），避免每次
+      # 都要登服务器排查。不用 set -e：某一项导出失败不影响其余项。
+      # -----------------------------------------------------------------------
+      - name: 失败时导出容器现场
+        if: failure() && steps.deploy.outcome == 'failure'
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        env:
+          PROJECT_DIR: ${{ secrets.PROJECT_DIR }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          envs: PROJECT_DIR
+          script: |
+            set -uo pipefail
+            cd "${PROJECT_DIR:-.}"
+            echo "==== docker compose ps ===="
+            docker compose ps -a || true
+            echo "==== backend logs (tail 100) ===="
+            docker logs --tail 100 teacher-workbench-backend 2>&1 || true
+            echo "==== db logs (tail 50) ===="
+            docker logs --tail 50 teacher-workbench-db 2>&1 || true
 
       - name: 部署结果
         if: success()
