@@ -579,7 +579,6 @@ const messages = {
 
   "gender.F": "女",
   "gender.M": "男",
-  "gender.O": "其他",
 
   // --- 时间线事件 ---
   "tl.enrolled": "入学",
@@ -699,12 +698,11 @@ export function termLabel(v) {
 
 // ------------------------------------------------------------------ 性别
 
-// 后端存的是 F / M（见 seed.py），O 表示其他，空值表示未填写
+// 后端存的是 F / M，空值表示未填写
 export const GENDER_OPTIONS = [
   { value: "", label: "未填写" },
   { value: "F", label: "女" },
   { value: "M", label: "男" },
-  { value: "O", label: "其他" },
 ]
 
 export function tagStyle(color) {

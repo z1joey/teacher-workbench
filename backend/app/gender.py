@@ -1,36 +1,35 @@
-"""Student gender codes (F/M/O) and Chinese label mapping."""
+"""Student gender codes (F/M) and Chinese label mapping.
+
+性别只有男/女两种取值，空 = 未填写；不提供「其他」。
+"""
 from __future__ import annotations
 
 from typing import Literal
 
-GenderCode = Literal["F", "M", "O"]
+GenderCode = Literal["F", "M"]
 
-GENDER_CODES: frozenset[str] = frozenset({"F", "M", "O"})
+GENDER_CODES: frozenset[str] = frozenset({"F", "M"})
 
 GENDER_TO_LABEL: dict[str, str] = {
     "F": "女",
     "M": "男",
-    "O": "其他",
 }
 
-# Import paths and free-text forms normalize to F/M/O.
+# Import paths and free-text forms normalize to F/M.
 GENDER_FROM_TEXT: dict[str, str] = {
     "F": "F",
     "M": "M",
-    "O": "O",
     "f": "F",
     "m": "M",
-    "o": "O",
     "女": "F",
     "男": "M",
-    "其他": "O",
     "female": "F",
     "male": "M",
 }
 
 
 def parse_gender(raw: str | None) -> str | None:
-    """Normalize a gender cell or form value to F/M/O, or None when blank."""
+    """Normalize a gender cell or form value to F/M, or None when blank."""
     if raw is None:
         return None
     text = str(raw).strip()

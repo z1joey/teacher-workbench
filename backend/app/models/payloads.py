@@ -22,7 +22,7 @@ class _Strict(BaseModel):
 class StudentPayload(_Strict):
     role: str = "student"
     admission_no: str = Field(max_length=40)
-    gender: Literal["F", "M", "O"] | None = None
+    gender: Literal["F", "M"] | None = None
     birth_date: str | None = None  # ISO "YYYY-MM-DD"
     address: str | None = None
     workspace_id: str | None = None

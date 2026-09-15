@@ -8,7 +8,6 @@ from app.payloads import validate_person_payload
 def test_parse_gender_from_chinese():
     assert parse_gender("女") == "F"
     assert parse_gender("男") == "M"
-    assert parse_gender("其他") == "O"
 
 
 def test_parse_gender_from_codes_and_aliases():
@@ -22,7 +21,10 @@ def test_parse_gender_blank():
     assert parse_gender("") is None
 
 
-def test_parse_gender_unknown():
+def test_parse_gender_unknown_includes_other():
+    # 性别只有男/女，「其他」不再是合法取值
+    with pytest.raises(ValueError, match="无法识别的性别"):
+        parse_gender("其他")
     with pytest.raises(ValueError, match="无法识别的性别"):
         parse_gender("未知")
 
@@ -30,7 +32,6 @@ def test_parse_gender_unknown():
 def test_gender_label_maps_codes_to_chinese():
     assert gender_label("F") == "女"
     assert gender_label("M") == "男"
-    assert gender_label("O") == "其他"
     assert gender_label(None) == ""
 
 
