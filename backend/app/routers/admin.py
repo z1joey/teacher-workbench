@@ -15,6 +15,7 @@ from ..database import get_db
 from ..deps import bearer_scheme, require_admin
 from ..models import AuthSession, Class, Enrollment, Event, Feedback, Person, Tag
 from ..payloads import validate_person_payload
+from ..routers.data import _clear_business_data
 from ..security import hash_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -317,6 +318,48 @@ def inspect_table(
         "total": total,
         "total_pages": total_pages,
     }
+
+
+@router.post("/db/clear-business")
+def clear_business_data_admin(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+):
+    """Delete business rows but keep admin accounts and the current session.
+
+    Unlike /db/reset this does not drop tables or wipe admin logins.
+    """
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    token = credentials.credentials
+    with Session(database.engine, autoflush=False, expire_on_commit=False) as auth_db:
+        session = auth_db.get(AuthSession, token)
+        if session is None:
+            raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+        person = auth_db.get(Person, session.person_id)
+        if person is None or not person.is_admin:
+            raise HTTPException(status_code=403, detail="admin only")
+        admin_ids = {
+            p.id
+            for p in auth_db.query(Person).all()
+            if (p.payload or {}).get("role") == "admin"
+        }
+        if not admin_ids:
+            raise HTTPException(status_code=500, detail="未找到管理员账号")
+        primary_id = person.id
+
+    with Session(database.engine, autoflush=False, expire_on_commit=False) as db:
+        try:
+            _clear_business_data(
+                db,
+                token,
+                keep_person_ids=admin_ids,
+                primary_person_id=primary_id,
+            )
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise HTTPException(status_code=500, detail=f"清空失败: {exc}") from exc
+    return {"ok": True}
 
 
 @router.post("/db/reset")

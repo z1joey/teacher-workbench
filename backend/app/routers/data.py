@@ -30,7 +30,7 @@ from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import create_event, sync_birthday_event
 from ..gender import gender_label, parse_gender
-from ..models import AuthSession, Class, ClassSeating, Enrollment, Event, Person, Tag
+from ..models import AuthSession, Class, ClassSeating, Enrollment, Event, Feedback, Person, Tag
 from ..models._common import utcnow
 from ..models.associations import person_events, person_tags, student_guardians
 from ..payloads import validate_person_payload
@@ -192,18 +192,25 @@ def _require_teacher(user: Person) -> None:
 
 def _clear_business_data(
     db: Session,
-    teacher: Person,
     token: str,
     *,
-    load_seed: bool,
+    keep_person_ids: set[uuid_mod.UUID],
+    load_seed: bool = False,
+    primary_person_id: uuid_mod.UUID | None = None,
 ) -> Person:
-    """Delete all business data; keep the current teacher signed in.
+    """Delete business rows; keep listed persons and the current session.
 
-    Uses row DELETEs instead of drop_all/create_all. On PostgreSQL, DDL on a
-    second connection while this request still holds a read transaction (from
-    auth) deadlocks until rollback — which used to run only after the wipe.
+    Shared by teacher demo reset/seed and admin clear-business. Uses row
+    DELETEs instead of drop_all/create_all. On PostgreSQL, DDL on a second
+    connection while this request still holds a read transaction (from auth)
+    deadlocks until rollback — which used to run only after the wipe.
     """
-    teacher_id = teacher.id
+    if not keep_person_ids:
+        raise ValueError("keep_person_ids must not be empty")
+    primary = primary_person_id or next(iter(keep_person_ids))
+    if primary not in keep_person_ids:
+        raise ValueError("primary_person_id must be in keep_person_ids")
+    db.execute(delete(Feedback))
     db.execute(delete(person_events))
     db.execute(delete(person_tags))
     db.execute(delete(student_guardians))
@@ -219,16 +226,37 @@ def _clear_business_data(
             )
         )
     )
-    db.execute(delete(AuthSession).where(AuthSession.token != token))
-    db.execute(delete(Person).where(Person.id != teacher_id))
+    db.execute(
+        delete(AuthSession).where(
+            AuthSession.token != token,
+            ~AuthSession.person_id.in_(keep_person_ids),
+        )
+    )
+    db.execute(delete(Person).where(~Person.id.in_(keep_person_ids)))
     db.flush()
     ensure_unassigned_class(db)
-    kept = db.get(Person, teacher_id)
+    kept = db.get(Person, primary)
     if kept is None:
-        raise RuntimeError("teacher row missing after clear")
+        raise RuntimeError("kept person row missing after clear")
     if load_seed:
         seed(db, teacher=kept, include_admin=False)
     return kept
+
+
+def _clear_business_data_for_teacher(
+    db: Session,
+    teacher: Person,
+    token: str,
+    *,
+    load_seed: bool,
+) -> Person:
+    return _clear_business_data(
+        db,
+        token,
+        keep_person_ids={teacher.id},
+        load_seed=load_seed,
+        primary_person_id=teacher.id,
+    )
 
 
 def _has_business_data(db: Session) -> bool:
@@ -270,7 +298,7 @@ def load_demo_data(
             detail="系统中已有业务数据（可能属于其他教师账号），加载演示数据会清空全部数据；请先「清空业务数据」后再加载演示数据",
         )
     try:
-        teacher = _clear_business_data(
+        teacher = _clear_business_data_for_teacher(
             db, user, credentials.credentials, load_seed=True
         )
         db.commit()
@@ -294,7 +322,7 @@ def reset_app_data(
     if credentials is None:
         raise HTTPException(status_code=401, detail="未登录")
     try:
-        teacher = _clear_business_data(
+        teacher = _clear_business_data_for_teacher(
             db, user, credentials.credentials, load_seed=False
         )
         db.commit()
