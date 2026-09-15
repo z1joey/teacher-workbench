@@ -694,6 +694,10 @@ def create_student(
     db: Session = Depends(get_db),
     user: Person = Depends(get_current_person),
 ):
+    # 监护人：电话选填，但填了电话就必须留姓名（否则监护人无法归属）
+    gphone = (body.guardian_phone or "").strip()
+    if gphone and not (body.guardian_name or "").strip():
+        raise HTTPException(status_code=422, detail="请填写监护人姓名")
     cls = None
     if body.class_id is not None:
         cls = require_class_in_workspace(db, user, body.class_id)

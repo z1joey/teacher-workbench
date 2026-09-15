@@ -247,6 +247,36 @@ def test_create_student_201_old_keys_seeds_payload_enrollment_enrolled_event(mak
     assert events[0].payload == {"class_name": cls.name}
 
 
+def test_create_student_guardian_phone_optional_name_required(make_client, db, headers):
+    """监护人：电话选填；但只填电话不留姓名 → 422（监护人无法归属）。"""
+    client = make_client(students.router)
+
+    # 只填监护人姓名：电话留空 → 201，监护人已关联
+    r = client.post(
+        "/api/students",
+        json={"name": "只有监护人姓名", "guardian_name": "林爸爸"},
+        headers=headers,
+    )
+    assert r.status_code == 201, r.text
+    person = db.get(Person, uuid.UUID(r.json()["id"]))
+    linked = (
+        db.query(Person)
+        .join(student_guardians, student_guardians.c.guardian_id == Person.id)
+        .filter(student_guardians.c.student_id == person.id)
+        .all()
+    )
+    assert [g.name for g in linked] == ["林爸爸"]
+
+    # 只填电话：缺姓名 → 422
+    r = client.post(
+        "/api/students",
+        json={"name": "只有电话", "guardian_phone": "13810001000"},
+        headers=headers,
+    )
+    assert r.status_code == 422, r.text
+    assert "姓名" in r.json()["detail"]
+
+
 def test_create_student_class_not_found_400(make_client, db, headers):
     r = make_client(students.router).post(
         "/api/students",

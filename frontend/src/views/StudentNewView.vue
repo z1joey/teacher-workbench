@@ -47,6 +47,10 @@ onMounted(loadClasses)
 function validate() {
   const e = {}
   if (!form.value.name.trim()) e.name = t("new.nameRequired")
+  // 监护人：电话选填，但只填电话不留姓名时要求补姓名
+  const gName = form.value.guardian_name.trim()
+  const gPhone = form.value.guardian_phone.trim()
+  if (!gName && gPhone) e.guardian_name = t("new.guardianNameRequired")
   errors.value = e
   return !Object.keys(e).length
 }
@@ -126,8 +130,8 @@ async function submit() {
           </button>
           <div v-show="guardianOpen" id="guardian-body" class="disclosure__body">
             <div class="form-grid">
-              <FormField :label="t('new.guardianName')" optional>
-                <input v-model="form.guardian_name" class="input" type="text" />
+              <FormField :label="t('new.guardianName')" required :error="errors.guardian_name || ''">
+                <input v-model="form.guardian_name" class="input" type="text" :aria-invalid="!!errors.guardian_name" />
               </FormField>
               <FormField
                 :label="t('new.guardianPhone')"
