@@ -165,3 +165,11 @@ def test_admin_inspect_rejects_legacy_tables(admin_client):
         r = admin_client.post("/api/admin/inspect", json={"table": tbl, "limit": 5})
         assert r.status_code == 400, f"table={tbl}: {r.status_code} {r.text}"
         assert r.json()["detail"] == "未知数据表"
+
+
+def test_admin_inspect_tables_lists_current_schema(admin_client):
+    r = admin_client.get("/api/admin/inspect/tables")
+    assert r.status_code == 200, r.text
+    assert r.json()["tables"] == sorted({
+        "person", "auth_session", "event", "tag", "class", "enrollment", "feedback",
+    })

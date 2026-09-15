@@ -15,6 +15,8 @@ from ..security import hash_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+LIST_USER_ROLES = ("admin", "teacher", "student", "guardian")
+
 # All models that map to real DB tables — used for table-count introspection.
 ALL_MODELS = [Person, AuthSession, Event, Tag, Class, Enrollment, Feedback]
 
@@ -31,16 +33,31 @@ def admin_stats(
     # PostgreSQL's ->> yields text. Count in Python with the same
     # default-true rule the users list uses.
     persons = db.query(Person).all()
+    login_roles = {"teacher", "admin"}
+
+    def _role(p: Person) -> str | None:
+        return (p.payload or {}).get("role")
+
+    def _active(p: Person) -> bool:
+        return (p.payload or {}).get("is_active") is not False
+
+    persons_total = counts.get("person", 0)
+    accounts_total = sum(1 for p in persons if _role(p) in login_roles)
+    accounts_active = sum(
+        1 for p in persons if _role(p) in login_roles and _active(p)
+    )
     return {
         "database": engine.url.drivername,
         "tables": counts,
-        "users_total": counts.get("person", 0),
+        # users_total kept for older clients — same as persons_total
+        "users_total": persons_total,
+        "persons_total": persons_total,
+        "accounts_total": accounts_total,
         "users_admins": (
             db.query(Person).filter(Person.payload["role"].as_string() == "admin").count()
         ),
-        "users_active": sum(
-            1 for p in persons if (p.payload or {}).get("is_active") is not False
-        ),
+        "users_active": sum(1 for p in persons if _active(p)),
+        "accounts_active": accounts_active,
         "sessions_active": counts.get("auth_session", 0),
     }
 
@@ -53,7 +70,7 @@ def list_users(
 ):
     query = db.query(Person).order_by(Person.id)
     if role is not None:
-        if role not in ("admin", "teacher"):
+        if role not in LIST_USER_ROLES:
             raise HTTPException(status_code=400, detail="角色不合法")
         query = query.filter(Person.payload["role"].as_string() == role)
     return [
@@ -63,6 +80,7 @@ def list_users(
             "phone": u.phone,
             "email": u.email,
             "role": u.role,
+            "admission_no": (u.payload or {}).get("admission_no") if u.role == "student" else None,
             "is_active": (u.payload or {}).get("is_active") is not False,
             "created_at": u.created_at.isoformat() if u.created_at else None,
         }
@@ -200,6 +218,12 @@ class InspectIn(BaseModel):
 
 
 TABLE_ALLOWLIST = {m.__tablename__ for m in ALL_MODELS}
+
+
+@router.get("/inspect/tables")
+def inspect_tables(_me: Person = Depends(require_admin)):
+    """Inspectable ORM tables (current schema only)."""
+    return {"tables": sorted(TABLE_ALLOWLIST)}
 
 
 @router.post("/inspect")

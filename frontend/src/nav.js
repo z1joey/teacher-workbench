@@ -8,10 +8,16 @@ export const TEACHER_NAV = [
 ]
 
 export const ADMIN_NAV = [
-  { key: "admin", label: "开发者后台", to: "/admin", icon: "sliders", hint: "概览 · 账号 · 会话" },
+  { key: "admin", label: "概览", to: "/admin", icon: "chart", hint: "统计 · 数据表" },
+  { key: "adminAccounts", label: "账号管理", to: "/admin/accounts", icon: "users", hint: "教师 · 管理员" },
+  { key: "adminFeedback", label: "用户反馈", to: "/admin/feedback", icon: "flag", hint: "意见 · 建议" },
+  { key: "adminSessions", label: "活动会话", to: "/admin/sessions", icon: "clock", hint: "登录 · 终止" },
+  { key: "adminInspect", label: "数据探查", to: "/admin/inspect", icon: "search", hint: "原始表预览" },
+  { key: "adminDanger", label: "危险操作", to: "/admin/danger", icon: "alert", hint: "重置数据库" },
 ]
 
 export function isNavActive(item, path) {
   if (item.to === "/") return path === "/"
+  if (item.to === "/admin") return path === "/admin"
   return path === item.to || path.startsWith(`${item.to}/`)
 }

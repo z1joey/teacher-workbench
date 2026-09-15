@@ -18,6 +18,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from . import models  # noqa: F401  (registers the tables on Base.metadata)
+from .create_admin import bootstrap_admin_from_env
 from .database import engine
 from .eventing import sync_all_birthday_events
 from .unassigned import ensure_unassigned_class
@@ -85,6 +86,7 @@ def ensure_schema() -> None:
         ensure_unassigned_class(db)
         migrate_legacy_workspace(db)
         sync_all_birthday_events(db)
+        bootstrap_admin_from_env(db)
         db.commit()
 
 

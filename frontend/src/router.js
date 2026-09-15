@@ -20,7 +20,12 @@ import ExamsView from "./views/ExamsView.vue"
 import ExamNewView from "./views/ExamNewView.vue"
 import ExamDetailView from "./views/ExamDetailView.vue"
 import EventDetailView from "./views/EventDetailView.vue"
-import AdminView from "./views/AdminView.vue"
+import AdminOverviewView from "./views/admin/AdminOverviewView.vue"
+import AdminAccountsView from "./views/admin/AdminAccountsView.vue"
+import AdminFeedbackView from "./views/admin/AdminFeedbackView.vue"
+import AdminSessionsView from "./views/admin/AdminSessionsView.vue"
+import AdminInspectView from "./views/admin/AdminInspectView.vue"
+import AdminDangerView from "./views/admin/AdminDangerView.vue"
 import NotFoundView from "./views/NotFoundView.vue"
 
 // Routes that only teachers (non-admin) may enter. Admin accounts get
@@ -139,7 +144,37 @@ export const router = createRouter({
       props: true,
       meta: { title: "考试详情", parent: { label: "考试", to: "/exams" } },
     },
-    { path: "/admin", name: "admin", component: AdminView, meta: { title: "开发者后台" } },
+    { path: "/admin", name: "admin", component: AdminOverviewView, meta: { title: "概览" } },
+    {
+      path: "/admin/accounts",
+      name: "adminAccounts",
+      component: AdminAccountsView,
+      meta: { title: "账号管理", parent: { label: "开发者后台", to: "/admin" } },
+    },
+    {
+      path: "/admin/feedback",
+      name: "adminFeedback",
+      component: AdminFeedbackView,
+      meta: { title: "用户反馈", parent: { label: "开发者后台", to: "/admin" } },
+    },
+    {
+      path: "/admin/sessions",
+      name: "adminSessions",
+      component: AdminSessionsView,
+      meta: { title: "活动会话", parent: { label: "开发者后台", to: "/admin" } },
+    },
+    {
+      path: "/admin/inspect",
+      name: "adminInspect",
+      component: AdminInspectView,
+      meta: { title: "数据探查", parent: { label: "开发者后台", to: "/admin" } },
+    },
+    {
+      path: "/admin/danger",
+      name: "adminDanger",
+      component: AdminDangerView,
+      meta: { title: "危险操作", parent: { label: "开发者后台", to: "/admin" } },
+    },
     {
       path: "/forgot-password",
       name: "forgotPassword",

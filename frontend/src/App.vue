@@ -120,8 +120,11 @@ async function onLogout() {
 const paletteActions = computed(() => {
   if (isAdmin.value) {
     return [
-      { id: "reload", label: "重新加载数据", icon: "refresh", run: () => window.location.reload() },
-      { id: "help", label: "帮助与快捷键", icon: "help", hint: "?", run: () => openHelp() },
+      { id: "admin-accounts", label: t("admin.sectionAccounts"), icon: "users", run: () => router.push("/admin/accounts") },
+      { id: "admin-feedback", label: t("admin.sectionFeedback"), icon: "flag", run: () => router.push("/admin/feedback") },
+      { id: "submit-feedback", label: t("feedback.entry"), icon: "note", run: () => { feedbackOpen.value = true } },
+      { id: "reload", label: "重新加载页面", icon: "refresh", run: () => window.location.reload() },
+      { id: "help", label: t("nav.help"), icon: "help", hint: "?", run: () => openHelp() },
       { id: "logout", label: "退出登录", icon: "logout", run: onLogout },
     ]
   }
@@ -180,7 +183,8 @@ function onKeydown(e) {
 
   if (e.key === "/") {
     e.preventDefault()
-    searchRef.value?.focus()
+    if (isAdmin.value) paletteOpen.value = true
+    else searchRef.value?.focus()
     return
   }
 
@@ -257,7 +261,7 @@ watch(paletteOpen, (v) => {
           </span>
         </router-link>
 
-        <button class="nav-item" @click="feedbackOpen = true">
+        <button v-if="!isAdmin" class="nav-item" @click="feedbackOpen = true">
           <Icon name="flag" :size="18" />
           <span class="nav-item__text">{{ t("feedback.entry") }}</span>
         </button>
@@ -291,8 +295,8 @@ watch(paletteOpen, (v) => {
           </template>
         </nav>
 
-        <div class="topbar__actions">
-          <NavSearch v-if="!isAdmin" ref="searchRef" />
+        <div v-if="!isAdmin" class="topbar__actions">
+          <NavSearch ref="searchRef" />
           <button class="icon-btn" aria-label="打开命令面板" :title="'命令面板 ⌘K'" @click="paletteOpen = true">
             <Icon name="search" :size="17" />
           </button>
