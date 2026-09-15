@@ -15,7 +15,7 @@ from app.routers import data
 from app.routers.students import _guardian_link
 from app.security import hash_password
 from app.unassigned import ensure_unassigned_class, is_unassigned_class
-from app.workspace import ensure_workspace_id, tag_student_workspace
+from app.workspace import ensure_workspace_id
 from tests.conftest import seed_person, seed_token
 
 TEACHER_TOKEN = "d" * 64
@@ -27,15 +27,33 @@ _ROSTER_HEADERS_WITH_GUARDIAN = [
 ]
 
 
-def _student(db, name: str, admission_no: str, gender: str | None = None,
-             birth_date: str | None = None) -> Person:
+def _teacher(db) -> Person | None:
+    return (
+        db.query(Person)
+        .filter(Person.payload["role"].as_string() == "teacher")
+        .order_by(Person.created_at.asc(), Person.id.asc())
+        .first()
+    )
+
+
+def _student(
+    db,
+    name: str,
+    admission_no: str,
+    gender: str | None = None,
+    birth_date: str | None = None,
+    *,
+    teacher: Person | None = None,
+) -> Person:
+    payload_data = {"admission_no": admission_no, "gender": gender, "birth_date": birth_date}
+    if teacher is None:
+        teacher = _teacher(db)
+    if teacher is not None:
+        payload_data["workspace_id"] = ensure_workspace_id(teacher)
     p = Person(
         name=name,
         password_hash=hash_password("123456"),
-        payload=validate_person_payload(
-            "student",
-            {"admission_no": admission_no, "gender": gender, "birth_date": birth_date},
-        ),
+        payload=validate_person_payload("student", payload_data),
     )
     db.add(p)
     db.flush()
@@ -46,6 +64,7 @@ def _student(db, name: str, admission_no: str, gender: str | None = None,
 def client(make_client, db):
     tc = make_client(data.router)
     teacher = seed_person(db, "chen@test.example", phone="13800000001", name="陈老师")
+    ensure_workspace_id(teacher)
     seed_token(db, teacher, TEACHER_TOKEN)
     db.commit()
     return tc
@@ -462,9 +481,7 @@ def _teacher_row(db) -> Person:
 
 
 def _workspace_student(db, name: str, admission_no: str) -> Person:
-    teacher = _teacher_row(db)
     p = _student(db, name, admission_no)
-    tag_student_workspace(p, teacher)
     db.commit()
     return p
 
@@ -522,8 +539,8 @@ def test_demo_seed_allowed_after_reset(client, db):
 
 def test_demo_seed_does_not_block_other_teacher_workspace(client, db):
     other = seed_person(db, "other@test.example", phone="13800000099", name="王老师")
-    other_student = _student(db, "外班生", "S880001")
-    tag_student_workspace(other_student, other)
+    ensure_workspace_id(other)
+    other_student = _student(db, "外班生", "S880001", teacher=other)
     db.commit()
 
     res = client.post("/api/data/demo/seed", headers=AUTH)
@@ -533,14 +550,77 @@ def test_demo_seed_does_not_block_other_teacher_workspace(client, db):
     assert db.get(Person, other.id) is not None
     assert db.get(Person, other_student.id) is not None
     assert len(_students(db)) >= 21
+    teacher = _teacher_row(db)
+    assert (
+        db.query(Person)
+        .filter(
+            Person.payload["role"].as_string() == "student",
+            Person.payload["workspace_id"].as_string()
+            == ensure_workspace_id(teacher),
+            Person.payload["admission_no"].as_string() == "S2025001",
+        )
+        .count()
+        == 1
+    )
+    assert (
+        db.query(Person)
+        .filter(
+            Person.payload["role"].as_string() == "student",
+            Person.payload["admission_no"].as_string() == "S2025001",
+        )
+        .count()
+        == 1
+    )
+
+
+def test_admission_no_allowed_across_workspaces(client, db):
+    other = seed_person(db, "other@test.example", phone="13800000099", name="王老师")
+    ensure_workspace_id(other)
+    db.commit()
+    seed_res = client.post("/api/data/demo/seed", headers=AUTH)
+    assert seed_res.status_code == 200, seed_res.text
+
+    _student(db, "外班生", "S2025001", teacher=other)
+    db.commit()
+
+    db.expire_all()
+    assert (
+        db.query(Person)
+        .filter(
+            Person.payload["role"].as_string() == "student",
+            Person.payload["admission_no"].as_string() == "S2025001",
+        )
+        .count()
+        == 2
+    )
+
+
+def test_both_teachers_can_load_demo_data(client, db):
+    other = seed_person(db, "other@test.example", phone="13800000099", name="王老师")
+    ensure_workspace_id(other)
+    other_token = "e" * 64
+    seed_token(db, other, other_token)
+    db.commit()
+
+    first = client.post("/api/data/demo/seed", headers=AUTH)
+    assert first.status_code == 200, first.text
+    second = client.post(
+        "/api/data/demo/seed",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert second.status_code == 200, second.text
+
+    db.expire_all()
+    assert db.query(Class).filter(Class.name == "七年级1班").count() == 2
+    assert len(_students(db)) >= 42
 
 
 def test_demo_reset_only_clears_current_workspace(client, db):
     other = seed_person(db, "other@test.example", phone="13800000099", name="王老师")
+    ensure_workspace_id(other)
     other_token = "e" * 64
     seed_token(db, other, other_token)
-    other_student = _student(db, "外班生", "S880001")
-    tag_student_workspace(other_student, other)
+    other_student = _student(db, "外班生", "S880001", teacher=other)
     db.commit()
 
     assert client.post("/api/data/demo/seed", headers=AUTH).status_code == 200
@@ -586,8 +666,7 @@ def _setup_owned_class(db, teacher: Person, students: list[tuple[str, str]]) -> 
     db.flush()
     rows: list[Person] = []
     for name, admission_no in students:
-        p = _student(db, name, admission_no)
-        tag_student_workspace(p, teacher)
+        p = _student(db, name, admission_no, teacher=teacher)
         db.add(Enrollment(person_id=p.id, class_id=klass.id, valid_from=date(2025, 9, 1)))
         rows.append(p)
     db.commit()

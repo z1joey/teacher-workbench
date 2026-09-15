@@ -47,10 +47,12 @@ from ..payloads import validate_event_payload, validate_person_payload
 from ..security import hash_password
 from ..unassigned import class_for_api, ensure_unassigned_class, is_unassigned_class
 from ..workspace import (
+    admission_no_taken,
     require_class_in_workspace,
     require_student_in_workspace,
     students_query,
     tag_student_workspace,
+    workspace_id,
 )
 
 router = APIRouter(
@@ -242,18 +244,6 @@ def graduate_student(db: Session, s: Person, class_name: str | None) -> bool:
     s.payload = validate_person_payload("student", payload)
     _graduate_side_effects(db, s, class_name)
     return True
-
-
-def _admission_no_in_use(
-    db: Session, admission_no: str, *, exclude_id: uuid.UUID | None = None,
-) -> bool:
-    q = db.query(Person.id).filter(
-        Person.payload["role"].as_string() == "student",
-        Person.payload["admission_no"].as_string() == admission_no,
-    )
-    if exclude_id is not None:
-        q = q.filter(Person.id != exclude_id)
-    return q.first() is not None
 
 
 def _guardians_of(db: Session, student_id: uuid.UUID):
@@ -617,15 +607,23 @@ def list_students(
 
 
 @router.get("/tags")
-def list_tags(db: Session = Depends(get_db)):
-    """All in-use tags (attached to at least one person), for manual reuse.
+def list_tags(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """In-use tags on this teacher's workspace students, for manual reuse.
     系统自动挂载的标签（如毕业流程的「已毕业」）不在此列，避免手动重复添加。"""
+    wid = workspace_id(user)
     tags = (
         db.query(Tag, func.count(person_tags.c.person_id))
-        .outerjoin(person_tags, person_tags.c.tag_id == Tag.id)
-        .filter(Tag.name != AUTO_GRADUATED_TAG_NAME)
+        .join(person_tags, person_tags.c.tag_id == Tag.id)
+        .join(Person, Person.id == person_tags.c.person_id)
+        .filter(
+            Tag.name != AUTO_GRADUATED_TAG_NAME,
+            Person.payload["role"].as_string() == "student",
+            Person.payload["workspace_id"].as_string() == wid,
+        )
         .group_by(Tag.id)
-        .having(func.count(person_tags.c.person_id) > 0)
         .order_by(func.count(person_tags.c.person_id).desc(), Tag.name)
         .all()
     )
@@ -707,8 +705,8 @@ def create_student(
         cls = ensure_unassigned_class(db)
     max_no = 0
     admission_nos = (
-        db.query(Person.payload["admission_no"].as_string())
-        .filter(Person.payload["role"].as_string() == "student")
+        students_query(db, user)
+        .with_entities(Person.payload["admission_no"].as_string())
         .all()
     )
     for (no,) in admission_nos:
@@ -1388,13 +1386,13 @@ def update_student(
     student_id: uuid.UUID,
     body: StudentUpdateIn,
     db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
 ):
-    s = db.get(Person, student_id)
-    if s is None or s.role != "student":
-        raise HTTPException(status_code=404, detail="student not found")
+    s = require_student_in_workspace(db, user, student_id)
 
     # copy-modify-reassign so a partial patch never drops sibling payload keys
     payload = dict(s.payload or {})
+    wid = workspace_id(user)
     if body.name is not None:
         s.name = body.name.strip()
     if body.admission_no is not None:
@@ -1402,8 +1400,8 @@ def update_student(
         if not admission_no:
             raise HTTPException(status_code=400, detail="请填写学号")
         current_no = (payload.get("admission_no") or "").strip()
-        if admission_no != current_no and _admission_no_in_use(
-            db, admission_no, exclude_id=student_id,
+        if admission_no != current_no and admission_no_taken(
+            db, admission_no, wid, exclude_id=student_id,
         ):
             raise HTTPException(status_code=400, detail="学号已被使用")
         payload["admission_no"] = admission_no

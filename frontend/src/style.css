@@ -1814,6 +1814,22 @@ mark.hl {
   }
 }
 
+.admin-workspace-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  flex-wrap: wrap;
+}
+.admin-workspace-filter__label {
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.admin-workspace-filter__select {
+  min-width: min(320px, 100%);
+  max-width: 100%;
+}
+
 .admin-inspect-hint {
   margin: 0 0 var(--sp-4);
   font-size: var(--fs-sm);

@@ -17,6 +17,7 @@ from app.models import AuthSession, Class, Enrollment, Event, Person
 from app.payloads import validate_person_payload
 from app.routers import admin, auth
 from app.security import hash_password
+from app.workspace import ensure_workspace_id, tag_student_workspace
 from tests.conftest import seed_person, seed_token
 
 ADMIN_TOKEN = "a" * 64
@@ -48,6 +49,7 @@ def client(make_client, db):
     )
     db.add(student)
     db.flush()
+    tag_student_workspace(student, teacher)
     db.add(Enrollment(person_id=student.id, class_id=klass.id,
                       valid_from=date(2025, 9, 1)))
     seed_token(db, teacher2, TEACHER2_TOKEN)
@@ -93,8 +95,18 @@ def test_admin_lists_users_with_role_filter(client):
     students = tc.get("/api/admin/users", params={"role": "student"}).json()
     assert {u["id"] for u in students} == {ids["student"]}
     assert students[0]["admission_no"] == "S1"
+    assert students[0]["workspace_owner_id"] == ids["teacher"]
+    assert "陈老师" in students[0]["workspace_label"]
+    teachers = tc.get("/api/admin/users", params={"role": "teacher"}).json()
+    assert teachers[0]["workspace_label"]
     assert tc.get("/api/admin/users", params={"role": "guardian"}).json() == []
     assert tc.get("/api/admin/users", params={"role": "boss"}).status_code == 400
+
+    scoped = tc.get(
+        "/api/admin/users",
+        params={"workspace_owner_id": ids["teacher"]},
+    ).json()
+    assert {u["id"] for u in scoped} == {ids["teacher"], ids["student"]}
 
 
 def test_patch_role_validation_and_self_demote_guard(client):

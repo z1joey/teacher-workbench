@@ -78,9 +78,10 @@ class Person(Base):
     __table_args__ = (
         # Every authz check and "all students" list extracts the role.
         Index("ix_person_role", text("(payload->>'role')")),
-        # admission_no uniqueness survives life inside JSONB (PG + SQLite >= 3.38).
+        # admission_no is unique within a teacher workspace, not globally.
         Index(
-            "uq_person_admission_no",
+            "uq_person_workspace_admission_no",
+            text("(payload->>'workspace_id')"),
             text("(payload->>'admission_no')"),
             unique=True,
             sqlite_where=text("payload->>'role' = 'student'"),

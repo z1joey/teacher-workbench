@@ -389,6 +389,37 @@ def test_patch_student_admission_no_unique(make_client, db, headers):
     assert r.status_code == 200, r.text
 
 
+def _student_in_workspace(db, name: str, admission_no: str, teacher: Person) -> Person:
+    p = Person(
+        name=name,
+        password_hash=hash_password(uuid.uuid4().hex),
+        payload=validate_person_payload(
+            "student",
+            {"admission_no": admission_no, "workspace_id": ensure_workspace_id(teacher)},
+        ),
+    )
+    db.add(p)
+    db.flush()
+    return p
+
+
+def test_admission_no_unique_within_workspace_only(make_client, db):
+    t1 = _seed_teacher(db, phone="13800000011", email="t1@test.example")
+    t2 = _seed_teacher(db, phone="13800000012", email="t2@test.example")
+    s1 = _student_in_workspace(db, "甲", "S001", t1)
+    s2 = _student_in_workspace(db, "乙", "S001", t2)
+    db.commit()
+    client = make_client(students.router)
+    h1 = _headers(db, t1)
+
+    r = client.patch(
+        f"/api/students/{s2.id}",
+        json={"admission_no": "S001"},
+        headers=h1,
+    )
+    assert r.status_code == 404
+
+
 def test_patch_student_status_and_class_move(make_client, db, headers):
     c1 = _seed_class(db, "七年级1班")
     c2 = _seed_class(db, "七年级2班")

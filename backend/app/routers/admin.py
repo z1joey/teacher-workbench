@@ -16,6 +16,7 @@ from ..deps import bearer_scheme, require_admin
 from ..models import AuthSession, Class, Enrollment, Event, Feedback, Person, Tag
 from ..payloads import validate_person_payload
 from ..security import hash_password
+from ..workspace import build_workspace_admin_maps, workspace_id, workspace_owner_label
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -66,9 +67,44 @@ def admin_stats(
     }
 
 
+def _user_workspace_fields(
+    u: Person,
+    *,
+    teachers_by_wid: dict[str, Person],
+    label_for_wid,
+    guardian_labels: dict,
+) -> dict:
+    role = u.role
+    payload = u.payload or {}
+    wid = payload.get("workspace_id")
+    owner_id = None
+    label = None
+
+    if role == "teacher":
+        wid = wid or workspace_id(u)
+        owner_id = u.id
+        label = workspace_owner_label(u)
+    elif role == "student":
+        owner = teachers_by_wid.get(wid or "")
+        owner_id = owner.id if owner else None
+        label = label_for_wid(wid)
+    elif role == "guardian":
+        labels = guardian_labels.get(u.id, [])
+        label = "、".join(labels) if labels else None
+    elif role == "admin":
+        label = "系统"
+
+    return {
+        "workspace_id": wid,
+        "workspace_owner_id": str(owner_id) if owner_id else None,
+        "workspace_label": label,
+    }
+
+
 @router.get("/users")
 def list_users(
     role: str | None = None,
+    workspace_owner_id: str | None = None,
     db: Session = Depends(get_db),
     _me: Person = Depends(require_admin),
 ):
@@ -77,19 +113,53 @@ def list_users(
         if role not in LIST_USER_ROLES:
             raise HTTPException(status_code=400, detail="角色不合法")
         query = query.filter(Person.payload["role"].as_string() == role)
-    return [
-        {
-            "id": str(u.id),
-            "name": u.name,
-            "phone": u.phone,
-            "email": u.email,
-            "role": u.role,
-            "admission_no": (u.payload or {}).get("admission_no") if u.role == "student" else None,
-            "is_active": (u.payload or {}).get("is_active") is not False,
-            "created_at": u.created_at.isoformat() if u.created_at else None,
-        }
-        for u in query.all()
-    ]
+    teachers_by_wid, label_for_wid, guardian_labels = build_workspace_admin_maps(db)
+    owner_uuid = None
+    if workspace_owner_id:
+        try:
+            owner_uuid = uuid.UUID(workspace_owner_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="工作区参数不合法")
+        owner = db.get(Person, owner_uuid)
+        if owner is None or owner.role != "teacher":
+            raise HTTPException(status_code=400, detail="工作区参数不合法")
+        owner_wid = workspace_id(owner)
+
+    rows = []
+    for u in query.all():
+        ws = _user_workspace_fields(
+            u,
+            teachers_by_wid=teachers_by_wid,
+            label_for_wid=label_for_wid,
+            guardian_labels=guardian_labels,
+        )
+        if owner_uuid is not None:
+            if u.role == "teacher" and u.id != owner_uuid:
+                continue
+            if u.role == "student" and ws["workspace_id"] != owner_wid:
+                continue
+            if u.role == "guardian":
+                owner_label = label_for_wid(owner_wid)
+                if not owner_label or owner_label not in (ws["workspace_label"] or ""):
+                    continue
+            if u.role == "admin":
+                continue
+        rows.append(
+            {
+                "id": str(u.id),
+                "name": u.name,
+                "phone": u.phone,
+                "email": u.email,
+                "role": u.role,
+                "admission_no": (u.payload or {}).get("admission_no")
+                if u.role == "student"
+                else None,
+                "is_active": (u.payload or {}).get("is_active") is not False,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                **ws,
+            }
+        )
+    return rows
 
 
 class UserUpdate(BaseModel):

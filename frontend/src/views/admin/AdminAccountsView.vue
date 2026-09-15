@@ -28,6 +28,7 @@ const editingUserId = ref(null)
 const editForm = ref({})
 const newPassword = ref("")
 const roleFilter = ref("")
+const workspaceFilter = ref("")
 const saving = ref(false)
 
 async function loadUsers() {
@@ -40,9 +41,34 @@ async function loadUsers() {
   loadingUsers.value = false
 }
 
+const workspaceOptions = computed(() =>
+  allUsers.value
+    .filter((u) => u.role === "teacher")
+    .map((u) => ({ id: u.id, label: u.workspace_label || u.name || u.id }))
+    .sort((a, b) => a.label.localeCompare(b.label, "zh")),
+)
+
 const users = computed(() => {
-  if (!roleFilter.value) return allUsers.value
-  return allUsers.value.filter((u) => u.role === roleFilter.value)
+  let list = allUsers.value
+  if (roleFilter.value) list = list.filter((u) => u.role === roleFilter.value)
+  if (workspaceFilter.value) {
+    const owner = allUsers.value.find((u) => u.id === workspaceFilter.value)
+    list = list.filter((u) => {
+      if (u.role === "teacher") return u.id === workspaceFilter.value
+      if (u.role === "admin") return false
+      if (u.role === "student") return u.workspace_owner_id === workspaceFilter.value
+      if (u.role === "guardian" && owner?.workspace_label) {
+        return (u.workspace_label || "").includes(owner.workspace_label)
+      }
+      return u.workspace_owner_id === workspaceFilter.value
+    })
+  }
+  return [...list].sort((a, b) => {
+    const aw = a.workspace_label || ""
+    const bw = b.workspace_label || ""
+    if (aw !== bw) return aw.localeCompare(bw, "zh")
+    return (a.name || "").localeCompare(b.name || "", "zh")
+  })
 })
 
 const roleCounts = computed(() => {
@@ -169,6 +195,16 @@ onMounted(loadUsers)
     </div>
   </div>
 
+  <div v-if="workspaceOptions.length" class="admin-workspace-filter">
+    <label class="admin-workspace-filter__label muted" for="admin-workspace-filter">
+      {{ t("admin.workspaceOwner") }}
+    </label>
+    <select id="admin-workspace-filter" v-model="workspaceFilter" class="input admin-workspace-filter__select">
+      <option value="">{{ t("admin.workspaceFilterAll") }}</option>
+      <option v-for="ws in workspaceOptions" :key="ws.id" :value="ws.id">{{ ws.label }}</option>
+    </select>
+  </div>
+
   <div class="card">
     <div class="card__head">
       <h2 class="card__title"><Icon name="users" :size="16" /> {{ t("admin.sectionAccounts") }}</h2>
@@ -181,18 +217,20 @@ onMounted(loadUsers)
       <div class="table-wrap admin-table-wrap admin-accounts-table">
         <table class="table table--admin">
           <colgroup>
-            <col style="width: 11%" />
-            <col style="width: 12%" />
-            <col style="width: 14%" />
-            <col style="width: 18%" />
             <col style="width: 10%" />
+            <col style="width: 11%" />
+            <col style="width: 14%" />
+            <col style="width: 11%" />
+            <col style="width: 16%" />
             <col style="width: 9%" />
-            <col style="width: 12%" />
+            <col style="width: 8%" />
+            <col style="width: 10%" />
           </colgroup>
           <thead>
             <tr>
               <th>{{ t("admin.teacherId") }}</th>
               <th>{{ t("admin.teacherName") }}</th>
+              <th>{{ t("admin.workspaceOwner") }}</th>
               <th>{{ t("admin.teacherPhone") }}</th>
               <th>{{ t("admin.accountEmail") }}</th>
               <th>{{ t("admin.userRole") }}</th>
@@ -217,6 +255,15 @@ onMounted(loadUsers)
                   <AdminCompactCell
                     :value="u.name"
                     :column="t('admin.teacherName')"
+                    :row-label="rowLabel(u)"
+                    :show-null="false"
+                    @expand="openCellDetail"
+                  />
+                </td>
+                <td>
+                  <AdminCompactCell
+                    :value="u.workspace_label"
+                    :column="t('admin.workspaceOwner')"
                     :row-label="rowLabel(u)"
                     :show-null="false"
                     @expand="openCellDetail"
@@ -266,7 +313,7 @@ onMounted(loadUsers)
               </tr>
 
               <tr v-else class="admin-accounts-edit-row">
-                <td colspan="7">
+                <td colspan="8">
                   <AdminAccountEditPanel
                     :user="u"
                     :form="editForm"
@@ -330,6 +377,10 @@ onMounted(loadUsers)
             </header>
 
             <dl class="admin-account-card__rows">
+              <div v-if="u.workspace_label" class="admin-account-card__row">
+                <dt class="admin-account-card__label">{{ t("admin.workspaceOwner") }}</dt>
+                <dd class="admin-account-card__value">{{ u.workspace_label }}</dd>
+              </div>
               <div v-if="contactLine(u)" class="admin-account-card__row">
                 <dt class="admin-account-card__label">{{ contactLabel(u) }}</dt>
                 <dd class="admin-account-card__value tnum">{{ contactLine(u) }}</dd>

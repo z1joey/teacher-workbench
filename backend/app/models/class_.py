@@ -46,7 +46,10 @@ class Class(Base):
     enrollments = relationship("Enrollment", back_populates="class_")
 
     __table_args__ = (
-        UniqueConstraint("name", "academic_year", name="uq_class_name_year"),
+        # Class names are unique per owning teacher (workspace), not globally.
+        UniqueConstraint(
+            "teacher_id", "name", "academic_year", name="uq_class_teacher_name_year"
+        ),
     )
 
 

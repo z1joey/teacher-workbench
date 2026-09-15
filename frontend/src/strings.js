@@ -81,6 +81,8 @@ const messages = {
   "admin.sessionsActive": "活动会话",
   "admin.table": "表名",
   "admin.rows": "行数",
+  "admin.workspaceOwner": "所属工作区",
+  "admin.workspaceFilterAll": "全部工作区",
   "admin.teacherId": "ID",
   "admin.teacherName": "姓名",
   "admin.teacherPhone": "手机号",

@@ -612,6 +612,49 @@ def test_class_crud_contract(make_client, db, headers):
     assert missing.json()["detail"] == "class not found"
 
 
+def test_class_same_name_allowed_across_teachers(make_client, db):
+    t1 = _seed_teacher(db, phone="13800000021", email="c1@test.example")
+    t2 = _seed_teacher(db, phone="13800000022", email="c2@test.example")
+    h1 = _headers(db, t1, "a" * 64)
+    h2 = _headers(db, t2, "b" * 64)
+    client = make_client(classes_router.router)
+
+    r1 = client.post(
+        "/api/classes",
+        json={"name": "七年级1班", "academic_year": "2026"},
+        headers=h1,
+    )
+    r2 = client.post(
+        "/api/classes",
+        json={"name": "七年级1班", "academic_year": "2026"},
+        headers=h2,
+    )
+    assert r1.status_code == 201, r1.text
+    assert r2.status_code == 201, r2.text
+    assert r1.json()["id"] != r2.json()["id"]
+
+
+def test_class_patch_delete_rejects_foreign_workspace(make_client, db):
+    t1 = _seed_teacher(db, phone="13800000031", email="p1@test.example")
+    t2 = _seed_teacher(db, phone="13800000032", email="p2@test.example")
+    h1 = _headers(db, t1, "c" * 64)
+    h2 = _headers(db, t2, "d" * 64)
+    client = make_client(classes_router.router)
+
+    foreign = client.post(
+        "/api/classes",
+        json={"name": "别班", "academic_year": "2026"},
+        headers=h2,
+    ).json()["id"]
+
+    assert client.patch(
+        f"/api/classes/{foreign}",
+        json={"name": "篡改"},
+        headers=h1,
+    ).status_code == 404
+    assert client.delete(f"/api/classes/{foreign}", headers=h1).status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # dashboard: calendar + summary
 # ---------------------------------------------------------------------------

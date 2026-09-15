@@ -30,7 +30,11 @@ from .workspace import ensure_workspace_id, tag_student_workspace
 from .eventing import create_event
 from .models import Class, ClassSeating, Enrollment, Event, Person, Tag, student_guardians
 from .payloads import validate_person_payload
-from .routers.students import _find_or_create_guardian, _guardians_of
+from .routers.students import (
+    _find_or_create_guardian,
+    _find_or_create_tag,
+    _guardians_of,
+)
 from .security import hash_password
 
 random.seed(2026)
@@ -95,11 +99,7 @@ def _apply_completed_home_visit_tags(db: Session) -> None:
     """Mirror mark-done API: completed visits earn the 已家访 student tag."""
     from .models import person_tags
 
-    tag = db.query(Tag).filter(Tag.name == "已家访").first()
-    if tag is None:
-        tag = Tag(name="已家访", color="#2f7d4f")
-        db.add(tag)
-        db.flush()
+    tag = _find_or_create_tag(db, "已家访", "#2f7d4f")
     for ev in db.query(Event).filter(Event.type == "home_visited").all():
         if not (ev.payload or {}).get("done"):
             continue
@@ -249,11 +249,9 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
         student_id=deng.id, guardian_id=grandmah.id, relationship="外祖母"))
     db.flush()
 
-    # demo tags (globally reusable once attached)
-    focus_tag = Tag(name="需关注", color="#b42318")
-    rep_tag = Tag(name="课代表", color="#177245")
-    db.add_all([focus_tag, rep_tag])
-    db.flush()
+    # demo tags — find-or-create so a second teacher's demo seed can reuse them
+    focus_tag = _find_or_create_tag(db, "需关注", "#b42318")
+    rep_tag = _find_or_create_tag(db, "课代表", "#177245")
     for tag, names in ((focus_tag, ["林晓雨", "王浩"]), (rep_tag, ["宋雅轩", "郭浩然"])):
         for n in names:
             s = by_name.get(n)
@@ -558,9 +556,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     c61 = Class(name="六1班", academic_year=GRAD_YEAR, teacher_id=teacher.id, archived=True)
     db.add(c61)
     db.flush()
-    grad_tag = Tag(name="已毕业", color="#b7791f")
-    db.add(grad_tag)
-    db.flush()
+    grad_tag = _find_or_create_tag(db, "已毕业", "#b7791f")
 
     GRAD_NAMES = [
         ("赵一诺", "F"), ("钱思远", "M"), ("孙悦宁", "F"),

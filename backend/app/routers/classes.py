@@ -200,9 +200,19 @@ class ClassUpdateIn(BaseModel):
     archived: bool | None = None
 
 
-def _check_duplicate(db: Session, name: str, academic_year: str,
-                     exclude_id: uuid.UUID | None = None) -> None:
-    query = db.query(Class).filter(Class.name == name, Class.academic_year == academic_year)
+def _check_duplicate(
+    db: Session,
+    teacher: Person,
+    name: str,
+    academic_year: str,
+    *,
+    exclude_id: uuid.UUID | None = None,
+) -> None:
+    query = db.query(Class).filter(
+        Class.teacher_id == teacher.id,
+        Class.name == name,
+        Class.academic_year == academic_year,
+    )
     if exclude_id is not None:
         query = query.filter(Class.id != exclude_id)
     if query.first() is not None:
@@ -242,7 +252,7 @@ def create_class(
     db: Session = Depends(get_db),
     current: Person = Depends(get_current_person),
 ):
-    _check_duplicate(db, body.name.strip(), body.academic_year.strip())
+    _check_duplicate(db, current, body.name.strip(), body.academic_year.strip())
     c = Class(
         name=body.name.strip(),
         academic_year=body.academic_year.strip(),
@@ -522,14 +532,14 @@ def update_class(
     db: Session = Depends(get_db),
     current: Person = Depends(get_current_person),
 ):
-    c = db.get(Class, class_id)
-    if c is None or is_unassigned_class(c):
+    c = require_class_in_workspace(db, current, class_id)
+    if is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
     renaming = "name" in body.model_fields_set or "academic_year" in body.model_fields_set
     name = c.name if body.name is None else body.name.strip()
     year = c.academic_year if body.academic_year is None else body.academic_year.strip()
     if renaming:
-        _check_duplicate(db, name, year, exclude_id=class_id)
+        _check_duplicate(db, current, name, year, exclude_id=class_id)
     c.name = name
     c.academic_year = year
     if body.archived is not None:
@@ -544,8 +554,8 @@ def delete_class(
     db: Session = Depends(get_db),
     current: Person = Depends(get_current_person),
 ):
-    c = db.get(Class, class_id)
-    if c is None or is_unassigned_class(c):
+    c = require_class_in_workspace(db, current, class_id)
+    if is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
     if db.query(Enrollment).filter(Enrollment.class_id == class_id).first() is not None:
         raise HTTPException(status_code=409, detail="班级内仍有学生或历史记录，无法删除")

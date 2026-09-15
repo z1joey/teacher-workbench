@@ -481,10 +481,12 @@ async def import_roster(
             guardian_phone = (values.get("guardian_phone") or "").strip() or None
             guardian_relation = (values.get("guardian_relation") or "").strip() or None
 
+            wid = workspace_id(user)
             person_row = (
                 db.query(Person)
                 .filter(
                     Person.payload["role"].as_string() == "student",
+                    Person.payload["workspace_id"].as_string() == wid,
                     Person.payload["admission_no"].as_string() == admission_no,
                 )
                 .first()
