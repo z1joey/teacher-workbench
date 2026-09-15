@@ -715,6 +715,138 @@ def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
     )
 
 
+def _score_cell(entry: dict | None) -> str | int | float:
+    if not entry:
+        return ""
+    if entry.get("absent"):
+        return "缺考"
+    score = entry.get("score")
+    if score is None:
+        return ""
+    return score
+
+
+def scores_for_students(
+    db: Session,
+    exam: Event,
+    student_ids: list[uuid.UUID],
+    wid: str,
+) -> dict[uuid.UUID, dict[str, dict]]:
+    """Per-student per-subject score/absent map for one sitting."""
+    if not student_ids:
+        return {}
+    start_day, end_day = exam_days(exam)
+    rows = (
+        db.query(Event, person_events.c.person_id)
+        .join(person_events, person_events.c.event_id == Event.id)
+        .filter(
+            *any_sitting_score_conds(exam.title, start_day, end_day, wid=wid),
+            person_events.c.person_id.in_(student_ids),
+        )
+        .all()
+    )
+    out: dict[uuid.UUID, dict[str, dict]] = {}
+    for ev, sid in rows:
+        payload = ev.payload or {}
+        subject = payload.get("subject")
+        if not subject:
+            continue
+        out.setdefault(sid, {})[subject] = {
+            "score": payload.get("score"),
+            "absent": bool(payload.get("absent")),
+        }
+    return out
+
+
+def exam_has_class_scores(
+    db: Session,
+    exam: Event,
+    student_ids: set[uuid.UUID],
+    wid: str,
+) -> bool:
+    """Whether any class student has a score row for this sitting."""
+    if not student_ids:
+        return False
+    start_day, end_day = exam_days(exam)
+    hit = (
+        db.query(person_events.c.person_id)
+        .select_from(Event)
+        .join(person_events, person_events.c.event_id == Event.id)
+        .filter(
+            *any_sitting_score_conds(exam.title, start_day, end_day, wid=wid),
+            person_events.c.person_id.in_(student_ids),
+        )
+        .first()
+    )
+    return hit is not None
+
+
+def exam_relevant_to_class(
+    db: Session,
+    exam: Event,
+    student_ids: set[uuid.UUID],
+    wid: str,
+) -> bool:
+    """Class export includes a sitting when a class student attended or has scores."""
+    exam_student_ids = {
+        p.id
+        for p in exam.attendees
+        if (p.payload or {}).get("role") == "student"
+    }
+    if exam_student_ids & student_ids:
+        return True
+    return exam_has_class_scores(db, exam, student_ids, wid)
+
+
+def append_score_sheet(
+    ws,
+    exam: Event,
+    students: list[Person],
+    scores_map: dict[uuid.UUID, dict[str, dict]] | None = None,
+) -> None:
+    """Write import-compatible score rows; scores_map fills entered cells."""
+    subjects = subjects_config(exam)
+    if not subjects:
+        raise ValueError("no subjects")
+    scores_map = scores_map or {}
+    ws.append([f"{exam.title}成绩导入（{exam.start_time.date().isoformat()}）"])
+    headers = ["学号", "姓名"] + [
+        f"{subject_label(s['subject'])}(满分{_full_label(s['full_score'])})" for s in subjects
+    ]
+    ws.append(headers)
+    title_row = ws.max_row - 1
+    header_row = ws.max_row
+    for s in students:
+        row_scores = scores_map.get(s.id, {})
+        ws.append([
+            (s.payload or {}).get("admission_no") or "",
+            s.name,
+        ] + [_score_cell(row_scores.get(sub["subject"])) for sub in subjects])
+    bold = Font(bold=True)
+    ws.cell(row=title_row, column=1).font = bold
+    for col in range(1, len(headers) + 1):
+        ws.cell(row=header_row, column=col).font = bold
+    ws.column_dimensions["A"].width = 16
+    ws.column_dimensions["B"].width = 12
+
+
+def unique_sheet_title(base: str, used: set[str]) -> str:
+    """Excel sheet names are limited to 31 characters."""
+    name = base[:31]
+    if name not in used:
+        used.add(name)
+        return name
+    for i in range(2, 100):
+        suffix = f"_{i}"
+        candidate = f"{base[:31 - len(suffix)]}{suffix}"
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+    fallback = f"{base[:28]}_99"
+    used.add(fallback)
+    return fallback
+
+
 @router.get("/exams/{exam_id}/scores/import-template")
 def score_import_template(
     exam_id: uuid.UUID,
@@ -731,19 +863,7 @@ def score_import_template(
     wb = Workbook()
     ws = wb.active
     ws.title = "成绩导入"
-    ws.append([f"{exam.title}成绩导入（{exam.start_time.date().isoformat()}）"])
-    headers = ["学号", "姓名"] + [
-        f"{subject_label(s['subject'])}(满分{_full_label(s['full_score'])})" for s in subjects
-    ]
-    ws.append(headers)
-    for s in _active_students(db, workspace_id(user)):
-        ws.append([(s.payload or {}).get("admission_no") or "", s.name] + [""] * len(subjects))
-    bold = Font(bold=True)
-    ws.cell(row=1, column=1).font = bold
-    for col in range(1, len(headers) + 1):
-        ws.cell(row=2, column=col).font = bold
-    ws.column_dimensions["A"].width = 16
-    ws.column_dimensions["B"].width = 12
+    append_score_sheet(ws, exam, _active_students(db, workspace_id(user)))
     return _xlsx_response(wb, f"{exam.title}成绩导入模板.xlsx")
 
 

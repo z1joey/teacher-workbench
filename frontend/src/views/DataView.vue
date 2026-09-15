@@ -84,32 +84,51 @@ async function importRoster() {
 
 const exportClassId = ref("")
 const exportingRoster = ref(false)
+const exportingVisits = ref(false)
+const exportingScores = ref(false)
 
-// 系统未分班（is_unassigned）：导入默认就落未分班，无需重复列出；
-// 0 人时也没有可导出的名单，不进导出选项
+// 系统未分班（is_unassigned）：导入默认就落未分班，导出也不列出——
+// 其 academic_year 为内部标识 __system__，且后端按真实班级导出。
 const importClassOptions = computed(() =>
   classes.value.filter((c) => !c.is_unassigned)
 )
 const exportClassOptions = computed(() =>
-  classes.value.filter((c) => !(c.is_unassigned && !c.student_count))
+  classes.value.filter((c) => !c.is_unassigned)
 )
 
-async function exportRoster() {
+function requireExportClass() {
   if (!exportClassId.value) {
-    notify({ tone: "warn", title: "请选择要导出的班级" })
-    return
+    notify({ tone: "warn", title: t("data.exportSelectClass") })
+    return false
   }
-  exportingRoster.value = true
+  return true
+}
+
+async function runExport(path, busyRef) {
+  if (!requireExportClass()) return
+  busyRef.value = true
   try {
     const { blob, filename } = await downloadFile(
-      `/data/export/roster?class_id=${exportClassId.value}`
+      `${path}?class_id=${exportClassId.value}`
     )
     triggerDownload(blob, filename)
   } catch (e) {
-    notify({ tone: "danger", title: "导出失败", detail: friendlyError(e) })
+    notify({ tone: "danger", title: t("data.exportFail"), detail: friendlyError(e) })
   } finally {
-    exportingRoster.value = false
+    busyRef.value = false
   }
+}
+
+async function exportRoster() {
+  await runExport("/data/export/roster", exportingRoster)
+}
+
+async function exportHomeVisits() {
+  await runExport("/data/export/home-visits", exportingVisits)
+}
+
+async function exportScores() {
+  await runExport("/data/export/scores", exportingScores)
 }
 
 async function downloadTemplate() {
@@ -305,26 +324,32 @@ async function resetApp() {
 
       <div class="card">
         <div class="card__head">
-          <h2 class="card__title"><Icon name="download" :size="16" /> 花名册导出（Excel）</h2>
+          <h2 class="card__title"><Icon name="download" :size="16" /> {{ t("data.exportTitle") }}</h2>
         </div>
         <div class="card__body stack" style="gap: 16px">
-          <p class="muted" style="margin: 0">
-            按当前班级名单导出 .xlsx（学号 / 姓名 / 性别 / 出生日期 / 家庭住址 / 监护人），格式与导入格式一致。
-          </p>
+          <p class="muted" style="margin: 0">{{ t("data.exportDesc") }}</p>
           <div class="form-grid">
-            <FormField label="班级" required>
+            <FormField :label="t('data.exportClass')" required>
               <select v-model="exportClassId" class="input">
-                <option value="" disabled>选择班级</option>
+                <option value="" disabled>{{ t("data.exportClassPlaceholder") }}</option>
                 <option v-for="c in exportClassOptions" :key="c.id" :value="c.id">
                   {{ c.name }}（{{ c.academic_year }}，{{ c.student_count }} 人）
                 </option>
               </select>
             </FormField>
           </div>
-          <div>
+          <div class="row-wrap">
             <button class="btn btn--primary" :disabled="exportingRoster" @click="exportRoster">
               <span v-if="exportingRoster" class="spinner" />
-              <Icon name="download" :size="15" /> 导出花名册
+              <Icon name="download" :size="15" /> {{ t("data.exportRoster") }}
+            </button>
+            <button class="btn" :disabled="exportingVisits" @click="exportHomeVisits">
+              <span v-if="exportingVisits" class="spinner" />
+              <Icon name="download" :size="15" /> {{ t("data.exportVisits") }}
+            </button>
+            <button class="btn" :disabled="exportingScores" @click="exportScores">
+              <span v-if="exportingScores" class="spinner" />
+              <Icon name="download" :size="15" /> {{ t("data.exportScores") }}
             </button>
           </div>
         </div>
