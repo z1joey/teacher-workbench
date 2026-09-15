@@ -71,6 +71,30 @@ def test_admin_db_reset_wipes_and_rebootstraps(client, db):
     assert db.get(AuthSession, ADMIN_TOKEN) is None
 
 
+def test_wipe_and_rebootstrap_repairs_after_bootstrap_failure(engine, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", str(engine.url))
+    monkeypatch.setenv("ADMIN_EMAIL", "admin136@test.example")
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin-pass-123")
+    monkeypatch.setattr(database_module, "engine", engine)
+    monkeypatch.setattr(bootstrap_db, "engine", engine)
+
+    calls = {"n": 0}
+    real_ensure = bootstrap_db.ensure_schema
+
+    def flaky_ensure():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated bootstrap failure")
+        return real_ensure()
+
+    monkeypatch.setattr(bootstrap_db, "ensure_schema", flaky_ensure)
+    bootstrap_db.wipe_and_rebootstrap()
+
+    insp = inspect(engine)
+    assert insp.has_table("alembic_version")
+    assert insp.has_table("person")
+
+
 def test_admin_db_reset_failure_leaves_health_ok(client, db, monkeypatch):
     def boom():
         raise RuntimeError("simulated wipe failure")

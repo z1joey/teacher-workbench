@@ -96,10 +96,19 @@ def wipe_and_rebootstrap() -> None:
     Call only after any request-scoped ORM sessions are closed — DDL while
     auth still holds a read transaction deadlocks on PostgreSQL (see
     routers/data._clear_business_data).
+
+    If bootstrap fails after a successful drop, ``ensure_schema`` is retried
+    once before re-raising so the volume is less likely to stay headless.
     """
     engine.dispose()
-    Base.metadata.drop_all(bind=engine)
-    ensure_schema()
+    try:
+        Base.metadata.drop_all(bind=engine)
+        ensure_schema()
+    except Exception as exc:
+        try:
+            ensure_schema()
+        except Exception:
+            raise exc
 
 
 def main() -> None:
