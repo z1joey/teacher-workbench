@@ -75,7 +75,7 @@ def _user_workspace_fields(
     label = None
 
     if role == "teacher":
-        wid = wid or workspace_id(u)
+        wid = wid or workspace_id(u) or None
         owner_id = u.id
         label = workspace_owner_label(u)
     elif role == "student":
@@ -206,7 +206,10 @@ def update_user(
     if user_id == me.id and body.role is not None and body.role != "admin":
         raise HTTPException(status_code=400, detail="不能降级自己的角色")
     payload = dict(u.payload or {})
-    if body.role is not None:
+    # Same-role edits must keep the stored payload untouched: rebuilding from
+    # scratch here once wiped the teacher workspace_id and orphaned every
+    # tagged student/class/event. Only a real role change resets the shape.
+    if body.role is not None and body.role != u.role:
         if body.role not in ("admin", "teacher"):
             raise HTTPException(status_code=400, detail="角色不合法")
         payload = validate_person_payload(body.role, {})

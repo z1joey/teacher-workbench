@@ -3,6 +3,11 @@
 Each teacher owns a workspace_id. Students and owned classes belong to that
 workspace so a newly registered account starts empty instead of inheriting
 another teacher's roster or events.
+
+Invariant: ids are minted only by ``ensure_workspace_id`` on write paths (the
+caller commits). Reads never mutate — ``workspace_id`` returns "" when the
+account has none, a value no stored row can carry, so every workspace filter
+comes back empty instead of matching rows from a forked workspace.
 """
 from __future__ import annotations
 
@@ -19,6 +24,10 @@ from .unassigned import is_unassigned_class
 
 
 def ensure_workspace_id(teacher: Person) -> str:
+    """Mint the workspace id if missing and attach it to the payload.
+
+    Write-path only: the assignment persists when the caller commits.
+    """
     payload = dict(teacher.payload or {})
     wid = payload.get("workspace_id")
     if not wid:
@@ -29,15 +38,18 @@ def ensure_workspace_id(teacher: Person) -> str:
 
 
 def workspace_id(teacher: Person) -> str:
-    wid = (teacher.payload or {}).get("workspace_id")
-    if not wid:
-        return ensure_workspace_id(teacher)
-    return wid
+    """Stored workspace id, or "" when the account has none yet.
+
+    Read path — must never mint. Regenerating per request (the old behavior)
+    left writes stable but reads on a fresh random id every request, so pages
+    rendered empty while the account silently forked from its own data.
+    """
+    return (teacher.payload or {}).get("workspace_id") or ""
 
 
 def tag_student_workspace(student: Person, teacher: Person) -> None:
     payload = dict(student.payload or {})
-    payload["workspace_id"] = workspace_id(teacher)
+    payload["workspace_id"] = ensure_workspace_id(teacher)
     student.payload = validate_person_payload("student", payload)
 
 

@@ -44,7 +44,7 @@ from ..deps import get_current_person
 from ..eventing import create_event
 from ..models import Class, Enrollment, Event, Person, person_events
 from ..payloads import validate_event_payload
-from ..workspace import workspace_id
+from ..workspace import ensure_workspace_id, workspace_id
 
 router = APIRouter(
     tags=["exams"],
@@ -294,7 +294,8 @@ def create_exam(
     name = body.name.strip()
     if body.end_date is not None and body.end_date < body.exam_date:
         raise HTTPException(status_code=400, detail="结束日期不能早于考试日期")
-    wid = workspace_id(user)
+    # 写路径：考场事件要盖上工作区章，这里必须铸造而非只读（端点结尾 commit）
+    wid = ensure_workspace_id(user)
     # duplicate rule: same-named exam overlapping the [start, end] span
     # (scoped to the caller's workspace — other workspaces never collide)
     lo, hi = day_window(body.exam_date, body.end_date)
