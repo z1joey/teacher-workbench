@@ -1,4 +1,4 @@
-"""Student roster import/export through .xlsx only.
+"""Student data import/export through .xlsx.
 
 Roster (POST /data/import/roster, GET /data/export/roster[/-template]) moves
 student rows through .xlsx in the format schools actually hand out: an optional
@@ -43,7 +43,15 @@ from ..unassigned import (
     ensure_unassigned_class,
     is_unassigned_class,
 )
-from ..workspace import tag_student_workspace
+from ..workspace import tag_student_workspace, workspace_id
+from .exams import (
+    append_score_sheet,
+    exam_events,
+    exam_relevant_to_class,
+    scores_for_students,
+    subjects_config,
+    unique_sheet_title,
+)
 from .students import _find_or_create_guardian, _guardian_link, _guardians_of
 
 router = APIRouter(
@@ -68,6 +76,7 @@ _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _ROSTER_HEADERS = [
     "学号", "姓名", "性别", "出生日期", "家庭住址", "监护人姓名", "监护人电话", "监护人关系",
 ]
+_HOME_VISIT_HEADERS = ["学号", "姓名", "家访时间", "事由", "内容", "监护人", "完成情况"]
 # 成绩表（如「英语(满分120)」）混进花名册导入会静默改掉真实学生资料，直接拒收
 _SCORE_COLUMN_HINT = re.compile(r"满分|成绩|分数|得分|绩点")
 
@@ -122,6 +131,24 @@ def _resolve_target_class(db: Session, class_id: uuid_mod.UUID | None, user: Per
     if cls.teacher_id is not None and cls.teacher_id != user.id:
         raise HTTPException(status_code=404, detail="class not found")
     return cls
+
+
+def _class_for_export(db: Session, user: Person, class_id: uuid_mod.UUID) -> Class:
+    """Export endpoints: same ownership rules as import, but reject 未分班."""
+    cls = _resolve_target_class(db, class_id, user)
+    if is_unassigned_class(cls):
+        raise HTTPException(status_code=404, detail="class not found")
+    return cls
+
+
+def _class_roster_students(db: Session, cls: Class) -> list[Person]:
+    return (
+        db.query(Person)
+        .join(Enrollment, Enrollment.person_id == Person.id)
+        .filter(Enrollment.class_id == cls.id, Enrollment.valid_to.is_(None))
+        .order_by(Person.payload["admission_no"].as_string())
+        .all()
+    )
 
 
 def _move_student(
@@ -491,21 +518,126 @@ def _xlsx_response(wb: Workbook, filename: str) -> StreamingResponse:
 
 
 @router.get("/data/export/roster")
-def export_roster(class_id: uuid_mod.UUID, db: Session = Depends(get_db)):
+def export_roster(
+    class_id: uuid_mod.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
     """Export one class's current roster in the import-compatible format."""
-    cls = db.get(Class, class_id)
-    if cls is None or is_unassigned_class(cls):
-        raise HTTPException(status_code=404, detail="class not found")
-    students = (
-        db.query(Person)
-        .join(Enrollment, Enrollment.person_id == Person.id)
-        .filter(Enrollment.class_id == cls.id, Enrollment.valid_to.is_(None))
-        .order_by(Person.payload["admission_no"].as_string())
-        .all()
-    )
+    cls = _class_for_export(db, user, class_id)
+    students = _class_roster_students(db, cls)
     return _xlsx_response(
         _roster_workbook(db, cls, students),
         f"{cls.academic_year}级{cls.name}花名册.xlsx",
+    )
+
+
+def _home_visits_workbook(
+    db: Session,
+    cls: Class,
+    students: list[Person],
+) -> Workbook:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "家访记录"
+    ws.append([f"{cls.academic_year}级{cls.name}家访记录"])
+    ws.append(_HOME_VISIT_HEADERS)
+    student_ids = [s.id for s in students]
+    students_by_id = {s.id: s for s in students}
+    if student_ids:
+        rows = (
+            db.query(Event, person_events.c.person_id)
+            .join(person_events, person_events.c.event_id == Event.id)
+            .filter(
+                Event.type == "home_visited",
+                person_events.c.person_id.in_(student_ids),
+            )
+            .order_by(Event.start_time.desc(), Event.created_at.desc())
+            .all()
+        )
+        seen: set[tuple] = set()
+        for ev, sid in rows:
+            if sid not in students_by_id:
+                continue
+            key = (ev.id, sid)
+            if key in seen:
+                continue
+            seen.add(key)
+            student = students_by_id[sid]
+            payload = ev.payload or {}
+            done = payload.get("done")
+            ws.append([
+                (student.payload or {}).get("admission_no") or "",
+                student.name,
+                ev.start_time.strftime("%Y-%m-%d %H:%M"),
+                payload.get("purpose") or "",
+                payload.get("summary") or ev.title or "",
+                payload.get("guardian") or "",
+                "已完成" if done else "未完成",
+            ])
+    widths = {"A": 16, "B": 12, "C": 18, "D": 14, "E": 28, "F": 12, "G": 10}
+    for col, width in widths.items():
+        ws.column_dimensions[col].width = width
+    bold = Font(bold=True)
+    ws.cell(row=1, column=1).font = bold
+    for col in range(1, len(_HOME_VISIT_HEADERS) + 1):
+        ws.cell(row=2, column=col).font = bold
+    return wb
+
+
+def _scores_workbook(
+    db: Session,
+    cls: Class,
+    students: list[Person],
+    user: Person,
+) -> Workbook:
+    wid = workspace_id(user)
+    student_ids = {s.id for s in students}
+    wb = Workbook()
+    wb.remove(wb.active)
+    used_titles: set[str] = set()
+    sheet_count = 0
+    for exam in exam_events(db, wid):
+        if not subjects_config(exam):
+            continue
+        if not exam_relevant_to_class(db, exam, student_ids, wid):
+            continue
+        ws = wb.create_sheet(unique_sheet_title(exam.title, used_titles))
+        scores_map = scores_for_students(db, exam, list(student_ids), wid)
+        append_score_sheet(ws, exam, students, scores_map)
+        sheet_count += 1
+    if sheet_count == 0:
+        raise HTTPException(status_code=400, detail="该班暂无考试成绩可导出")
+    return wb
+
+
+@router.get("/data/export/home-visits")
+def export_home_visits(
+    class_id: uuid_mod.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Export home-visit records for students currently enrolled in one class."""
+    cls = _class_for_export(db, user, class_id)
+    students = _class_roster_students(db, cls)
+    return _xlsx_response(
+        _home_visits_workbook(db, cls, students),
+        f"{cls.academic_year}级{cls.name}家访记录.xlsx",
+    )
+
+
+@router.get("/data/export/scores")
+def export_scores(
+    class_id: uuid_mod.UUID,
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """Export class scores as one workbook with one sheet per relevant exam."""
+    cls = _class_for_export(db, user, class_id)
+    students = _class_roster_students(db, cls)
+    return _xlsx_response(
+        _scores_workbook(db, cls, students, user),
+        f"{cls.academic_year}级{cls.name}成绩.xlsx",
     )
 
 

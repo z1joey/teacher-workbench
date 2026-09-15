@@ -237,6 +237,15 @@ const messages = {
   "home.calNotifyNextWeek": "下周",
 
   // --- 数据 ---
+  "data.exportTitle": "数据导出（Excel）",
+  "data.exportDesc": "按当前班级名单导出花名册、家访记录或成绩。成绩为一个工作簿，每场考试单独一个 Sheet，格式与考试详情页成绩模板一致。",
+  "data.exportClass": "班级",
+  "data.exportClassPlaceholder": "选择班级",
+  "data.exportRoster": "导出花名册",
+  "data.exportVisits": "导出家访记录",
+  "data.exportScores": "导出成绩",
+  "data.exportSelectClass": "请选择要导出的班级",
+  "data.exportFail": "导出失败",
   "data.demoTitle": "演示数据",
   "data.demoSub": "用于本地试用或发布前验收：演示内容绑定当前教师账号，仅教师可操作。",
   "data.demoBody": "包含两个班级、全年成绩曲线、座位表、家访、谈心、辅导、家长沟通、评语、学生总结、比赛活动等真实场景。加载或清空后都会保留你当前登录的教师账号，无需重新登录。",
