@@ -9,7 +9,6 @@ const messages = {
   "nav.exams": "考试",
   "nav.admin": "管理",
   "nav.profile": "个人中心",
-  "nav.help": "帮助与快捷键",
   "nav.menu": "导航菜单",
   "auth.logout": "退出登录",
 
@@ -48,6 +47,7 @@ const messages = {
   "admin.sectionSessions": "活动会话",
   "admin.sectionInspect": "数据探查",
   "admin.sectionDanger": "危险操作",
+  "admin.sectionFeedback": "用户反馈",
   "admin.dbDriver": "数据库驱动",
   "admin.dbTables": "数据表行数",
   "admin.usersTotal": "账号总数",
@@ -181,6 +181,25 @@ const messages = {
   "signup.success": "注册成功，欢迎加入",
   "signup.hasAccount": "已有账号？",
   "signup.goLogin": "去登录",
+
+  // --- 用户反馈 ---
+  "feedback.entry": "用户反馈",
+  "feedback.title": "用户反馈",
+  "feedback.feature": "反馈的功能模块",
+  "feedback.content": "具体内容",
+  "feedback.contentPlaceholder": "说说你遇到的问题或想提的建议…",
+  "feedback.required": "请填写反馈内容，或点「取消」",
+  "feedback.remaining": "还可输入 {n} 字",
+  "feedback.submit": "提交反馈",
+  "feedback.submitting": "正在提交…",
+  "feedback.sent": "反馈已提交，感谢你的意见！",
+  "feedback.featureHome": "首页",
+  "feedback.featureStudents": "学生",
+  "feedback.featureClasses": "班级",
+  "feedback.featureExams": "考试",
+  "feedback.featureVisits": "家访",
+  "feedback.featureSettings": "个人中心 / 设置",
+  "feedback.featureOther": "其他",
 
   // --- 首页 ---
   "home.greeting": "你好，{name}",

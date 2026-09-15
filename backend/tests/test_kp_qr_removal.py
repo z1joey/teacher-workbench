@@ -154,7 +154,9 @@ def test_admin_stats_excludes_legacy_tables(admin_client, db):
     r = admin_client.get("/api/admin/stats")
     assert r.status_code == 200, r.text
     tables = set(r.json()["tables"])
-    assert tables == {"person", "auth_session", "event", "tag", "class", "enrollment"}
+    assert tables == {
+        "person", "auth_session", "event", "tag", "class", "enrollment", "feedback",
+    }
     assert not tables & LEGACY_TABLES
 
 

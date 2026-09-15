@@ -9,6 +9,7 @@ import NavSearch from "./components/NavSearch.vue"
 import AppToasts from "./components/AppToasts.vue"
 import ConfirmHost from "./components/ConfirmHost.vue"
 import NamePromptModal from "./components/NamePromptModal.vue"
+import FeedbackModal from "./components/FeedbackModal.vue"
 import HelpDrawer from "./components/HelpDrawer.vue"
 import CommandPalette from "./components/CommandPalette.vue"
 import AppMeta from "./components/AppMeta.vue"
@@ -28,6 +29,7 @@ const router = useRouter()
 
 const drawerOpen = ref(false)
 const paletteOpen = ref(false)
+const feedbackOpen = ref(false)
 const searchRef = ref(null)
 const loggingOut = ref(false)
 
@@ -153,6 +155,7 @@ function onKeydown(e) {
   if (e.key === "Escape") {
     if (paletteOpen.value) return void (paletteOpen.value = false)
     if (helpOpen.value) return closeHelp()
+    if (feedbackOpen.value) return void (feedbackOpen.value = false)
     if (confirmDialog.value) return closeConfirm(false)
     if (drawerOpen.value) return void (drawerOpen.value = false)
     if (isTyping(e)) e.target.blur()
@@ -254,10 +257,9 @@ watch(paletteOpen, (v) => {
           </span>
         </router-link>
 
-        <button class="nav-item" @click="openHelp()">
-          <Icon name="help" :size="18" />
-          <span class="nav-item__text">帮助与快捷键</span>
-          <kbd class="kbd nav-item__count">?</kbd>
+        <button class="nav-item" @click="feedbackOpen = true">
+          <Icon name="flag" :size="18" />
+          <span class="nav-item__text">{{ t("feedback.entry") }}</span>
         </button>
 
         <button class="nav-item" :disabled="loggingOut" @click="onLogout">
@@ -310,6 +312,7 @@ watch(paletteOpen, (v) => {
   <AppToasts />
   <ConfirmHost />
   <NamePromptModal v-if="showNamePrompt" @close="dismissNamePrompt" />
+  <FeedbackModal v-if="feedbackOpen" @close="feedbackOpen = false" />
   <HelpDrawer v-if="helpOpen" />
   <CommandPalette
     v-if="paletteOpen"

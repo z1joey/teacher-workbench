@@ -12,6 +12,7 @@ from .routers import (
     dashboard,
     data,
     exams,
+    feedback,
     misc,
     profile,
     students,
@@ -43,6 +44,7 @@ app.include_router(exams.router, prefix="/api", dependencies=[Depends(get_curren
 app.include_router(misc.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(dashboard.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(profile.router, prefix="/api", dependencies=[Depends(get_current_user)])
+app.include_router(feedback.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(data.router, prefix="/api", dependencies=[Depends(get_current_user)])
 app.include_router(admin.router, prefix="/api")
 

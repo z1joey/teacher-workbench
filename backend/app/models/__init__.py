@@ -20,6 +20,7 @@ Design (2026-09 discussion):
 from .associations import person_events, person_tags, student_guardians
 from .class_ import Class, ClassSeating, Enrollment
 from .event import EVENT_TYPES, Event
+from .feedback import Feedback
 from .person import AuthSession, Person
 from .tag import Tag
 
@@ -29,6 +30,7 @@ __all__ = [
     "ClassSeating",
     "Enrollment",
     "Event",
+    "Feedback",
     "EVENT_TYPES",
     "Person",
     "Tag",

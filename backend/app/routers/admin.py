@@ -9,14 +9,14 @@ from sqlalchemy.orm import Session
 
 from ..database import Base, engine, get_db
 from ..deps import require_admin
-from ..models import AuthSession, Class, Enrollment, Event, Person, Tag
+from ..models import AuthSession, Class, Enrollment, Event, Feedback, Person, Tag
 from ..payloads import validate_person_payload
 from ..security import hash_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 # All models that map to real DB tables — used for table-count introspection.
-ALL_MODELS = [Person, AuthSession, Event, Tag, Class, Enrollment]
+ALL_MODELS = [Person, AuthSession, Event, Tag, Class, Enrollment, Feedback]
 
 
 @router.get("/stats")
@@ -263,3 +263,14 @@ def reset_db(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"重置失败: {e}")
     return {"ok": True, "note": "数据库已清空并重建，请通过后端 seed 脚本重新初始化演示数据。"}
+
+
+@router.get("/feedback")
+def admin_feedback(
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    """用户反馈列表（最新在前，含作者信息）。"""
+    from .feedback import list_feedback
+
+    return list_feedback(db)
