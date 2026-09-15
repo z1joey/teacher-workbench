@@ -9,7 +9,7 @@ import NavSearch from "./components/NavSearch.vue"
 import AppToasts from "./components/AppToasts.vue"
 import ConfirmHost from "./components/ConfirmHost.vue"
 import NamePromptModal from "./components/NamePromptModal.vue"
-import HelpDrawer from "./components/HelpDrawer.vue"
+import FeedbackModal from "./components/FeedbackModal.vue"
 import CommandPalette from "./components/CommandPalette.vue"
 import AppMeta from "./components/AppMeta.vue"
 import api, { getToken, setToken } from "./api"
@@ -20,7 +20,6 @@ import { ADMIN_NAV, TEACHER_NAV, isNavActive } from "./nav"
 import { t } from "./strings"
 import { pageCrumbs, pageTitle, setPageCrumbs, setPageTitle } from "./title"
 import { ask, closeConfirm, confirmDialog } from "./confirm"
-import { closeHelp, helpOpen, openHelp, toggleHelp } from "./help"
 import { clearAll } from "./feedback"
 
 const route = useRoute()
@@ -28,6 +27,7 @@ const router = useRouter()
 
 const drawerOpen = ref(false)
 const paletteOpen = ref(false)
+const feedbackOpen = ref(false)
 const searchRef = ref(null)
 const loggingOut = ref(false)
 
@@ -119,7 +119,7 @@ const paletteActions = computed(() => {
   if (isAdmin.value) {
     return [
       { id: "reload", label: "重新加载数据", icon: "refresh", run: () => window.location.reload() },
-      { id: "help", label: "帮助与快捷键", icon: "help", hint: "?", run: () => openHelp() },
+      { id: "feedback", label: "用户反馈", icon: "flag", run: () => (feedbackOpen.value = true) },
       { id: "logout", label: "退出登录", icon: "logout", run: onLogout },
     ]
   }
@@ -128,7 +128,7 @@ const paletteActions = computed(() => {
     { id: "new-exam", label: "新建考试", icon: "clipboard", hint: "新建", run: () => router.push("/exams/new") },
     { id: "new-class", label: "新建班级", icon: "building", hint: "新建", run: () => router.push("/classes?create=1") },
     { id: "profile", label: "个人中心", icon: "user", run: () => router.push("/profile") },
-    { id: "help", label: "帮助与快捷键", icon: "help", hint: "?", run: () => openHelp() },
+    { id: "feedback", label: "用户反馈", icon: "flag", run: () => (feedbackOpen.value = true) },
     { id: "logout", label: "退出登录", icon: "logout", run: onLogout },
   ]
 })
@@ -152,7 +152,7 @@ function onKeydown(e) {
   // Esc 永远先关最上层浮层
   if (e.key === "Escape") {
     if (paletteOpen.value) return void (paletteOpen.value = false)
-    if (helpOpen.value) return closeHelp()
+    if (feedbackOpen.value) return void (feedbackOpen.value = false)
     if (confirmDialog.value) return closeConfirm(false)
     if (drawerOpen.value) return void (drawerOpen.value = false)
     if (isTyping(e)) e.target.blur()
@@ -166,12 +166,6 @@ function onKeydown(e) {
   }
 
   if (isAuthPage.value || e.metaKey || e.ctrlKey || e.altKey) return
-
-  if (e.key === "?") {
-    e.preventDefault()
-    toggleHelp()
-    return
-  }
 
   if (isTyping(e)) return
 
@@ -200,10 +194,6 @@ function onKeydown(e) {
 
 onMounted(() => window.addEventListener("keydown", onKeydown))
 onBeforeUnmount(() => window.removeEventListener("keydown", onKeydown))
-
-watch(paletteOpen, (v) => {
-  if (v) helpOpen.value = false
-})
 </script>
 
 <template>
@@ -254,10 +244,9 @@ watch(paletteOpen, (v) => {
           </span>
         </router-link>
 
-        <button class="nav-item" @click="openHelp()">
-          <Icon name="help" :size="18" />
-          <span class="nav-item__text">帮助与快捷键</span>
-          <kbd class="kbd nav-item__count">?</kbd>
+        <button class="nav-item" @click="feedbackOpen = true">
+          <Icon name="flag" :size="18" />
+          <span class="nav-item__text">{{ t("feedback.entry") }}</span>
         </button>
 
         <button class="nav-item" :disabled="loggingOut" @click="onLogout">
@@ -294,8 +283,8 @@ watch(paletteOpen, (v) => {
           <button class="icon-btn" aria-label="打开命令面板" :title="'命令面板 ⌘K'" @click="paletteOpen = true">
             <Icon name="search" :size="17" />
           </button>
-          <button class="icon-btn" aria-label="帮助与快捷键" @click="openHelp()">
-            <Icon name="help" :size="17" />
+          <button class="icon-btn" aria-label="用户反馈" :title="t('feedback.entry')" @click="feedbackOpen = true">
+            <Icon name="flag" :size="17" />
           </button>
         </div>
       </header>
@@ -310,7 +299,7 @@ watch(paletteOpen, (v) => {
   <AppToasts />
   <ConfirmHost />
   <NamePromptModal v-if="showNamePrompt" @close="dismissNamePrompt" />
-  <HelpDrawer v-if="helpOpen" />
+  <FeedbackModal v-if="feedbackOpen" @close="feedbackOpen = false" />
   <CommandPalette
     v-if="paletteOpen"
     :pages="navItems"

@@ -108,6 +108,28 @@ async function loadSessions() {
   loadingSessions.value = false
 }
 
+// --- 用户反馈 ---
+const feedback = ref([])
+const loadingFeedback = ref(true)
+
+const FEATURE_LABELS = {
+  home: "首页", students: "学生", classes: "班级", exams: "考试",
+  visits: "家访", settings: "个人中心 / 设置", other: "其他",
+}
+function featureLabel(k) {
+  return FEATURE_LABELS[k] || k
+}
+
+async function loadFeedback() {
+  loadingFeedback.value = true
+  try {
+    feedback.value = await api.get("/admin/feedback")
+  } catch {
+    feedback.value = []
+  }
+  loadingFeedback.value = false
+}
+
 async function killSession(s) {
   const ok = await ask({
     title: "终止这个会话？",
@@ -197,7 +219,7 @@ async function resetDb() {
   }
 }
 
-onMounted(() => Promise.all([loadStats(), loadUsers(), loadSessions()]))
+onMounted(() => Promise.all([loadStats(), loadUsers(), loadSessions(), loadFeedback()]))
 
 const tableRows = computed(() => {
   if (!stats.value?.tables) return []
@@ -452,6 +474,40 @@ function fmtTime(v) {
           </tbody>
         </table>
       </div>
+    </div>
+  </div>
+
+  <!-- 用户反馈 -->
+  <div class="card">
+    <div class="card__head">
+      <h2 class="card__title"><Icon name="flag" :size="16" /> {{ t("admin.sectionFeedback") }}</h2>
+      <button class="btn btn--sm" @click="loadFeedback">{{ t("admin.refresh") }}</button>
+    </div>
+    <div v-if="loadingFeedback" class="card__body"><div class="skeleton skeleton--row" /></div>
+    <p v-else-if="!feedback.length" class="card__body" style="color: var(--muted)">
+      还没有收到反馈
+    </p>
+    <div v-else class="table-wrap">
+      <table class="table table--stack">
+        <thead>
+          <tr>
+            <th>功能模块</th>
+            <th>内容</th>
+            <th>提交人</th>
+            <th>时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="f in feedback" :key="f.id">
+            <td data-label="功能模块"><span class="pill pill--outline">{{ featureLabel(f.feature) }}</span></td>
+            <td data-label="内容">{{ f.content }}</td>
+            <td data-label="提交人">
+              {{ f.author_name }}<template v-if="f.author_email"> · {{ f.author_email }}</template>
+            </td>
+            <td data-label="时间">{{ fmtTime(f.created_at) }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
