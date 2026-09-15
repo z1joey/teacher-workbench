@@ -241,8 +241,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     # 王浩 (祖母) and 邓晓彤 (外祖母) — same name/phone merges into one Person
     by_name = {s.name: s for s in students}
     wang, deng = by_name["王浩"], by_name["邓晓彤"]
-    grandmah = _find_or_create_guardian(db, "王秀英", "13900000000",
-                                        address="解放路108号")
+    grandmah = _find_or_create_guardian(db, "王秀英", "13900000000")
     db.execute(student_guardians.insert().values(
         student_id=wang.id, guardian_id=grandmah.id, relationship="祖母"))
     db.execute(student_guardians.insert().values(

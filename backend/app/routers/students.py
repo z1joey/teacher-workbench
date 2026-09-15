@@ -268,14 +268,12 @@ def _guardians_of(db: Session, student_id: uuid.UUID):
     )
 
 
-def _find_or_create_guardian(db: Session, name: str, phone: str | None,
-                             address: str | None = None) -> Person:
+def _find_or_create_guardian(db: Session, name: str, phone: str | None) -> Person:
     """Locate an existing guardian by phone (or name), else mint a new Person
     of role "guardian". Guardians are independent of the student's lifecycle,
     so two students sharing a phone share one guardian row."""
     name = name.strip()
     phone = (phone or "").strip() or None
-    address = (address or "").strip() or None
     guardian = (
         db.query(Person)
         .filter(Person.payload["role"].as_string() == "guardian", Person.phone == phone)
@@ -297,15 +295,13 @@ def _find_or_create_guardian(db: Session, name: str, phone: str | None,
         payload = dict(guardian.payload or {})
         if phone:
             payload["phone"] = phone
-        if address:
-            payload["address"] = address
         guardian.payload = validate_person_payload("guardian", payload)
         return guardian
     guardian = Person(
         name=name,
         phone=phone,
         password_hash=hash_password(uuid.uuid4().hex),
-        payload=validate_person_payload("guardian", {"phone": phone, "address": address}),
+        payload=validate_person_payload("guardian", {"phone": phone}),
     )
     db.add(guardian)
     db.flush()
@@ -336,7 +332,6 @@ class GuardianLinkIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     phone: str | None = Field(default=None, max_length=40)
     relationship: str | None = Field(default=None, max_length=50)
-    address: str | None = Field(default=None, max_length=200)
 
 
 def _guardian_link(db: Session, student_id: uuid.UUID, guardian: Person,
@@ -371,7 +366,7 @@ def add_student_guardian(
     person = db.get(Person, student_id)
     if person is None or person.role != "student":
         raise HTTPException(status_code=404, detail="student not found")
-    guardian = _find_or_create_guardian(db, body.name, body.phone, body.address)
+    guardian = _find_or_create_guardian(db, body.name, body.phone)
     _guardian_link(db, student_id, guardian, body.relationship)
     db.commit()
     return {"id": str(guardian.id), "name": guardian.name,
@@ -431,7 +426,6 @@ def get_guardian(
         "id": str(g.id),
         "name": g.name,
         "phone": (g.payload or {}).get("phone"),
-        "address": (g.payload or {}).get("address"),
         "wards": wards,
     }
 

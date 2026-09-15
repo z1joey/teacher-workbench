@@ -404,13 +404,13 @@ async function removeTag(tag) {
 
 // 监护人管理：添加（同手机号自动合并为同一人）与解除链接；名字点击进监护人详情
 const guardianFormOpen = ref(false)
-const guardianForm = ref({ name: "", phone: "", relationship: "", address: "" })
+const guardianForm = ref({ name: "", phone: "", relationship: "" })
 const guardianSaving = ref(false)
 const guardianError = ref("")
 
 function openGuardianForm() {
   guardianFormOpen.value = true
-  guardianForm.value = { name: "", phone: "", relationship: "", address: "" }
+  guardianForm.value = { name: "", phone: "", relationship: "" }
   guardianError.value = ""
 }
 
@@ -426,7 +426,6 @@ async function addGuardian() {
       name: guardianForm.value.name.trim(),
       phone: guardianForm.value.phone.trim() || null,
       relationship: guardianForm.value.relationship.trim() || null,
-      address: guardianForm.value.address.trim() || null,
     })
     guardianFormOpen.value = false
     await load()
@@ -882,9 +881,6 @@ const headerMeta = computed(() => {
                   <div class="form-grid">
                     <FormField label="关系" optional>
                       <input v-model="guardianForm.relationship" class="input input--sm" type="text" maxlength="50" placeholder="如：母亲 / 祖父" />
-                    </FormField>
-                    <FormField label="地址" optional>
-                      <input v-model="guardianForm.address" class="input input--sm" type="text" maxlength="200" />
                     </FormField>
                   </div>
                   <p v-if="guardianError" class="field__error" style="margin: 8px 0">

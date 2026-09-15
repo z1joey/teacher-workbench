@@ -274,7 +274,6 @@ const messages = {
   // --- 监护人 ---
   "guardian.subtitle": "联系方式与名下的被监护人",
   "guardian.phone": "电话",
-  "guardian.address": "地址",
   "guardian.wardCount": "被监护学生",
   "guardian.wards": "被监护学生",
   "guardian.wardsSub": "同一监护人可能关联多名学生，点击姓名查看学生档案。",

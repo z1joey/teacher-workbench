@@ -78,11 +78,9 @@ def test_admin_payload_strips_legacy_name():
 
 
 def test_guardian_payload_recognized():
-    out = validate_person_payload("guardian", {"phone": "13900000001",
-                                               "address": "解放路100号"})
+    out = validate_person_payload("guardian", {"phone": "13900000001"})
     assert out["role"] == "guardian"
     assert out["phone"] == "13900000001"
-    assert out["address"] == "解放路100号"
     assert out["is_active"] is True
 
 

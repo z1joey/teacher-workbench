@@ -105,6 +105,10 @@ async function submit() {
           </FormField>
         </div>
 
+        <FormField :label="t('new.address')" optional hint="学生本人的家庭住址">
+          <input v-model="form.address" class="input" type="text" />
+        </FormField>
+
         <!-- 监护人信息默认收起：不是每个学生入学时都能拿到 -->
         <div class="disclosure" :class="{ open: guardianOpen }">
           <button
@@ -133,9 +137,6 @@ async function submit() {
                 <input v-model="form.guardian_phone" class="input" type="tel" maxlength="40" />
               </FormField>
             </div>
-            <FormField :label="t('new.address')" optional>
-              <input v-model="form.address" class="input" type="text" />
-            </FormField>
           </div>
         </div>
 

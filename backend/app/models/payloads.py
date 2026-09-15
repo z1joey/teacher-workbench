@@ -56,9 +56,8 @@ class GuardianPayload(_Strict):
     role: str = "guardian"
     # a guardian is a Person too: `name` lives on person.name, the student↔
     # guardian link is student_guardians (which carries the relationship),
-    # contact details ride here
+    # contact details ride here. 住址不存监护人上——学生档案已有家庭住址。
     phone: str | None = None
-    address: str | None = None
     is_active: bool = True
 
 

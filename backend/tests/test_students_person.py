@@ -878,8 +878,7 @@ def test_guardian_linking_and_detail(make_client, db, headers):
                     headers=headers)
     assert r.status_code == 201, r.text
     r = client.post(f"/api/students/{s1.id}/guardians",
-                    json={"name": "王秀英", "phone": "13900000000", "relationship": "祖母",
-                          "address": "解放路108号"},
+                    json={"name": "王秀英", "phone": "13900000000", "relationship": "祖母"},
                     headers=headers)
     assert r.status_code == 201, r.text
     grandmah = r.json()
@@ -897,7 +896,6 @@ def test_guardian_linking_and_detail(make_client, db, headers):
     data = r.json()
     assert data["name"] == "王秀英"
     assert data["phone"] == "13900000000"
-    assert data["address"] == "解放路108号"
     rels = {w["name"]: w["relationship"] for w in data["wards"]}
     assert rels == {"王浩": "祖母", "邓晓彤": "外祖母"}
 
