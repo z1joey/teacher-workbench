@@ -1,7 +1,7 @@
 <script setup>
 // 登录：错误就地说明怎么改，而不是弹出一个看不懂的提示。
 // 新用户请前往注册页。
-import { ref } from "vue"
+import { onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import AppMeta from "../components/AppMeta.vue"
 import Icon from "../components/Icon.vue"
@@ -15,6 +15,16 @@ const router = useRouter()
 const form = ref({ email: "", password: "" })
 const error = ref("")
 const busy = ref(false)
+const registrationOpen = ref(true)
+
+onMounted(async () => {
+  try {
+    const res = await api.get("/auth/registration-status")
+    registrationOpen.value = res.enabled !== false
+  } catch {
+    registrationOpen.value = true
+  }
+})
 
 async function submit() {
   error.value = ""
@@ -79,7 +89,7 @@ async function submit() {
         </p>
       </form>
 
-      <div class="auth-note">
+      <div v-if="registrationOpen" class="auth-note">
         <p class="muted" style="margin: 0">
           {{ t("login.noAccount") }}
           <router-link to="/signup">{{ t("login.goSignup") }}</router-link>

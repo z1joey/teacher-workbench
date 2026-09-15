@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import uuid
 
+from app.app_settings import set_registration_enabled
 from app.models import AuthSession, Person
 from app.routers import auth, misc, profile
 from tests.conftest import seed_person, seed_token
@@ -66,6 +67,21 @@ def test_register_duplicate_email_409(make_client):
     assert _register(client, "dup@test.example", password="123456").status_code == 201
     r = _register(client, "dup@test.example", password="123456", name="别人")
     assert r.status_code == 409
+
+
+def test_registration_status_defaults_open(make_client, db):
+    client = _auth_client(make_client)
+    assert client.get("/api/auth/registration-status").json() == {"enabled": True}
+
+
+def test_register_blocked_when_disabled(make_client, db):
+    client = _auth_client(make_client)
+    set_registration_enabled(db, False)
+    db.commit()
+    assert client.get("/api/auth/registration-status").json() == {"enabled": False}
+    r = _register(client, "closed@test.example", password="123456")
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "当前已关闭注册"
 
 
 def test_register_without_phone_succeeds(make_client):

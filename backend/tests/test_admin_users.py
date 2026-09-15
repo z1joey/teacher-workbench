@@ -11,6 +11,7 @@ from datetime import date, datetime
 
 import pytest
 
+from app.app_settings import set_registration_enabled
 from app.eventing import create_event
 from app.models import AuthSession, Class, Enrollment, Event, Person
 from app.payloads import validate_person_payload
@@ -209,3 +210,25 @@ def test_stats_keys(client, db):
     assert stats["tables"]["person"] == 5
     assert "user" not in stats["tables"]
     assert "teacher_profile" not in stats["tables"]
+
+
+def test_admin_site_settings_registration_toggle(client, db):
+    tc, _ = client
+    assert tc.get("/api/admin/settings").json() == {"registration_enabled": True}
+
+    r = tc.patch("/api/admin/settings", json={"registration_enabled": False})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"registration_enabled": False}
+    assert tc.get("/api/admin/settings").json() == {"registration_enabled": False}
+
+    _as(tc, TEACHER_TOKEN)
+    assert tc.patch("/api/admin/settings", json={"registration_enabled": True}).status_code == 403
+
+    _as(tc, ADMIN_TOKEN)
+    r = tc.patch("/api/admin/settings", json={"registration_enabled": True})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"registration_enabled": True}
+
+    set_registration_enabled(db, False)
+    db.commit()
+    assert tc.get("/api/auth/registration-status").json() == {"enabled": False}

@@ -9,14 +9,19 @@ const props = defineProps({
   rowLabel: { type: String, default: "" },
   monospace: { type: Boolean, default: false },
   showNull: { type: Boolean, default: true },
+  alwaysExpand: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(["expand"])
 
 const item = computed(() => cellPreview(props.value))
+const canExpand = computed(() => {
+  if (item.value.preview === null) return false
+  return props.alwaysExpand || item.value.expandable
+})
 
 function onExpand() {
-  if (!item.value.expandable) return
+  if (!canExpand.value) return
   emit("expand", {
     column: props.column,
     rowLabel: props.rowLabel,
@@ -28,7 +33,7 @@ function onExpand() {
 <template>
   <span v-if="item.preview === null && showNull" class="pill pill--muted">null</span>
   <button
-    v-else-if="item.expandable"
+    v-else-if="canExpand"
     type="button"
     class="admin-cell admin-cell--btn"
     :title="t('admin.inspectViewFull')"

@@ -25,7 +25,7 @@ import AdminAccountsView from "./views/admin/AdminAccountsView.vue"
 import AdminFeedbackView from "./views/admin/AdminFeedbackView.vue"
 import AdminSessionsView from "./views/admin/AdminSessionsView.vue"
 import AdminInspectView from "./views/admin/AdminInspectView.vue"
-import AdminDangerView from "./views/admin/AdminDangerView.vue"
+import AdminSettingsView from "./views/admin/AdminSettingsView.vue"
 import NotFoundView from "./views/NotFoundView.vue"
 
 // Routes that only teachers (non-admin) may enter. Admin accounts get
@@ -170,11 +170,12 @@ export const router = createRouter({
       meta: { title: "数据探查", parent: { label: "开发者后台", to: "/admin" } },
     },
     {
-      path: "/admin/danger",
-      name: "adminDanger",
-      component: AdminDangerView,
-      meta: { title: "危险操作", parent: { label: "开发者后台", to: "/admin" } },
+      path: "/admin/settings",
+      name: "adminSettings",
+      component: AdminSettingsView,
+      meta: { title: "站点设置", parent: { label: "开发者后台", to: "/admin" } },
     },
+    { path: "/admin/danger", redirect: { name: "adminSettings" } },
     {
       path: "/forgot-password",
       name: "forgotPassword",

@@ -10,10 +10,10 @@ export const TEACHER_NAV = [
 export const ADMIN_NAV = [
   { key: "admin", label: "概览", to: "/admin", icon: "chart", hint: "统计 · 数据表" },
   { key: "adminAccounts", label: "账号管理", to: "/admin/accounts", icon: "users", hint: "教师 · 管理员" },
-  { key: "adminFeedback", label: "用户反馈", to: "/admin/feedback", icon: "flag", hint: "意见 · 建议" },
+  { key: "adminFeedback", label: "用户反馈", to: "/admin/feedback", icon: "flag", hint: "待处理 · 意见" },
   { key: "adminSessions", label: "活动会话", to: "/admin/sessions", icon: "clock", hint: "登录 · 终止" },
   { key: "adminInspect", label: "数据探查", to: "/admin/inspect", icon: "search", hint: "原始表预览" },
-  { key: "adminDanger", label: "危险操作", to: "/admin/danger", icon: "alert", hint: "重置数据库" },
+  { key: "adminSettings", label: "站点设置", to: "/admin/settings", icon: "sliders", hint: "注册 · 维护" },
 ]
 
 export function isNavActive(item, path) {

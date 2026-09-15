@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..app_settings import is_registration_enabled, set_registration_enabled
 from ..database import Base, engine, get_db
 from ..deps import require_admin
 from ..models import AuthSession, Class, Enrollment, Event, Feedback, Person, Tag
@@ -92,6 +93,33 @@ class UserUpdate(BaseModel):
     role: str | None = None
     is_active: bool | None = None
     password: str | None = None
+
+
+class SiteSettingsOut(BaseModel):
+    registration_enabled: bool
+
+
+class SiteSettingsUpdate(BaseModel):
+    registration_enabled: bool
+
+
+@router.get("/settings")
+def get_site_settings(
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    return SiteSettingsOut(registration_enabled=is_registration_enabled(db))
+
+
+@router.patch("/settings")
+def update_site_settings(
+    body: SiteSettingsUpdate,
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    set_registration_enabled(db, body.registration_enabled)
+    db.commit()
+    return SiteSettingsOut(registration_enabled=body.registration_enabled)
 
 
 @router.patch("/users/{user_id}")
@@ -212,9 +240,12 @@ def kill_all_sessions(
     return {"ok": True}
 
 
+INSPECT_PAGE_SIZE = 20
+
+
 class InspectIn(BaseModel):
     table: str
-    limit: int = 20
+    page: int = 1
 
 
 TABLE_ALLOWLIST = {m.__tablename__ for m in ALL_MODELS}
@@ -235,8 +266,8 @@ def inspect_table(
     """Preview rows from any known table — read-only."""
     if body.table not in TABLE_ALLOWLIST:
         raise HTTPException(status_code=400, detail="未知数据表")
-    if body.limit < 1 or body.limit > 100:
-        raise HTTPException(status_code=400, detail="limit 需在 1–100 之间")
+    if body.page < 1:
+        raise HTTPException(status_code=400, detail="page 需 >= 1")
 
     # Safer: resolve model from table name and query via ORM.
     model = next(m for m in ALL_MODELS if m.__tablename__ == body.table)
@@ -245,10 +276,17 @@ def inspect_table(
         if col.primary_key:
             pk_col = col
             break
-    query = db.query(model)
+    base_query = db.query(model)
+    total = base_query.count()
+    query = base_query
     if pk_col is not None:
         query = query.order_by(pk_col.desc())
-    rows = query.limit(body.limit).all()
+    rows = (
+        query.offset((body.page - 1) * INSPECT_PAGE_SIZE)
+        .limit(INSPECT_PAGE_SIZE)
+        .all()
+    )
+    total_pages = (total + INSPECT_PAGE_SIZE - 1) // INSPECT_PAGE_SIZE if total else 0
 
     # Use model's column attrs so we don't hit lazy-loaded relationships.
     columns = [c.key for c in model.__table__.columns]
@@ -271,6 +309,10 @@ def inspect_table(
         "table": body.table,
         "columns": columns,
         "rows": row_dicts,
+        "page": body.page,
+        "page_size": INSPECT_PAGE_SIZE,
+        "total": total,
+        "total_pages": total_pages,
     }
 
 
@@ -298,3 +340,45 @@ def admin_feedback(
     from .feedback import list_feedback
 
     return list_feedback(db)
+
+
+@router.get("/feedback/unresolved-count")
+def admin_feedback_unresolved_count(
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    from .feedback import unresolved_feedback_count
+
+    return {"count": unresolved_feedback_count(db)}
+
+
+class FeedbackResolveIn(BaseModel):
+    resolved: bool
+
+
+@router.patch("/feedback/{feedback_id}")
+def admin_feedback_resolve(
+    feedback_id: uuid.UUID,
+    body: FeedbackResolveIn,
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    from .feedback import feedback_out, set_feedback_resolved
+
+    fb = set_feedback_resolved(db, feedback_id, body.resolved)
+    author = db.get(Person, fb.person_id)
+    db.commit()
+    return feedback_out(fb, author=author)
+
+
+@router.delete("/feedback/{feedback_id}")
+def admin_feedback_delete(
+    feedback_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    from .feedback import delete_feedback
+
+    delete_feedback(db, feedback_id)
+    db.commit()
+    return {"ok": True}

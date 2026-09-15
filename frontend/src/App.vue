@@ -17,6 +17,7 @@ import api, { getToken, setToken } from "./api"
 import { AUTH_PATHS } from "./router"
 import { clearMe, loadMe, me } from "./auth"
 import { clearSearch } from "./search"
+import { refreshUnresolvedFeedbackCount, unresolvedFeedbackCount } from "./adminFeedback"
 import { ADMIN_NAV, TEACHER_NAV, isNavActive } from "./nav"
 import { t } from "./strings"
 import { pageCrumbs, pageTitle, setPageCrumbs, setPageTitle } from "./title"
@@ -56,7 +57,10 @@ const crumbs = computed(() => {
   return out
 })
 
-onMounted(loadMe)
+onMounted(() => {
+  loadMe()
+  if (me.value?.role === "admin") refreshUnresolvedFeedbackCount()
+})
 watch(
   () => route.path,
   (path) => {
@@ -64,7 +68,16 @@ watch(
     setPageTitle("") // 切换页面先清掉上一个详情页留下的名字
     setPageCrumbs([])
     if (path !== "/login" && getToken() && !me.value) loadMe()
+    if (me.value?.role === "admin") refreshUnresolvedFeedbackCount()
   }
+)
+watch(
+  () => me.value?.role,
+  (role) => {
+    if (role === "admin") refreshUnresolvedFeedbackCount()
+    else unresolvedFeedbackCount.value = 0
+  },
+  { immediate: true }
 )
 
 // ------------------------------------------------------------------ 首登称呼弹窗
@@ -248,6 +261,13 @@ watch(paletteOpen, (v) => {
         >
           <Icon :name="item.icon" :size="18" />
           <span class="nav-item__text">{{ item.label }}</span>
+          <span
+            v-if="item.key === 'adminFeedback' && unresolvedFeedbackCount > 0"
+            class="nav-item__badge tnum"
+            :title="`${unresolvedFeedbackCount} 条待处理反馈`"
+          >
+            {{ unresolvedFeedbackCount > 99 ? "99+" : unresolvedFeedbackCount }}
+          </span>
           <kbd v-if="item.g" class="kbd nav-item__count">{{ item.g }}</kbd>
         </router-link>
       </nav>

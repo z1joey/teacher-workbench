@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from ..directmail import MailError, send_html_mail
 from ..display_name import teacher_display_name
+from ..app_settings import is_registration_enabled
 from ..database import get_db
 from ..deps import bearer_scheme, get_current_person
 from ..models import AuthSession, Person
@@ -86,8 +87,15 @@ def create_session(db: Session, person_id) -> str:
     return token
 
 
+@router.get("/registration-status")
+def registration_status(db: Session = Depends(get_db)):
+    return {"enabled": is_registration_enabled(db)}
+
+
 @router.post("/register", status_code=201)
 def register(body: RegisterIn, db: Session = Depends(get_db)):
+    if not is_registration_enabled(db):
+        raise HTTPException(status_code=403, detail="当前已关闭注册")
     email = normalize_email(body.email)
     validate_email_format(email)
     if db.query(Person).filter(Person.email == email).first() is not None:
