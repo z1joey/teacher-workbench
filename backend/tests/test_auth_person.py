@@ -126,14 +126,6 @@ def test_me_without_token_401(make_client):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_disabled_person_gets_403_on_me(make_client, db):
-    client = _auth_client(make_client)
-    person = seed_person(db, "disabled@test.example", active=False)
-    token = seed_token(db, person, "a" * 64)
-    r = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert r.status_code == 403
-
-
 def test_profile_patch_get_round_trips_name(make_client, db):
     client = make_client(profile.router)
     person = seed_person(db, "profile@test.example", name="陈老师")

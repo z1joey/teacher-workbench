@@ -17,7 +17,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import or_
+from sqlalchemy import delete, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -581,8 +581,8 @@ def delete_class(
     c = require_class_in_workspace(db, current, class_id)
     if is_unassigned_class(c):
         raise HTTPException(status_code=404, detail="class not found")
-    if db.query(Enrollment).filter(Enrollment.class_id == class_id).first() is not None:
-        raise HTTPException(status_code=409, detail="班级内仍有学生或历史记录，无法删除")
+    db.execute(delete(ClassSeating).where(ClassSeating.class_id == class_id))
+    db.execute(delete(Enrollment).where(Enrollment.class_id == class_id))
     db.delete(c)
     db.commit()
     return {"ok": True}

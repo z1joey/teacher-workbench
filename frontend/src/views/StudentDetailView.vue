@@ -60,7 +60,6 @@ const profileForm = ref({})
 
 const STATUS_OPTIONS = [
   { value: "active", label: t("status.active") },
-  { value: "inactive", label: t("status.inactive") },
   { value: "graduated", label: t("status.graduated") },
 ]
 
@@ -404,13 +403,13 @@ async function removeTag(tag) {
 
 // 监护人管理：添加（同手机号自动合并为同一人）与解除链接；名字点击进监护人详情
 const guardianFormOpen = ref(false)
-const guardianForm = ref({ name: "", phone: "", relationship: "", address: "" })
+const guardianForm = ref({ name: "", phone: "", relationship: "" })
 const guardianSaving = ref(false)
 const guardianError = ref("")
 
 function openGuardianForm() {
   guardianFormOpen.value = true
-  guardianForm.value = { name: "", phone: "", relationship: "", address: "" }
+  guardianForm.value = { name: "", phone: "", relationship: "" }
   guardianError.value = ""
 }
 
@@ -426,7 +425,6 @@ async function addGuardian() {
       name: guardianForm.value.name.trim(),
       phone: guardianForm.value.phone.trim() || null,
       relationship: guardianForm.value.relationship.trim() || null,
-      address: guardianForm.value.address.trim() || null,
     })
     guardianFormOpen.value = false
     await load()
@@ -800,11 +798,8 @@ const headerMeta = computed(() => {
           </div>
 
           <!-- 就地编辑资料 -->
-          <form v-else class="card__body" @submit.prevent="saveProfileEdit">
-            <p class="section-title" style="margin-bottom: 14px">
-              {{ t("detail.profileEditTitle") }} · {{ student.name }}
-            </p>
-            <div class="form-grid">
+          <form v-else class="card__body profile-edit-form" @submit.prevent="saveProfileEdit">
+            <div class="profile-edit-form__grid">
               <FormField :label="t('new.name')" required>
                 <input v-model="profileForm.name" class="input" type="text" maxlength="100" />
               </FormField>
@@ -821,21 +816,19 @@ const headerMeta = computed(() => {
                   <option v-for="g in GENDER_OPTIONS" :key="g.value" :value="g.value">{{ g.label }}</option>
                 </select>
               </FormField>
+              <FormField :label="t('new.birthDate')" optional>
+                <input v-model="profileForm.birth_date" class="input" type="date" />
+              </FormField>
               <FormField :label="t('detail.status')">
                 <select v-model="profileForm.status" class="select">
                   <option v-for="s in STATUS_OPTIONS" :key="s.value" :value="s.value">{{ s.label }}</option>
                 </select>
               </FormField>
-              <FormField :label="t('new.class')" hint="分班时会自动记录加入班级或转班">
+              <FormField :label="t('new.class')">
                 <select v-model="profileForm.class_id" class="select">
                   <option :value="null">{{ t("students.ungrouped") }}</option>
                   <option v-for="c in classes" :key="c.id" :value="c.id">{{ c.name }}</option>
                 </select>
-              </FormField>
-            </div>
-            <div class="form-grid">
-              <FormField :label="t('new.birthDate')" optional>
-                <input v-model="profileForm.birth_date" class="input" type="date" />
               </FormField>
               <FormField :label="t('new.address')" optional>
                 <input v-model="profileForm.address" class="input" type="text" />
@@ -871,20 +864,21 @@ const headerMeta = computed(() => {
 
               <div v-if="guardianFormOpen" class="card card--nested" style="margin-top: var(--sp-3)">
                 <div class="card__body card__body--tight">
-                  <div class="form-grid">
+                  <div class="profile-edit-form__grid">
                     <FormField :label="t('new.guardianName')" required>
-                      <input v-model="guardianForm.name" class="input input--sm" type="text" maxlength="100" />
+                      <input v-model="guardianForm.name" class="input" type="text" maxlength="100" />
                     </FormField>
-                    <FormField :label="t('new.guardianPhone')" optional hint="相同手机号视为同一监护人">
-                      <input v-model="guardianForm.phone" class="input input--sm" type="tel" maxlength="40" />
+                    <FormField :label="t('new.guardianPhone')" optional>
+                      <input v-model="guardianForm.phone" class="input" type="tel" maxlength="40" />
                     </FormField>
-                  </div>
-                  <div class="form-grid">
                     <FormField label="关系" optional>
-                      <input v-model="guardianForm.relationship" class="input input--sm" type="text" maxlength="50" placeholder="如：母亲 / 祖父" />
-                    </FormField>
-                    <FormField label="地址" optional>
-                      <input v-model="guardianForm.address" class="input input--sm" type="text" maxlength="200" />
+                      <input
+                        v-model="guardianForm.relationship"
+                        class="input"
+                        type="text"
+                        maxlength="50"
+                        placeholder="如：母亲 / 祖父"
+                      />
                     </FormField>
                   </div>
                   <p v-if="guardianError" class="field__error" style="margin: 8px 0">

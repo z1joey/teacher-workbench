@@ -37,7 +37,11 @@ def ctx(make_client, db):
     cls = _seed_class(db)
     lin = _seed_person(db, "林晓雨", "S001")
     hao = _seed_person(db, "王浩", "S002")
-    gone = _seed_person(db, "张离校", "S003", active=False)
+    gone = _seed_person(db, "张离校", "S003")
+    gone.payload = validate_person_payload("student", {
+        **gone.payload,
+        "graduated_at": "2026-01-01",
+    })
     for s in (lin, hao):
         _enroll(db, s, cls)
     db.commit()

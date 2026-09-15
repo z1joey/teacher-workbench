@@ -44,7 +44,7 @@ const messages = {
   "admin.title": "开发者后台",
   "admin.navOverview": "概览",
   "admin.subtitleOverview": "数据库统计与各表行数",
-  "admin.subtitleAccounts": "启停用账号、调整角色与重置密码",
+  "admin.subtitleAccounts": "管理账号、调整角色与重置密码",
   "admin.subtitleFeedback": "查看教师提交的意见与建议",
   "admin.subtitleSessions": "查看并终止活动登录会话",
   "admin.subtitleInspect": "按表预览原始数据，用于排查问题",
@@ -343,7 +343,6 @@ const messages = {
   // --- 监护人 ---
   "guardian.subtitle": "联系方式与名下的被监护人",
   "guardian.phone": "电话",
-  "guardian.address": "地址",
   "guardian.wardCount": "被监护学生",
   "guardian.wards": "被监护学生",
   "guardian.wardsSub": "同一监护人可能关联多名学生，点击姓名查看学生档案。",
@@ -596,7 +595,7 @@ const messages = {
   "detail.recordEvent": "家访",
   "detail.nameRequired": "请填写学生姓名",
   "detail.admissionNoRequired": "请填写学号",
-  "detail.deleteConfirm": "如果他已有成绩或跟进记录，只会停用账号并保留数据；没有记录才会彻底删除。",
+  "detail.deleteConfirm": "删除后，这名学生及其成绩、跟进记录都会从系统中移除，且无法恢复。",
   "detail.profileEditTitle": "编辑资料",
   "detail.status": "状态",
   "detail.noScores": "还没有成绩",
@@ -628,7 +627,6 @@ const messages = {
 
   // --- 状态枚举 ---
   "status.active": "在读",
-  "status.inactive": "已停用",
   "status.graduated": "已毕业",
   "status.entered": "已录入",
   "status.absent": "缺考",
@@ -807,7 +805,7 @@ export function classBreadcrumbLabel(name, academicYear) {
 
 // ------------------------------------------------------------------ 状态
 
-const STUDENT_STATUS = { active: "在读", inactive: "已停用", graduated: "已毕业" }
+const STUDENT_STATUS = { active: "在读", graduated: "已毕业" }
 export function studentStatusLabel(s) {
   return (s && STUDENT_STATUS[s]) || s || "—"
 }
@@ -876,13 +874,27 @@ export function eventDisplayName(event) {
 
 /** Feed / timeline subtitle — drop text already shown in the title row. */
 export function feedEventDesc(event) {
-  const desc = describeEvent(event.event_type, event.payload || {})
-  if (!desc) return ""
+  const type = event.event_type
+  const p = event.payload || {}
   const title = eventDisplayName(event)
+
+  // 家访：标题已是 summary（或 purpose），副标题只保留监护人、事由等元信息
+  if (type === "home_visited") {
+    const parts = []
+    if (p.guardian) parts.push(`与${p.guardian}`)
+    if (p.purpose && p.purpose !== title) parts.push(p.purpose)
+    return parts.join(" · ")
+  }
+
+  const desc = describeEvent(type, p)
+  if (!desc) return ""
   if (desc === title) return ""
   if (title && desc.startsWith(title)) {
     const rest = desc.slice(title.length).replace(/^\s*·\s*/, "").trim()
     return rest
+  }
+  if (title && desc.includes(` — ${title}`)) {
+    return desc.replace(` — ${title}`, "").trim()
   }
   return desc
 }
@@ -916,9 +928,11 @@ export function describeEvent(type, p = {}) {
       // 全局约定：生日只显示标题（见 eventTitle），不渲染描述
       return ""
     case "home_visited": {
-      const head = [p.guardian ? `与${p.guardian}` : "", p.purpose || ""].filter(Boolean).join(" · ")
-      if (p.summary) return head ? `${head} — ${p.summary}` : p.summary
-      return head
+      const parts = []
+      if (p.guardian) parts.push(`与${p.guardian}`)
+      if (p.purpose) parts.push(p.purpose)
+      if (p.summary) parts.push(p.summary)
+      return parts.join(" · ")
     }
     case "comment": {
       const base = p.notes ?? p.summary ?? p.note ?? ""

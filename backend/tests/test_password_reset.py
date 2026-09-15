@@ -54,10 +54,8 @@ class FakeStore:
         self.tries.pop(email, None)
 
 
-def _seed_teacher(db, email: str, *, active: bool = True) -> Person:
+def _seed_teacher(db, email: str) -> Person:
     payload = validate_person_payload("teacher", {})
-    if not active:
-        payload["is_active"] = False
     p = Person(name="陈老师", email=email, password_hash=hash_password("123456"),
                payload=payload)
     db.add(p)
@@ -92,19 +90,15 @@ def test_forgot_sends_code_for_known_account(db, make_client):
     assert list(store.codes.values()) == [pr._hash_code("123456")]
 
 
-def test_forgot_hides_unknown_and_inactive_accounts(db, make_client):
+def test_forgot_hides_unknown_accounts(db, make_client):
     store, sent = FakeStore(), []
     client = _client_with_stubs(make_client, store, sent)
     _seed_teacher(db, "chen@school.edu")
-    _seed_teacher(db, "gone@school.edu", active=False)
 
     assert client.post(
         "/api/auth/password/forgot", json={"email": "nobody@school.edu"}
     ).json() == {"ok": True}
-    assert client.post(
-        "/api/auth/password/forgot", json={"email": "gone@school.edu"}
-    ).json() == {"ok": True}
-    assert sent == []  # 未知/停用账号不发信，也不报错
+    assert sent == []  # 未知账号不发信，也不报错
 
 
 def test_forgot_rate_limits(db, make_client):

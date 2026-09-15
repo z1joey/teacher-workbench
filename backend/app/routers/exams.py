@@ -36,7 +36,7 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, distinct, func, or_
+from sqlalchemy import and_, delete, distinct, func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -257,18 +257,14 @@ def _attendee_ids(db: Session, user: Person,
             .filter(Enrollment.class_id.in_(class_ids), Enrollment.valid_to.is_(None))
             .all()
         ]
-    # school-wide sitting: the owning workspace's active students attend
-    active = or_(
-        Person.payload["is_active"].as_boolean().is_(None),
-        Person.payload["is_active"].as_boolean().is_not(False),
-    )
+    # school-wide sitting: the owning workspace's enrolled students attend
     return [
         row[0]
         for row in db.query(Person.id)
         .filter(
             Person.payload["role"].as_string() == "student",
             Person.payload["workspace_id"].as_string() == workspace_id(user),
-            active,
+            Person.payload["graduated_at"].as_string().is_(None),
         )
         .all()
     ]
@@ -577,17 +573,40 @@ def update_exam(
     return exam_out(e)
 
 
+def _purge_exam(db: Session, exam: Event, wid: str) -> None:
+    """Hard-delete a sitting and every score / exam_taken row it spawned."""
+    start_day, end_day = exam_days(exam)
+    lo, hi = day_window(start_day, end_day)
+    related_ids = {
+        row[0]
+        for row in db.query(Event.id).filter(
+            *any_sitting_score_conds(exam.title, start_day, end_day, wid=wid)
+        ).all()
+    }
+    related_ids.update(
+        row[0]
+        for row in db.query(Event.id).filter(
+            Event.type == "exam_taken",
+            Event.title == exam.title,
+            Event.start_time >= lo,
+            Event.start_time < hi,
+        ).all()
+    )
+    related_ids.add(exam.id)
+    db.execute(
+        delete(person_events).where(person_events.c.event_id.in_(related_ids))
+    )
+    db.query(Event).filter(Event.id.in_(related_ids)).delete(synchronize_session=False)
+
+
 @router.delete("/exams/{exam_id}")
 def delete_exam(
     exam_id: uuid.UUID,
     db: Session = Depends(get_db),
     user: Person = Depends(get_current_person),
 ):
-    """Deletes the sitting Event only. Score events are individual rows with
-    no parent link, so they deliberately survive the delete (the old cascade
-    over exam_subject/exam_result has no equivalent to walk)."""
     e = _owned_exam(db, user, exam_id)
-    db.delete(e)
+    _purge_exam(db, e, workspace_id(user))
     db.commit()
     return {"ok": True}
 
@@ -687,16 +706,12 @@ def _locate_score_header(
 
 
 def _active_students(db: Session, wid: str) -> list[Person]:
-    active = or_(
-        Person.payload["is_active"].as_boolean().is_(None),
-        Person.payload["is_active"].as_boolean().is_not(False),
-    )
     return (
         db.query(Person)
         .filter(
             Person.payload["role"].as_string() == "student",
             Person.payload["workspace_id"].as_string() == wid,
-            active,
+            Person.payload["graduated_at"].as_string().is_(None),
         )
         .order_by(Person.payload["admission_no"].as_string())
         .all()

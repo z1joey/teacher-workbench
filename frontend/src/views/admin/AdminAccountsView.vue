@@ -120,7 +120,7 @@ function displayValue(value) {
 
 function startEdit(u) {
   editingUserId.value = u.id
-  editForm.value = { is_active: u.is_active, role: u.role }
+  editForm.value = { role: u.role }
   newPassword.value = ""
 }
 
@@ -234,7 +234,6 @@ onMounted(loadUsers)
               <th>{{ t("admin.teacherPhone") }}</th>
               <th>{{ t("admin.accountEmail") }}</th>
               <th>{{ t("admin.userRole") }}</th>
-              <th>{{ t("admin.teacherStatus") }}</th>
               <th>{{ t("admin.teacherActions") }}</th>
             </tr>
           </thead>
@@ -291,11 +290,6 @@ onMounted(loadUsers)
                   <span class="pill" :class="rolePillClass(u.role)">{{ roleLabel(u.role) }}</span>
                 </td>
                 <td>
-                  <span class="pill" :class="u.is_active ? 'pill--ok' : 'pill--muted'">
-                    {{ u.is_active ? "启用" : "停用" }}
-                  </span>
-                </td>
-                <td>
                   <div v-if="canManage(u)" class="row" style="gap: 6px">
                     <button class="icon-btn" :aria-label="`编辑 ${u.name}`" @click="startEdit(u)">
                       <Icon name="pencil" :size="14" />
@@ -313,7 +307,7 @@ onMounted(loadUsers)
               </tr>
 
               <tr v-else class="admin-accounts-edit-row">
-                <td colspan="8">
+                <td colspan="7">
                   <AdminAccountEditPanel
                     :user="u"
                     :form="editForm"
@@ -356,9 +350,6 @@ onMounted(loadUsers)
                 <h3 class="admin-account-card__name">{{ displayValue(u.name) }}</h3>
                 <div class="admin-account-card__badges">
                   <span class="pill" :class="rolePillClass(u.role)">{{ roleLabel(u.role) }}</span>
-                  <span class="pill" :class="u.is_active ? 'pill--ok' : 'pill--muted'">
-                    {{ u.is_active ? "启用" : "停用" }}
-                  </span>
                 </div>
               </div>
               <div v-if="canManage(u)" class="admin-account-card__actions">

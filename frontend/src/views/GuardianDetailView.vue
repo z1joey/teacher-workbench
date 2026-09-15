@@ -53,7 +53,6 @@ onMounted(load)
       :subtitle="t('guardian.subtitle')"
       :meta="[
         { label: t('guardian.phone'), value: guardian?.phone || t('common.none') },
-        { label: t('guardian.address'), value: guardian?.address || t('common.none') },
         { label: t('guardian.wardCount'), value: guardian?.wards.length ?? 0 },
       ]"
     />

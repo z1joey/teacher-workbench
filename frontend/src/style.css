@@ -3689,6 +3689,26 @@ a.chip:hover {
   border-top: 1px solid var(--line);
 }
 
+/* 学生资料卡宽 340px：单列全宽，控件等高 */
+.profile-edit-form__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3);
+}
+.profile-edit-form__grid > .field,
+.profile-edit-form__grid > .profile-edit-form__span .field {
+  margin-bottom: 0;
+}
+.profile-edit-form__grid .input,
+.profile-edit-form__grid .select {
+  width: 100%;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+.profile-edit-form__grid .field__label {
+  min-height: 1.25rem;
+}
+
 /* 评语表单：@ 其他学生 */
 .mention-picker {
   display: flex;

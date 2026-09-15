@@ -85,13 +85,13 @@ def sync_birthday_event(db: Session, student: Person) -> None:
     """Create/update/remove the yearly birthday Event for one student."""
     payload = student.payload or {}
     birth_raw = payload.get("birth_date")
-    active = payload.get("is_active", True) is not False
+    graduated = bool(payload.get("graduated_at"))
     existing_rows = birthday_events_for_student(db, student.id)
     existing = existing_rows[0] if existing_rows else None
     for duplicate in existing_rows[1:]:
         db.delete(duplicate)
 
-    if not birth_raw or not active:
+    if not birth_raw or graduated:
         if existing is not None:
             db.delete(existing)
         return

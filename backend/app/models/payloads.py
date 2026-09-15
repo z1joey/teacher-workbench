@@ -26,7 +26,6 @@ class StudentPayload(_Strict):
     birth_date: str | None = None  # ISO "YYYY-MM-DD"
     address: str | None = None
     workspace_id: str | None = None
-    is_active: bool = True
     graduated_at: str | None = None  # ISO "YYYY-MM-DD"；毕业置位，列表默认隐藏
 
     @field_validator("gender", mode="before")
@@ -42,24 +41,20 @@ class StudentPayload(_Strict):
 class TeacherPayload(_Strict):
     role: str = "teacher"
     workspace_id: str | None = None
-    is_active: bool = True
     auto_tags: bool = True
     calendar_birthdays: bool = True
 
 
 class AdminPayload(_Strict):
     role: str = "admin"
-    is_active: bool = True
 
 
 class GuardianPayload(_Strict):
     role: str = "guardian"
     # a guardian is a Person too: `name` lives on person.name, the student↔
     # guardian link is student_guardians (which carries the relationship),
-    # contact details ride here
+    # contact details ride here; home address lives on the student payload
     phone: str | None = None
-    address: str | None = None
-    is_active: bool = True
 
 
 PERSON_PAYLOAD_SCHEMAS = {
@@ -151,6 +146,7 @@ EVENT_PAYLOAD_SCHEMAS = {
 
 def validate_person_payload(role: str, data: dict) -> dict:
     data = dict(data)
+    data.pop("is_active", None)  # legacy field removed — hard deletes only
     if role == "teacher":
         for key in ("semesters", "name", "subject", "name_display"):
             data.pop(key, None)
@@ -159,6 +155,8 @@ def validate_person_payload(role: str, data: dict) -> dict:
     elif role == "student":
         for key in ("name", "guardian_name", "guardian_phone"):
             data.pop(key, None)
+    elif role == "guardian":
+        data.pop("address", None)
     schema = PERSON_PAYLOAD_SCHEMAS.get(role)
     if schema is None:
         raise ValueError(f"unknown person role: {role!r}")

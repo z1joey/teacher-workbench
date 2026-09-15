@@ -43,14 +43,8 @@ def admin_stats(
     def _role(p: Person) -> str | None:
         return (p.payload or {}).get("role")
 
-    def _active(p: Person) -> bool:
-        return (p.payload or {}).get("is_active") is not False
-
     persons_total = counts.get("person", 0)
     accounts_total = sum(1 for p in persons if _role(p) in login_roles)
-    accounts_active = sum(
-        1 for p in persons if _role(p) in login_roles and _active(p)
-    )
     return {
         "database": database.engine.url.drivername,
         "tables": counts,
@@ -61,8 +55,8 @@ def admin_stats(
         "users_admins": (
             db.query(Person).filter(Person.payload["role"].as_string() == "admin").count()
         ),
-        "users_active": sum(1 for p in persons if _active(p)),
-        "accounts_active": accounts_active,
+        "users_active": persons_total,
+        "accounts_active": accounts_total,
         "sessions_active": counts.get("auth_session", 0),
     }
 
@@ -154,7 +148,6 @@ def list_users(
                 "admission_no": (u.payload or {}).get("admission_no")
                 if u.role == "student"
                 else None,
-                "is_active": (u.payload or {}).get("is_active") is not False,
                 "created_at": u.created_at.isoformat() if u.created_at else None,
                 **ws,
             }
@@ -164,7 +157,6 @@ def list_users(
 
 class UserUpdate(BaseModel):
     role: str | None = None
-    is_active: bool | None = None
     password: str | None = None
 
 
@@ -205,33 +197,19 @@ def update_user(
     u = db.get(Person, user_id)
     if u is None:
         raise HTTPException(status_code=404, detail="账号不存在")
-    # A role change rebuilds the payload from {name, is_active} only, which
-    # would wipe a student's admission_no/birth_date/guardian fields — and
-    # hard-deleting a student orphans their attended event rows. Student
-    # profiles are managed on /students instead.
+    # A role change rebuilds the payload from scratch, which would wipe a
+    # student's admission_no/birth_date/guardian fields. Student profiles
+    # are managed on /students instead.
     if (u.payload or {}).get("role") == "student":
         raise HTTPException(status_code=400, detail="学生账号不支持此操作")
-    # Don't allow an admin to lock themselves out — demoting their role or
-    # deactivating their account both make every subsequent request 401/403
-    # with no in-app recovery.
-    if user_id == me.id:
-        if body.role is not None and body.role != "admin":
-            raise HTTPException(status_code=400, detail="不能降级自己的角色")
-        if body.is_active is False:
-            raise HTTPException(status_code=400, detail="不能停用自己的账号")
+    # Don't allow an admin to demote themselves — no in-app recovery.
+    if user_id == me.id and body.role is not None and body.role != "admin":
+        raise HTTPException(status_code=400, detail="不能降级自己的角色")
     payload = dict(u.payload or {})
     if body.role is not None:
         if body.role not in ("admin", "teacher"):
             raise HTTPException(status_code=400, detail="角色不合法")
-        # Re-validate under the new role: payload shapes differ (a teacher's
-        # `is_active` flag is fine for an admin payload too, but the strict
-        # schemas would reject fields from the other role).
-        payload = validate_person_payload(
-            body.role,
-            {"is_active": payload.get("is_active", True)},
-        )
-    if body.is_active is not None:
-        payload["is_active"] = body.is_active
+        payload = validate_person_payload(body.role, {})
     u.payload = payload  # reassign: JSON columns don't see in-place mutation
     if body.password:
         u.password_hash = hash_password(body.password)
@@ -250,8 +228,6 @@ def delete_user(
     u = db.get(Person, user_id)
     if u is None:
         raise HTTPException(status_code=404, detail="账号不存在")
-    # Hard-deleting a student would orphan the event rows they attended.
-    # Students are removed via /students/{id} (soft delete keeps the timeline).
     if (u.payload or {}).get("role") == "student":
         raise HTTPException(status_code=400, detail="学生账号不支持此操作")
     referenced = db.query(Enrollment.id).filter(Enrollment.person_id == user_id).first()

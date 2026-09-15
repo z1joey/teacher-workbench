@@ -42,11 +42,8 @@ def _teacher_of(db) -> Person | None:
     )
 
 
-def _seed_person(db, name: str, admission_no: str, *, role: str = "student",
-                 active: bool = True) -> Person:
+def _seed_person(db, name: str, admission_no: str, *, role: str = "student") -> Person:
     payload = validate_person_payload(role, {"admission_no": admission_no})
-    if not active:
-        payload["is_active"] = False
     if role == "student":
         # 工作区隔离：学生要挂到教师工作区，该教师的接口才看得到
         teacher = _teacher_of(db)
@@ -528,7 +525,7 @@ def test_patch_exam_rewrites_score_titles_and_dates(make_client, db, headers):
                               )}
 
 
-def test_delete_exam_keeps_score_events(make_client, db, headers):
+def test_delete_exam_purges_score_events(make_client, db, headers):
     client = make_client(exams_router.router, classes_router.router)
     cls = _seed_class(db)
     a = _seed_person(db, "张一", "S1")
@@ -544,15 +541,10 @@ def test_delete_exam_keeps_score_events(make_client, db, headers):
     assert r.status_code == 200
     assert r.json() == {"ok": True}
     assert db.query(Event).filter(Event.type == "exam").count() == 0
-    # score events are individual rows — deleting the sitting keeps them
-    assert db.query(Event).filter(Event.type == "score").count() == 1
-    # with no sitting to match, the class trend resolves exam_id to None
+    assert db.query(Event).filter(Event.type == "score").count() == 0
     rows = client.get("/api/classes", headers=headers).json()
     mine = next(r for r in rows if r["id"] == str(cls.id))
-    assert mine["avg_trend"] == [
-        {"exam_id": None, "exam_name": "期中考试", "exam_date": "2026-05-20",
-         "averages": {"语文": 90.0}},
-    ]
+    assert mine["avg_trend"] == []
 
     again = client.delete(f"/api/exams/{e1['id']}", headers=headers)
     assert again.status_code == 404
@@ -595,9 +587,11 @@ def test_class_crud_contract(make_client, db, headers):
     assert patched.json()["academic_year"] == "2027-03"
     assert patched.json()["student_count"] == 1
 
-    conflict = client.delete(f"/api/classes/{data['id']}", headers=headers)
-    assert conflict.status_code == 409
-    assert conflict.json()["detail"] == "班级内仍有学生或历史记录，无法删除"
+    gone_with_students = client.delete(f"/api/classes/{data['id']}", headers=headers)
+    assert gone_with_students.status_code == 200
+    assert gone_with_students.json() == {"ok": True}
+    assert db.get(Class, uuid.UUID(data["id"])) is None
+    assert db.get(Person, student.id) is not None
 
     empty = client.post("/api/classes", json={
         "name": "七年级3班", "academic_year": "2026-09",

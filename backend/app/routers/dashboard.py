@@ -57,11 +57,8 @@ def month_calendar(
     lo = datetime.combine(first, time.min)
     hi = datetime.combine(last, time.max)
     wid = workspace_id(user)
-    # 毕业/停用学生的生日不再出现在日历（学生离校后自动移除）
-    active_student = or_(
-        Person.payload["is_active"].as_boolean().is_(None),
-        Person.payload["is_active"].as_boolean().is_not(False),
-    )
+    # 已毕业学生的生日不再出现在日历
+    not_graduated = Person.payload["graduated_at"].as_string().is_(None)
     # multi-day sittings appear on every day of their span (中考/高考 style)
     for e in (
         db.query(Event)
@@ -120,7 +117,7 @@ def month_calendar(
                 Event.type == "birthday",
                 _STUDENT_ATTENDEE,
                 Person.payload["workspace_id"].as_string() == wid,
-                active_student,
+                not_graduated,
             )
             .order_by(Event.created_at.asc(), Event.id.asc())
             .all()
@@ -153,12 +150,9 @@ def dashboard(
     db: Session = Depends(get_db),
     user: Person = Depends(get_current_person),
 ):
-    active = or_(
-        Person.payload["is_active"].as_boolean().is_(None),
-        Person.payload["is_active"].as_boolean().is_not(False),
-    )
+    not_graduated = Person.payload["graduated_at"].as_string().is_(None)
     wid = workspace_id(user)
-    student_q = students_query(db, user).filter(active)
+    student_q = students_query(db, user).filter(not_graduated)
     counts = {
         "students": student_q.count(),
         "classes": classes_query(db, user).count(),

@@ -88,7 +88,6 @@ def test_admin_lists_users_with_role_filter(client):
     assert {u["id"] for u in body} == set(ids.values())
     assert all(uuid.UUID(u["id"]) for u in body)
     assert {u["name"] for u in body} == {"管理员", "陈老师", "赵老师", "林小明"}
-    assert all(u["is_active"] is True for u in body)
 
     teachers = tc.get("/api/admin/users", params={"role": "teacher"}).json()
     assert {u["id"] for u in teachers} == {ids["teacher"], ids["teacher2"]}
@@ -122,30 +121,6 @@ def test_patch_role_validation_and_self_demote_guard(client):
     row = next(u for u in tc.get("/api/admin/users").json() if u["id"] == ids["teacher"])
     assert row["role"] == "admin"
     assert row["name"] == "陈老师"
-    assert row["is_active"] is True
-
-
-def test_patch_toggles_is_active_in_payload(client):
-    tc, ids = client
-    assert tc.patch(f"/api/admin/users/{ids['teacher']}",
-                    json={"is_active": False}).json() == {"ok": True}
-    row = next(u for u in tc.get("/api/admin/users").json() if u["id"] == ids["teacher"])
-    assert row["is_active"] is False
-    # A disabled person is rejected from /me with 403.
-    r = tc.get("/api/auth/me", headers={"Authorization": f"Bearer {TEACHER_TOKEN}"})
-    assert r.status_code == 403
-
-    assert tc.patch(f"/api/admin/users/{ids['teacher']}",
-                    json={"is_active": True}).json() == {"ok": True}
-    r = tc.get("/api/auth/me", headers={"Authorization": f"Bearer {TEACHER_TOKEN}"})
-    assert r.status_code == 200
-
-
-def test_admin_cannot_deactivate_self(client):
-    tc, ids = client
-    assert tc.patch(f"/api/admin/users/{ids['admin']}",
-                    json={"is_active": False}).status_code == 400
-
 
 def test_delete_referenced_user_409_and_clean_user_ok(client, db):
     tc, ids = client
@@ -163,8 +138,8 @@ def test_delete_referenced_user_409_and_clean_user_ok(client, db):
 
 
 def test_patch_student_rejected_and_payload_untouched(client, db):
-    """A role change rebuilds the payload from {is_active} only — it
-    must never touch a student profile (admission_no/birth_date)."""
+    """A role change rebuilds the payload from scratch — it must never
+    touch a student profile (admission_no/birth_date)."""
     tc, ids = client
     r = tc.patch(f"/api/admin/users/{ids['student']}", json={"role": "teacher"})
     assert r.status_code == 400
@@ -203,23 +178,18 @@ def test_delete_event_attending_student_rejected(client, db):
 
 def test_stats_keys(client, db):
     tc, _ = client
-    # A disabled person must not count as active. SQLite's json_extract maps
-    # JSON booleans to integers, so SQL text comparisons can't express this —
-    # the endpoint counts in Python; this locks that.
-    seed_person(db, "inactive@test.example", phone="13600000003", name="已停用", active=False)
-    db.commit()
     stats = tc.get("/api/admin/stats").json()
     assert set(stats) == {
         "database", "tables", "users_total", "persons_total", "accounts_total",
         "users_admins", "users_active", "accounts_active", "sessions_active",
     }
-    assert stats["persons_total"] == stats["users_total"] == 5
-    assert stats["accounts_total"] == 4  # admin + 2 teachers + inactive teacher
+    assert stats["persons_total"] == stats["users_total"] == 4
+    assert stats["accounts_total"] == 3  # admin + 2 teachers
     assert stats["users_admins"] == 1
-    assert stats["users_active"] == 4  # all roles, excludes disabled teacher
-    assert stats["accounts_active"] == 3  # login roles only, excludes disabled teacher
+    assert stats["users_active"] == stats["persons_total"]
+    assert stats["accounts_active"] == stats["accounts_total"]
     assert stats["sessions_active"] == 3
-    assert stats["tables"]["person"] == 5
+    assert stats["tables"]["person"] == 4
     assert "user" not in stats["tables"]
     assert "teacher_profile" not in stats["tables"]
 

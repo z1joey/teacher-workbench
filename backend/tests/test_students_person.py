@@ -17,7 +17,17 @@ import pytest
 
 from app import eventing
 from app.eventing import MANUAL_EVENT_TYPES, next_birthday_date, sync_birthday_event
-from app.models import AuthSession, Class, Enrollment, Event, Person, Tag, person_tags, student_guardians
+from app.models import (
+    AuthSession,
+    Class,
+    Enrollment,
+    Event,
+    Person,
+    Tag,
+    person_events,
+    person_tags,
+    student_guardians,
+)
 from app.routers.students import AUTO_HOME_VISIT_TAG_NAME
 from app.payloads import validate_person_payload
 from app.routers import dashboard, students
@@ -39,14 +49,11 @@ def _teacher_of(db) -> Person | None:
     )
 
 
-def _seed_person(db, name: str, admission_no: str, *, birth_date: str | None = None,
-                 active: bool = True) -> Person:
+def _seed_person(db, name: str, admission_no: str, *, birth_date: str | None = None) -> Person:
     # `name` is a typed person column; the payload carries only student data
     payload = validate_person_payload("student", {"admission_no": admission_no})
     if birth_date:
         payload["birth_date"] = birth_date
-    if not active:
-        payload["is_active"] = False
     teacher = _teacher_of(db)
     if teacher is not None:
         payload["workspace_id"] = ensure_workspace_id(teacher)
@@ -226,7 +233,6 @@ def test_create_student_201_old_keys_seeds_payload_enrollment_enrolled_event(mak
     assert person.payload["admission_no"] == "S8"
     assert person.payload["birth_date"] == "2013-06-01"
     assert person.payload["gender"] == "F"
-    assert person.payload["is_active"] is True
 
     # the guardian is a Person linked through student_guardians, not a flat
     # student payload key
@@ -428,13 +434,6 @@ def test_patch_student_status_and_class_move(make_client, db, headers):
     db.commit()
     client = make_client(students.router)
 
-    r = client.patch(f"/api/students/{s.id}", json={"status": "inactive"},
-                     headers=headers)
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "inactive"
-    db.refresh(s)
-    assert s.payload["is_active"] is False
-
     r = client.patch(f"/api/students/{s.id}", json={"status": "bogus"},
                      headers=headers)
     assert r.status_code == 400
@@ -460,7 +459,7 @@ def test_patch_student_status_and_class_move(make_client, db, headers):
     assert r.json()["detail"] == "class not found"
 
 
-def test_delete_student_soft_deactivates_when_score_events_exist(make_client, db, headers):
+def test_delete_student_hard_deletes_with_score_events(make_client, db, headers):
     cls = _seed_class(db)
     s = _seed_person(db, "林晓雨", "S001")
     _enroll(db, s, cls)
@@ -468,19 +467,15 @@ def test_delete_student_soft_deactivates_when_score_events_exist(make_client, db
     db.commit()
     client = make_client(students.router)
 
-    r = client.delete(f"/api/students/{s.id}", headers=headers)
+    sid = s.id
+    r = client.delete(f"/api/students/{sid}", headers=headers)
     assert r.status_code == 200, r.text
-    assert r.json() == {"ok": True, "action": "deactivated"}
-
-    db.refresh(s)
-    assert s.payload["is_active"] is False
-    enrollments = db.query(Enrollment).filter(Enrollment.person_id == s.id).all()
-    assert enrollments[0].valid_to is not None
-    comments = (db.query(Event).filter(Event.type == "comment",
-                                       Event.attendees.any(Person.id == s.id)).all())
-    assert comments[-1].title == "账号停用"
-    assert comments[-1].payload["notes"] == "账号停用"
-    assert db.get(Person, s.id) is not None
+    assert r.json() == {"ok": True, "action": "deleted"}
+    db.expire_all()
+    assert db.query(Person).filter(Person.id == sid).first() is None
+    assert (
+        db.query(person_events).filter(person_events.c.person_id == sid).count() == 0
+    )
 
 
 def test_delete_student_hard_deletes_when_no_written_evidence(make_client, db, headers):
@@ -909,8 +904,7 @@ def test_guardian_linking_and_detail(make_client, db, headers):
                     headers=headers)
     assert r.status_code == 201, r.text
     r = client.post(f"/api/students/{s1.id}/guardians",
-                    json={"name": "王秀英", "phone": "13900000000", "relationship": "祖母",
-                          "address": "解放路108号"},
+                    json={"name": "王秀英", "phone": "13900000000", "relationship": "祖母"},
                     headers=headers)
     assert r.status_code == 201, r.text
     grandmah = r.json()
@@ -928,7 +922,7 @@ def test_guardian_linking_and_detail(make_client, db, headers):
     data = r.json()
     assert data["name"] == "王秀英"
     assert data["phone"] == "13900000000"
-    assert data["address"] == "解放路108号"
+    assert "address" not in data
     rels = {w["name"]: w["relationship"] for w in data["wards"]}
     assert rels == {"王浩": "祖母", "邓晓彤": "外祖母"}
 
@@ -1109,7 +1103,7 @@ def test_calendar_hides_birthdays_when_disabled(make_client, db, headers):
     assert all(i.get("event_type") != "birthday" for i in r.json()["items"])
 
 
-def test_deactivate_student_removes_birthday_event(make_client, db, headers):
+def test_graduate_student_removes_birthday_event(make_client, db, headers):
     s = _seed_person(db, "林晓雨", "S001", birth_date="2012-05-14")
     sync_birthday_event(db, s)
     db.commit()
@@ -1118,7 +1112,7 @@ def test_deactivate_student_removes_birthday_event(make_client, db, headers):
 
     r = client.patch(
         f"/api/students/{s.id}",
-        json={"status": "inactive"},
+        json={"status": "graduated"},
         headers=headers,
     )
     assert r.status_code == 200, r.text
