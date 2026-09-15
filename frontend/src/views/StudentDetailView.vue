@@ -560,7 +560,7 @@ const headerMeta = computed(() => {
     :loading="loading"
     :error="error"
     :empty="!loading && !error && !student"
-    empty-title="学生档案没能加载"
+    :empty-title="t('detail.loadEmptyTitle')"
     :rows="5"
     @retry="load"
   >
