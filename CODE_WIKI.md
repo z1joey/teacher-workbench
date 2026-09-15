@@ -1,6 +1,8 @@
 # Teacher Workbench — Code Wiki
 
-> 本文档全面介绍 Teacher Workbench（高素质工作台）项目的**整体架构、模块职责、关键类与函数、依赖关系以及运行指南**，作为开发者快速上手与日常维护的参考手册。
+> 本文档全面介绍 Teacher Workbench（**高素质工作台**）项目的**整体架构、模块职责、关键类与函数、依赖关系以及运行指南**，作为开发者快速上手与日常维护的参考手册。
+>
+> **当前版本：0.1.1（Beta）** — 版本号维护见 README「版本号」一节。
 
 ***
 
@@ -50,12 +52,14 @@
 
 | 功能模块            | 说明                                  |
 | --------------- | ----------------------------------- |
-| 👨‍🏫 **教师工作台** | 首页仪表盘（统计 / 考试倒计时 / 最新动态 / 待跟进）      |
+| 👨‍🏫 **教师工作台** | 首页（月历 + 最新动态）                         |
 | 🧑‍🎓 **学生档案**  | 基本信息、监护人、班级归属（带时间维度）、成绩趋势、薄弱项、错题明细  |
 | 📝 **事件记录**     | 家访、谈心、辅导、家长沟通、教师备注等自定义事件，统一沉淀到右侧时间线 |
 | 📊 **班级管理**     | 新建/编辑/删除班级，班级平均分趋势图，学生名单            |
 | 🧪 **考试管理**     | 新建考试（含多科目）、全校平均分趋势、各班对比、按考试当日班级归属统计 |
-| 🔧 **开发者后台**    | 仅管理员可见：数据库概览、教师账号管理、会话管理、数据探查、危险操作  |
+| 📦 **数据转移**      | 个人中心内嵌：花名册导入（目前仅此一种）、花名册/家访/成绩导出、演示数据 |
+| 💬 **用户反馈**      | 教师提交反馈；管理员在后台查看与处理                         |
+| 🔧 **开发者后台**    | 仅管理员可见：概览、账号管理、反馈、会话、数据探查、站点设置（多路由）  |
 
 项目采用 **前后端分离 + 管理员/教师双角色隔离** 架构。管理员不是教师——管理员登录后进入独立的 `/admin` 后台，不访问学生/班级/考试等教学工作流页面。
 
@@ -87,7 +91,8 @@ teacher-workbench/
 │   │   ├── eventing.py               # create_event() — 事件表唯一写入口
 │   │   ├── security.py               # PBKDF2 密码 / 随机 Token 生成
 │   │   ├── deps.py                   # FastAPI 依赖：get_current_person / require_admin
-│   │   ├── bootstrap_db.py           # 部署入口：legacy 卷 Alembic 迁移 / 全新卷建表 + stamp
+│   │   ├── bootstrap_db.py           # 部署入口：alembic upgrade head + 运行时修补
+│   │   ├── version.py                # APP_VERSION / IS_BETA（与 package.json 同步）
 │   │   ├── seed.py                   # 演示数据脚本（建表 + 灌数据；非全新库会重复灌入）
 │   │   └── routers/
 │   │       ├── __init__.py           # 空
@@ -97,8 +102,10 @@ teacher-workbench/
 │   │       ├── exams.py              # 考试 CRUD、全校趋势、各科平均分
 │   │       ├── dashboard.py          # 首页聚合接口
 │   │       ├── profile.py            # 教师个人中心 / 教学足迹
+│   │       ├── data.py               # 花名册导入导出、演示数据灌入/清空
+│   │       ├── feedback.py           # 用户反馈提交
 │   │       ├── misc.py               # 教师列表（供下拉选择）
-│   │       └── admin.py              # 管理员专用：统计、账号、会话、探查、重置
+│   │       └── admin.py              # 管理员：统计、账号、设置、反馈、会话、探查、重置
 │   ├── Dockerfile                    # 多阶段 Python slim 构建
 │   └── requirements.txt              # fastapi / uvicorn / sqlalchemy / pydantic / psycopg
 │
@@ -110,6 +117,7 @@ teacher-workbench/
 │   │   ├── api.js                    # fetch 封装：Token 注入、401 跳转、错误归一化
 │   │   ├── auth.js                   # me ref 响应式状态 + loadMe()
 │   │   ├── strings.js                # 中文词典 t() + 枚举映射/取色/事件描述
+│   │   ├── version.js                # 读取 package.json version；IS_BETA 开关
 │   │   ├── style.css                 # 全局主题（黑板绿 + 粉笔 + 红笔）
 │   │   ├── components/
 │   │   │   ├── Icon.vue              # 内联 SVG 图标集（15 个手绘图标）
@@ -118,7 +126,8 @@ teacher-workbench/
 │   │   └── views/
 │   │       ├── LoginView.vue         # 登录/注册 Tab
 │   │       ├── HomeView.vue          # 教师首页仪表盘
-│   │       ├── ProfileView.vue       # 个人中心
+│   │       ├── ProfileView.vue       # 个人中心（含 DataView 数据转移）
+│   │       ├── DataView.vue          # 数据导入/导出/演示数据（嵌入 ProfileView）
 │   │       ├── ClassesView.vue       # 班级列表 + 新建弹窗
 │   │       ├── ClassDetailView.vue   # 班级详情（趋势 + 名单 + 平均）
 │   │       ├── StudentsView.vue      # 学生列表（搜索）
@@ -128,7 +137,13 @@ teacher-workbench/
 │   │       ├── ExamsView.vue         # 考试列表
 │   │       ├── ExamNewView.vue       # 新建考试
 │   │       ├── ExamDetailView.vue    # 考试平均分（全校+各班）
-│   │       └── AdminView.vue         # 开发者后台（5 个分区）
+│   │       └── admin/                # 开发者后台（多路由分区）
+│   │           ├── AdminOverviewView.vue
+│   │           ├── AdminAccountsView.vue
+│   │           ├── AdminFeedbackView.vue
+│   │           ├── AdminSessionsView.vue
+│   │           ├── AdminInspectView.vue
+│   │           └── AdminSettingsView.vue
 │   ├── Dockerfile                    # 多阶段：node 构建 → nginx 托管 + /api 代理
 │   ├── vite.config.js                # base=/gao/ + 开发代理到 8000/8001
 │   ├── index.html                    # 入口 HTML
@@ -151,9 +166,9 @@ teacher-workbench/
 
 [main.py](file:///Users/joey/Projects/teacher-workbench/backend/app/main.py)
 
-- `FastAPI(title="Teacher Workbench API", version="0.3.0")`；建表/迁移由部署
-  入口 `python -m app.bootstrap_db` 负责（legacy 卷走 Alembic 0005 原地迁移，
-  全新卷 `create_all` + `stamp` head）
+- `FastAPI(title="Teacher Workbench API", version=APP_VERSION)`（`APP_VERSION` 来自
+  `version.py`，当前 **0.1.1**）；建表/迁移由部署入口 `python -m app.bootstrap_db`
+  负责（`alembic upgrade head`）
 
 - CORS：允许所有来源（演示配置）
 
@@ -360,7 +375,12 @@ AUTO_RECORD_EVENT_TYPES = {"birthday"}   # 不落库：时间线由 payload.birt
 | GET    | `/admin/sessions`          | 活动会话（Token 只显前 8 位+…）                         |
 | DELETE | `/admin/sessions/{prefix}` | 按前缀终止会话                                       |
 | POST   | `/admin/sessions/kill-all` | 清空全部会话                                        |
-| POST   | `/admin/inspect`           | `{table, limit=20}` — ORM 只读探查（白名单 6 表）       |
+| GET    | `/admin/settings`          | 站点设置（如开放注册开关）                              |
+| PATCH  | `/admin/settings`          | 更新站点设置                                        |
+| GET    | `/admin/inspect/tables`    | 可探查表名列表                                       |
+| POST   | `/admin/inspect`           | `{table, limit, offset}` — ORM 只读探查（分页）         |
+| GET    | `/admin/feedback`          | 反馈列表（可按 resolved 过滤）                         |
+| PATCH  | `/admin/feedback/{id}`     | 标记反馈已处理                                       |
 | POST   | `/admin/db/reset`          | `DROP ALL → CREATE ALL`，不清空不可恢复（仅 DB 重建，不灌种子） |
 
 ***
@@ -461,7 +481,8 @@ api.get(path) / api.post(path, body) / api.patch(path, body) / api.delete(path)
 ```js
 /                       → HomeView           教师首页仪表盘
 /login                  → LoginView          登录/注册
-/profile                → ProfileView        个人中心
+/profile                → ProfileView        个人中心（含数据转移）
+/data                   → redirect profile   旧链接兼容
 /classes                → ClassesView        班级列表
 /classes/:id            → ClassDetailView    班级详情
 /students               → StudentsView       学生列表
@@ -472,7 +493,12 @@ api.get(path) / api.post(path, body) / api.patch(path, body) / api.delete(path)
 /exams                  → ExamsView          考试列表
 /exams/new              → ExamNewView        新建考试
 /exams/:id              → ExamDetailView     考试平均分
-/admin                  → AdminView          开发者后台
+/admin                  → AdminOverviewView  开发者后台概览
+/admin/accounts         → AdminAccountsView  账号管理
+/admin/feedback         → AdminFeedbackView  用户反馈
+/admin/sessions         → AdminSessionsView  活动会话
+/admin/inspect          → AdminInspectView   数据探查
+/admin/settings         → AdminSettingsView  站点设置与危险操作
 ```
 
 - base URL: `/gao/`（Vite `base` + nginx 配置一致）
@@ -494,8 +520,9 @@ api.get(path) / api.post(path, body) / api.patch(path, body) / api.delete(path)
 | 视图                    | 路径                            | 主要功能                                                                                                               | <br />                                               |
 | --------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------ | :--------------------------------------------------- |
 | **LoginView**         | `views/LoginView.vue`         | 左右 Tab 切换登录/注册；调用 \`api.post("/auth/register"                                                                      | "/login")`→`setToken(token)`→ 按角色`router.replace()\` |
-| **HomeView**          | `views/HomeView.vue`          | 四卡片统计（学生/班级/考试/家访）、考试倒计时、快捷操作（加学生/看考试/学生列表）、待跟进家访、最新动态（mini timeline）                                              | <br />                                               |
-| **ProfileView**       | `views/ProfileView.vue`       | 头像 + 基本资料编辑、我的班级卡片（含学生 chips 链接跳转）、教学足迹三统计                                                                         | <br />                                               |
+| **HomeView**          | `views/HomeView.vue`          | 月历 + 最新动态 feed                                                                                                    | <br />                                               |
+| **ProfileView**       | `views/ProfileView.vue`       | 头像 + 基本资料编辑、我的班级、教学足迹；内嵌 **DataView**（数据转移 + 演示数据）                                                              | <br />                                               |
+| **DataView**          | `views/DataView.vue`          | 数据导入（目前仅花名册 Excel）、数据导出（花名册/家访/成绩）、演示数据加载与清空                                                              | <br />                                               |
 | **ClassesView**       | `views/ClassesView.vue`       | 班级卡片网格、新建班级模态框（名称/年级/学年/班主任下拉）、编辑/删除（删除前确认）                                                                        | <br />                                               |
 | **ClassDetailView**   | `views/ClassDetailView.vue`   | 基本信息 + 学生名单表格 + LineChart 趋势（按考试）+ 各科平均汇总表格                                                                        | <br />                                               |
 | **StudentsView**      | `views/StudentsView.vue`      | 学生表格（学号/姓名/性别/班级/状态）、顶部搜索框（模糊匹配姓名/学号/班级）、添加学生按钮                                                                    | <br />                                               |
@@ -505,7 +532,12 @@ api.get(path) / api.post(path, body) / api.patch(path, body) / api.delete(path)
 | **ExamsView**         | `views/ExamsView.vue`         | 考试列表（名称/日期/科目 + 满分），新建考试按钮                                                                                         | <br />                                               |
 | **ExamNewView**       | `views/ExamNewView.vue`       | 考试名称 + 日期 + 动态科目行（科目 + 满分可增删）                                                                                      | <br />                                               |
 | **ExamDetailView**    | `views/ExamDetailView.vue`    | 全校统计卡片（min/max/avg 按科）+ 全校趋势折线图（虚线高亮当前考试）+ 各班平均分表格                                                                 | <br />                                               |
-| **AdminView**         | `views/AdminView.vue`         | 5 个分区：①数据库概览（驱动/表行数/统计）②教师账号（启停用、升降级、重置密码、删除）③活动会话（终止/清空所有）④数据探查（选表 + limit 预览）⑤危险操作（重置数据库按钮）                      | <br />                                               |
+| **AdminOverviewView** | `views/admin/AdminOverviewView.vue` | 数据库概览（驱动/表行数/统计）                                                                                          | <br />                                               |
+| **AdminAccountsView** | `views/admin/AdminAccountsView.vue` | 账号管理（启停用、改角色、重置密码、删除）                                                                                    | <br />                                               |
+| **AdminFeedbackView** | `views/admin/AdminFeedbackView.vue` | 用户反馈列表与处理                                                                                                    | <br />                                               |
+| **AdminSessionsView** | `views/admin/AdminSessionsView.vue` | 活动会话（终止/清空）                                                                                                  | <br />                                               |
+| **AdminInspectView**  | `views/admin/AdminInspectView.vue`  | 数据探查（选表 + 分页预览）                                                                                              | <br />                                               |
+| **AdminSettingsView** | `views/admin/AdminSettingsView.vue` | 站点设置 + 危险操作（重置数据库）                                                                                          | <br />                                               |
 
 ***
 
