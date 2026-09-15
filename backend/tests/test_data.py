@@ -375,7 +375,24 @@ def test_demo_seed_loads_dataset(client, db):
     assert db.query(Class).filter(Class.name == "七年级1班").count() == 1
     assert db.query(Event).filter(Event.type == "exam").count() >= 1
     assert db.query(AuthSession).filter(AuthSession.token == TEACHER_TOKEN).count() == 1
-    assert db.query(Person).filter(Person.phone == "13800000000").count() == 0
+
+
+def test_demo_seed_keeps_admin_accounts(client, db):
+    admin = seed_person(
+        db,
+        "admin@test.example",
+        phone="13800000000",
+        role="admin",
+        name="管理员",
+    )
+    db.commit()
+
+    res = client.post("/api/data/demo/seed", headers=AUTH)
+    assert res.status_code == 200, res.text
+
+    db.expire_all()
+    assert db.get(Person, admin.id) is not None
+    assert db.query(Person).filter(Person.payload["role"].as_string() == "admin").count() == 1
 
 
 def test_demo_seed_requires_teacher(client, db):
@@ -501,6 +518,62 @@ def test_demo_seed_allowed_after_reset(client, db):
     res = client.post("/api/data/demo/seed", headers=AUTH)
     assert res.status_code == 200, res.text
     assert len(_students(db)) >= 20
+
+
+def test_demo_seed_does_not_block_other_teacher_workspace(client, db):
+    other = seed_person(db, "other@test.example", phone="13800000099", name="王老师")
+    other_student = _student(db, "外班生", "S880001")
+    tag_student_workspace(other_student, other)
+    db.commit()
+
+    res = client.post("/api/data/demo/seed", headers=AUTH)
+    assert res.status_code == 200, res.text
+
+    db.expire_all()
+    assert db.get(Person, other.id) is not None
+    assert db.get(Person, other_student.id) is not None
+    assert len(_students(db)) >= 21
+
+
+def test_demo_reset_only_clears_current_workspace(client, db):
+    other = seed_person(db, "other@test.example", phone="13800000099", name="王老师")
+    other_token = "e" * 64
+    seed_token(db, other, other_token)
+    other_student = _student(db, "外班生", "S880001")
+    tag_student_workspace(other_student, other)
+    db.commit()
+
+    assert client.post("/api/data/demo/seed", headers=AUTH).status_code == 200
+    assert len(_students(db)) >= 21
+
+    reset_res = client.post("/api/data/demo/reset", headers=AUTH)
+    assert reset_res.status_code == 200
+
+    db.expire_all()
+    assert db.get(Person, other.id) is not None
+    assert db.get(Person, other_student.id) is not None
+    assert db.get(AuthSession, other_token) is not None
+    assert (
+        db.query(Person)
+        .filter(
+            Person.payload["role"].as_string() == "student",
+            Person.payload["workspace_id"].as_string()
+            == ensure_workspace_id(other),
+        )
+        .count()
+        == 1
+    )
+    teacher = _teacher_row(db)
+    assert (
+        db.query(Person)
+        .filter(
+            Person.payload["role"].as_string() == "student",
+            Person.payload["workspace_id"].as_string()
+            == ensure_workspace_id(teacher),
+        )
+        .count()
+        == 0
+    )
 
 
 # ---------------------------------------------------------------------------

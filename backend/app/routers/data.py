@@ -23,14 +23,14 @@ from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font
-from sqlalchemy import delete
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_person
 from ..eventing import create_event, sync_birthday_event
 from ..gender import gender_label, parse_gender
-from ..models import AuthSession, Class, ClassSeating, Enrollment, Event, Feedback, Person, Tag
+from ..models import Class, ClassSeating, Enrollment, Event, Feedback, Person, Tag
 from ..models._common import utcnow
 from ..models.associations import person_events, person_tags, student_guardians
 from ..payloads import validate_person_payload
@@ -44,7 +44,12 @@ from ..unassigned import (
     ensure_unassigned_class,
     is_unassigned_class,
 )
-from ..workspace import tag_student_workspace, workspace_id
+from ..workspace import (
+    classes_query,
+    students_query,
+    tag_student_workspace,
+    workspace_id,
+)
 from .exams import (
     append_score_sheet,
     exam_events,
@@ -53,7 +58,12 @@ from .exams import (
     subjects_config,
     unique_sheet_title,
 )
-from .students import _find_or_create_guardian, _guardian_link, _guardians_of
+from .students import (
+    _find_or_create_guardian,
+    _guardian_link,
+    _guardians_of,
+    _prune_unused_tags,
+)
 
 router = APIRouter(
     tags=["data"],
@@ -190,86 +200,150 @@ def _require_teacher(user: Person) -> None:
         raise HTTPException(status_code=403, detail="仅教师账号可使用演示数据功能")
 
 
-def _clear_business_data(
-    db: Session,
-    token: str,
-    *,
-    keep_person_ids: set[uuid_mod.UUID],
-    load_seed: bool = False,
-    primary_person_id: uuid_mod.UUID | None = None,
-) -> Person:
-    """Delete business rows; keep listed persons and the current session.
+def _workspace_event_ids(
+    db: Session, teacher: Person, student_ids: set[uuid_mod.UUID]
+) -> set[uuid_mod.UUID]:
+    """Events owned by or attached to this teacher's workspace."""
+    wid = workspace_id(teacher)
+    exam_score_ids = {
+        row[0]
+        for row in db.query(Event.id).filter(
+            Event.type.in_(("exam", "score")),
+            Event.payload["workspace_id"].as_string() == wid,
+        )
+    }
+    if not student_ids:
+        return exam_score_ids
+    linked_ids = {
+        row[0]
+        for row in db.execute(
+            select(person_events.c.event_id).where(
+                person_events.c.person_id.in_(student_ids)
+            )
+        )
+    }
+    return exam_score_ids | linked_ids
 
-    Shared by teacher demo reset/seed. Uses row
-    DELETEs instead of drop_all/create_all. On PostgreSQL, DDL on a second
-    connection while this request still holds a read transaction (from auth)
-    deadlocks until rollback — which used to run only after the wipe.
+
+def _clear_workspace_data(
+    db: Session,
+    teacher: Person,
+    *,
+    load_seed: bool = False,
+) -> Person:
+    """Delete only the current teacher's workspace rows.
+
+    Other teachers, admins, and their sessions are never touched.
     """
-    if not keep_person_ids:
-        raise ValueError("keep_person_ids must not be empty")
-    primary = primary_person_id or next(iter(keep_person_ids))
-    if primary not in keep_person_ids:
-        raise ValueError("primary_person_id must be in keep_person_ids")
-    db.execute(delete(Feedback))
-    db.execute(delete(person_events))
-    db.execute(delete(person_tags))
-    db.execute(delete(student_guardians))
-    db.execute(delete(ClassSeating))
-    db.execute(delete(Enrollment))
-    db.execute(delete(Event))
-    db.execute(delete(Tag))
+    student_ids = {s.id for s in students_query(db, teacher).all()}
+    class_ids = {c.id for c in classes_query(db, teacher, include_archived=True).all()}
+    event_ids = _workspace_event_ids(db, teacher, student_ids)
+
+    db.execute(delete(Feedback).where(Feedback.person_id == teacher.id))
+
+    if student_ids:
+        guardian_ids = {
+            row[0]
+            for row in db.execute(
+                select(student_guardians.c.guardian_id).where(
+                    student_guardians.c.student_id.in_(student_ids)
+                )
+            )
+        }
+        db.execute(
+            delete(person_tags).where(person_tags.c.person_id.in_(student_ids))
+        )
+        db.execute(
+            delete(student_guardians).where(
+                student_guardians.c.student_id.in_(student_ids)
+            )
+        )
+    else:
+        guardian_ids = set()
+
+    if class_ids:
+        db.execute(
+            delete(ClassSeating).where(ClassSeating.class_id.in_(class_ids))
+        )
+
+    enrollment_filters = []
+    if student_ids:
+        enrollment_filters.append(Enrollment.person_id.in_(student_ids))
+    if class_ids:
+        enrollment_filters.append(Enrollment.class_id.in_(class_ids))
+    if enrollment_filters:
+        db.execute(delete(Enrollment).where(or_(*enrollment_filters)))
+
+    if event_ids or student_ids:
+        pe_filters = []
+        if event_ids:
+            pe_filters.append(person_events.c.event_id.in_(event_ids))
+        if student_ids:
+            pe_filters.append(person_events.c.person_id.in_(student_ids))
+        db.execute(delete(person_events).where(or_(*pe_filters)))
+    if event_ids:
+        db.execute(delete(Event).where(Event.id.in_(event_ids)))
+
     db.execute(
         delete(Class).where(
+            Class.teacher_id == teacher.id,
             ~(
                 (Class.name == UNASSIGNED_CLASS_NAME)
                 & (Class.academic_year == UNASSIGNED_ACADEMIC_YEAR)
+            ),
+        )
+    )
+
+    if student_ids:
+        db.execute(delete(Person).where(Person.id.in_(student_ids)))
+
+    if guardian_ids:
+        still_linked = {
+            row[0]
+            for row in db.execute(
+                select(student_guardians.c.guardian_id).where(
+                    student_guardians.c.guardian_id.in_(guardian_ids)
+                )
             )
-        )
-    )
-    db.execute(
-        delete(AuthSession).where(
-            AuthSession.token != token,
-            ~AuthSession.person_id.in_(keep_person_ids),
-        )
-    )
-    db.execute(delete(Person).where(~Person.id.in_(keep_person_ids)))
+        }
+        orphan_guardian_ids = guardian_ids - still_linked
+        if orphan_guardian_ids:
+            role = Person.payload["role"].as_string()
+            db.execute(
+                delete(Person).where(
+                    Person.id.in_(orphan_guardian_ids),
+                    role == "guardian",
+                )
+            )
+
+    _prune_unused_tags(db)
     db.flush()
     ensure_unassigned_class(db)
-    kept = db.get(Person, primary)
+
+    kept = db.get(Person, teacher.id)
     if kept is None:
-        raise RuntimeError("kept person row missing after clear")
+        raise RuntimeError("teacher row missing after workspace clear")
     if load_seed:
         seed(db, teacher=kept, include_admin=False)
     return kept
 
 
-def _clear_business_data_for_teacher(
-    db: Session,
-    teacher: Person,
-    token: str,
-    *,
-    load_seed: bool,
-) -> Person:
-    return _clear_business_data(
-        db,
-        token,
-        keep_person_ids={teacher.id},
-        load_seed=load_seed,
-        primary_person_id=teacher.id,
+def _has_business_data(db: Session, teacher: Person) -> bool:
+    """Whether this teacher's workspace already has roster / class / exam data."""
+    if students_query(db, teacher).first() is not None:
+        return True
+    if classes_query(db, teacher, include_archived=True).first() is not None:
+        return True
+    wid = workspace_id(teacher)
+    return (
+        db.query(Event.id)
+        .filter(
+            Event.type == "exam",
+            Event.payload["workspace_id"].as_string() == wid,
+        )
+        .first()
+        is not None
     )
-
-
-def _has_business_data(db: Session) -> bool:
-    """演示加载前的保护性检查：库里已有任何学生 / 班级 / 考试即视为有业务
-    数据（`__system__` 未分班是系统班级，不计入）。加载演示数据会清空**全部**
-    数据——包括其他教师工作区的真实数据——所以只要存在业务数据就必须先显式
-    清空。"""
-    role = Person.payload["role"].as_string()
-    if db.query(Person.id).filter(role == "student").first() is not None:
-        return True
-    if db.query(Class.id).filter(Class.teacher_id.is_not(None)).first() is not None:
-        return True
-    return db.query(Event.id).filter(Event.type == "exam").first() is not None
 
 
 @router.get("/data/demo/status")
@@ -279,7 +353,7 @@ def demo_data_status(
 ):
     """Whether the workspace already has business data (real or demo)."""
     _require_teacher(user)
-    return {"has_business_data": _has_business_data(db)}
+    return {"has_business_data": _has_business_data(db, user)}
 
 
 @router.post("/data/demo/seed")
@@ -292,15 +366,13 @@ def load_demo_data(
     _require_teacher(user)
     if credentials is None:
         raise HTTPException(status_code=401, detail="未登录")
-    if _has_business_data(db):
+    if _has_business_data(db, user):
         raise HTTPException(
             status_code=409,
-            detail="系统中已有业务数据（可能属于其他教师账号），加载演示数据会清空全部数据；请先「清空业务数据」后再加载演示数据",
+            detail="当前工作台已有数据，加载演示数据前请先「清空业务数据」",
         )
     try:
-        teacher = _clear_business_data_for_teacher(
-            db, user, credentials.credentials, load_seed=True
-        )
+        teacher = _clear_workspace_data(db, user, load_seed=True)
         db.commit()
     except Exception as exc:
         db.rollback()
@@ -317,14 +389,12 @@ def reset_app_data(
     user: Person = Depends(get_current_person),
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ):
-    """Clear all business data but keep the current teacher signed in."""
+    """Clear this teacher's workspace data but keep the account signed in."""
     _require_teacher(user)
     if credentials is None:
         raise HTTPException(status_code=401, detail="未登录")
     try:
-        teacher = _clear_business_data_for_teacher(
-            db, user, credentials.credentials, load_seed=False
-        )
+        teacher = _clear_workspace_data(db, user, load_seed=False)
         db.commit()
     except Exception as exc:
         db.rollback()
