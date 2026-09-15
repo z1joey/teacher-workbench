@@ -87,13 +87,13 @@ const exportingRoster = ref(false)
 const exportingVisits = ref(false)
 const exportingScores = ref(false)
 
-// 系统未分班（is_unassigned）：导入默认就落未分班，无需重复列出；
-// 0 人时也没有可导出的名单，不进导出选项
+// 系统未分班（is_unassigned）：导入默认就落未分班，导出也不列出——
+// 其 academic_year 为内部标识 __system__，且后端按真实班级导出。
 const importClassOptions = computed(() =>
   classes.value.filter((c) => !c.is_unassigned)
 )
 const exportClassOptions = computed(() =>
-  classes.value.filter((c) => !(c.is_unassigned && !c.student_count))
+  classes.value.filter((c) => !c.is_unassigned)
 )
 
 function requireExportClass() {
