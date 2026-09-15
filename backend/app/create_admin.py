@@ -54,9 +54,7 @@ def ensure_admin(
                 email,
             )
             return None, "skipped"
-        existing.payload = validate_person_payload(
-            "admin", {"is_active": (existing.payload or {}).get("is_active", True)}
-        )
+        existing.payload = validate_person_payload("admin", {})
         db.commit()
         return existing, "promoted"
 

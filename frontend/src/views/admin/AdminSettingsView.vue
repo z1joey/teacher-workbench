@@ -15,7 +15,6 @@ const settings = ref({ registration_enabled: true })
 const loadingSettings = ref(true)
 const savingSettings = ref(false)
 const resetting = ref(false)
-const clearingBusiness = ref(false)
 
 async function loadSettings() {
   loadingSettings.value = true
@@ -45,44 +44,6 @@ async function saveRegistrationEnabled() {
     await loadSettings()
   } finally {
     savingSettings.value = false
-  }
-}
-
-async function clearBusinessData() {
-  const ok = await ask({
-    title: t("admin.clearBusinessData"),
-    message: t("admin.clearBusinessDataWarn"),
-    consequences: [
-      "教师与学生账号会被删除；管理员账号会保留，你无需重新登录。",
-      "删除后无法恢复；如需演示数据，可在教师端「数据」页重新加载。",
-    ],
-    confirmLabel: t("admin.clearBusinessData"),
-    tone: "warn",
-  })
-  if (!ok) return
-  const confirmed = await ask({
-    title: t("admin.clearBusinessData"),
-    message: t("admin.clearBusinessDataWarn"),
-    consequences: [
-      "此操作不会重置数据库结构，也不会删除管理员账号。",
-    ],
-    confirmLabel: t("admin.clearBusinessData"),
-    confirmWord: t("admin.clearBusinessDataConfirm"),
-  })
-  if (!confirmed) return
-  clearingBusiness.value = true
-  try {
-    await api.post("/admin/db/clear-business")
-    notify({
-      tone: "ok",
-      title: t("admin.clearBusinessDataDone"),
-      detail: t("admin.clearBusinessDataDoneHint"),
-      timeout: 6000,
-    })
-  } catch (e) {
-    notify({ tone: "error", title: t("admin.clearBusinessDataFail"), detail: friendlyError(e) })
-  } finally {
-    clearingBusiness.value = false
   }
 }
 
@@ -151,15 +112,8 @@ onMounted(loadSettings)
         <p class="card__desc">{{ t("admin.dangerZoneDesc") }}</p>
       </div>
     </div>
-    <div class="card__body stack" style="gap: 12px">
-      <button
-        class="btn btn--danger"
-        :disabled="clearingBusiness || resetting"
-        @click="clearBusinessData"
-      >
-        <Icon name="trash" :size="15" /> {{ t("admin.clearBusinessData") }}
-      </button>
-      <button class="btn btn--danger-solid" :disabled="resetting || clearingBusiness" @click="resetDb">
+    <div class="card__body">
+      <button class="btn btn--danger-solid" :disabled="resetting" @click="resetDb">
         <Icon name="alert" :size="15" /> {{ t("admin.resetDb") }}
       </button>
     </div>

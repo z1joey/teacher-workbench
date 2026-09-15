@@ -32,7 +32,7 @@ def _student(db, name: str, admission_no: str, teacher: Person) -> Person:
 
 
 def _class(db, name: str, teacher: Person) -> Class:
-    c = Class(name=name, academic_year="2026", teacher_id=teacher.id)
+    c = Class(name=name, academic_year="2026-09", teacher_id=teacher.id)
     db.add(c)
     db.flush()
     return c

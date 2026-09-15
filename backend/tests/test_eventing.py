@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app import eventing
 from app.database import Base
 from app.models import Person
+from app.payloads import validate_person_payload
 
 
 @pytest.fixture()
@@ -65,8 +66,8 @@ def test_sync_birthday_event_creates_and_removes(db, person):
     assert db.query(Event).filter(Event.type == "birthday").count() == 1
 
     payload = dict(person.payload or {})
-    payload["is_active"] = False
-    person.payload = payload
+    payload["graduated_at"] = "2026-07-01"
+    person.payload = validate_person_payload("student", payload)
     eventing.sync_birthday_event(db, person)
     db.commit()
     assert db.query(Event).filter(Event.type == "birthday").count() == 0

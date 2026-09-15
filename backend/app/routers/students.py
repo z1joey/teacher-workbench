@@ -7,7 +7,7 @@ guardians are Person rows of role "guardian" linked through student_guardians
 (no flattened guardian_name/phone on the student anymore). Every
 history/timeline item is an Event row linked through person_events. Each active
 student with a birth_date gets one system-managed birthday Event (yearly, removed
-when the student becomes inactive).
+when the student graduates).
 
 Score "results" are per-student per-subject Events of type "score" whose title
 is "<exam name>·<subject>" (the prefix groups a sitting; subject/score/
@@ -20,7 +20,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -47,10 +47,12 @@ from ..payloads import validate_event_payload, validate_person_payload
 from ..security import hash_password
 from ..unassigned import class_for_api, ensure_unassigned_class, is_unassigned_class
 from ..workspace import (
+    admission_no_taken,
     require_class_in_workspace,
     require_student_in_workspace,
     students_query,
     tag_student_workspace,
+    workspace_id,
 )
 
 router = APIRouter(
@@ -208,7 +210,7 @@ def _status_of(person: Person) -> str:
     payload = person.payload or {}
     if payload.get("graduated_at"):
         return "graduated"
-    return "active" if payload.get("is_active", True) else "inactive"
+    return "active"
 
 
 def _graduate_side_effects(db: Session, s: Person, class_name: str | None) -> None:
@@ -238,22 +240,9 @@ def graduate_student(db: Session, s: Person, class_name: str | None) -> bool:
     if payload.get("graduated_at"):
         return False
     payload["graduated_at"] = date.today().isoformat()
-    payload["is_active"] = False
     s.payload = validate_person_payload("student", payload)
     _graduate_side_effects(db, s, class_name)
     return True
-
-
-def _admission_no_in_use(
-    db: Session, admission_no: str, *, exclude_id: uuid.UUID | None = None,
-) -> bool:
-    q = db.query(Person.id).filter(
-        Person.payload["role"].as_string() == "student",
-        Person.payload["admission_no"].as_string() == admission_no,
-    )
-    if exclude_id is not None:
-        q = q.filter(Person.id != exclude_id)
-    return q.first() is not None
 
 
 def _guardians_of(db: Session, student_id: uuid.UUID):
@@ -268,14 +257,12 @@ def _guardians_of(db: Session, student_id: uuid.UUID):
     )
 
 
-def _find_or_create_guardian(db: Session, name: str, phone: str | None,
-                             address: str | None = None) -> Person:
+def _find_or_create_guardian(db: Session, name: str, phone: str | None) -> Person:
     """Locate an existing guardian by phone (or name), else mint a new Person
     of role "guardian". Guardians are independent of the student's lifecycle,
     so two students sharing a phone share one guardian row."""
     name = name.strip()
     phone = (phone or "").strip() or None
-    address = (address or "").strip() or None
     guardian = (
         db.query(Person)
         .filter(Person.payload["role"].as_string() == "guardian", Person.phone == phone)
@@ -297,15 +284,13 @@ def _find_or_create_guardian(db: Session, name: str, phone: str | None,
         payload = dict(guardian.payload or {})
         if phone:
             payload["phone"] = phone
-        if address:
-            payload["address"] = address
         guardian.payload = validate_person_payload("guardian", payload)
         return guardian
     guardian = Person(
         name=name,
         phone=phone,
         password_hash=hash_password(uuid.uuid4().hex),
-        payload=validate_person_payload("guardian", {"phone": phone, "address": address}),
+        payload=validate_person_payload("guardian", {"phone": phone}),
     )
     db.add(guardian)
     db.flush()
@@ -336,7 +321,6 @@ class GuardianLinkIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     phone: str | None = Field(default=None, max_length=40)
     relationship: str | None = Field(default=None, max_length=50)
-    address: str | None = Field(default=None, max_length=200)
 
 
 def _guardian_link(db: Session, student_id: uuid.UUID, guardian: Person,
@@ -371,7 +355,7 @@ def add_student_guardian(
     person = db.get(Person, student_id)
     if person is None or person.role != "student":
         raise HTTPException(status_code=404, detail="student not found")
-    guardian = _find_or_create_guardian(db, body.name, body.phone, body.address)
+    guardian = _find_or_create_guardian(db, body.name, body.phone)
     _guardian_link(db, student_id, guardian, body.relationship)
     db.commit()
     return {"id": str(guardian.id), "name": guardian.name,
@@ -431,7 +415,6 @@ def get_guardian(
         "id": str(g.id),
         "name": g.name,
         "phone": (g.payload or {}).get("phone"),
-        "address": (g.payload or {}).get("address"),
         "wards": wards,
     }
 
@@ -617,15 +600,23 @@ def list_students(
 
 
 @router.get("/tags")
-def list_tags(db: Session = Depends(get_db)):
-    """All in-use tags (attached to at least one person), for manual reuse.
+def list_tags(
+    db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
+):
+    """In-use tags on this teacher's workspace students, for manual reuse.
     系统自动挂载的标签（如毕业流程的「已毕业」）不在此列，避免手动重复添加。"""
+    wid = workspace_id(user)
     tags = (
         db.query(Tag, func.count(person_tags.c.person_id))
-        .outerjoin(person_tags, person_tags.c.tag_id == Tag.id)
-        .filter(Tag.name != AUTO_GRADUATED_TAG_NAME)
+        .join(person_tags, person_tags.c.tag_id == Tag.id)
+        .join(Person, Person.id == person_tags.c.person_id)
+        .filter(
+            Tag.name != AUTO_GRADUATED_TAG_NAME,
+            Person.payload["role"].as_string() == "student",
+            Person.payload["workspace_id"].as_string() == wid,
+        )
         .group_by(Tag.id)
-        .having(func.count(person_tags.c.person_id) > 0)
         .order_by(func.count(person_tags.c.person_id).desc(), Tag.name)
         .all()
     )
@@ -707,8 +698,8 @@ def create_student(
         cls = ensure_unassigned_class(db)
     max_no = 0
     admission_nos = (
-        db.query(Person.payload["admission_no"].as_string())
-        .filter(Person.payload["role"].as_string() == "student")
+        students_query(db, user)
+        .with_entities(Person.payload["admission_no"].as_string())
         .all()
     )
     for (no,) in admission_nos:
@@ -1379,7 +1370,7 @@ class StudentUpdateIn(BaseModel):
     guardian_name: str | None = None
     guardian_phone: str | None = Field(default=None, min_length=5, max_length=40)
     address: str | None = None
-    status: str | None = None  # active | inactive
+    status: str | None = None  # active | graduated
     class_id: uuid.UUID | None = None  # omit to leave class unchanged
 
 
@@ -1388,13 +1379,13 @@ def update_student(
     student_id: uuid.UUID,
     body: StudentUpdateIn,
     db: Session = Depends(get_db),
+    user: Person = Depends(get_current_person),
 ):
-    s = db.get(Person, student_id)
-    if s is None or s.role != "student":
-        raise HTTPException(status_code=404, detail="student not found")
+    s = require_student_in_workspace(db, user, student_id)
 
     # copy-modify-reassign so a partial patch never drops sibling payload keys
     payload = dict(s.payload or {})
+    wid = workspace_id(user)
     if body.name is not None:
         s.name = body.name.strip()
     if body.admission_no is not None:
@@ -1402,8 +1393,8 @@ def update_student(
         if not admission_no:
             raise HTTPException(status_code=400, detail="请填写学号")
         current_no = (payload.get("admission_no") or "").strip()
-        if admission_no != current_no and _admission_no_in_use(
-            db, admission_no, exclude_id=student_id,
+        if admission_no != current_no and admission_no_taken(
+            db, admission_no, wid, exclude_id=student_id,
         ):
             raise HTTPException(status_code=400, detail="学号已被使用")
         payload["admission_no"] = admission_no
@@ -1415,21 +1406,17 @@ def update_student(
         payload["address"] = body.address or None
     graduating = False
     if body.status is not None:
-        if body.status not in ("active", "inactive", "graduated"):
+        if body.status not in ("active", "graduated"):
             raise HTTPException(
                 status_code=400,
-                detail="status must be 'active', 'inactive' or 'graduated'",
+                detail="status must be 'active' or 'graduated'",
             )
         if body.status == "graduated":
             if not payload.get("graduated_at"):
                 payload["graduated_at"] = date.today().isoformat()
-                payload["is_active"] = False
                 graduating = True
-        elif body.status == "active":
-            payload["graduated_at"] = None
-            payload["is_active"] = True
         else:
-            payload["is_active"] = False
+            payload["graduated_at"] = None
     s.payload = validate_person_payload("student", payload)
 
     # 毕业副作用放在 payload 落定之后：关学籍、写毕业事件、打已毕业标签
@@ -1497,6 +1484,63 @@ def update_student(
     }
 
 
+def _hard_delete_student(db: Session, student_id: uuid.UUID) -> None:
+    """Remove a student and all linked timeline rows (scores, visits, etc.)."""
+    s = db.get(Person, student_id)
+    if s is None:
+        return
+    event_ids = [
+        row[0]
+        for row in db.query(person_events.c.event_id)
+        .filter(person_events.c.person_id == student_id)
+        .all()
+    ]
+    guardian_ids = {
+        row[0]
+        for row in db.execute(
+            select(student_guardians.c.guardian_id).where(
+                student_guardians.c.student_id == student_id
+            )
+        )
+    }
+    if event_ids:
+        db.execute(
+            delete(person_events).where(
+                or_(
+                    person_events.c.event_id.in_(event_ids),
+                    person_events.c.person_id == student_id,
+                )
+            )
+        )
+        db.query(Event).filter(Event.id.in_(event_ids)).delete(synchronize_session=False)
+    db.execute(
+        student_guardians.delete().where(student_guardians.c.student_id == student_id)
+    )
+    db.execute(person_tags.delete().where(person_tags.c.person_id == student_id))
+    db.query(Enrollment).filter(Enrollment.person_id == student_id).delete(
+        synchronize_session=False
+    )
+    db.delete(s)
+    if guardian_ids:
+        still_linked = {
+            row[0]
+            for row in db.execute(
+                select(student_guardians.c.guardian_id).where(
+                    student_guardians.c.guardian_id.in_(guardian_ids)
+                )
+            )
+        }
+        orphan_guardian_ids = guardian_ids - still_linked
+        if orphan_guardian_ids:
+            role = Person.payload["role"].as_string()
+            db.execute(
+                delete(Person).where(
+                    Person.id.in_(orphan_guardian_ids),
+                    role == "guardian",
+                )
+            )
+
+
 @router.delete("/students/{student_id}")
 def delete_student(
     student_id: uuid.UUID,
@@ -1505,61 +1549,6 @@ def delete_student(
     s = db.get(Person, student_id)
     if s is None or s.role != "student":
         raise HTTPException(status_code=404, detail="student not found")
-    # Only allow hard delete when the student has no written evidence so the
-    # data integrity stays intact. Otherwise move to inactive.
-    # Remaining evidence: score Events and any teacher-written record (the
-    # generic 跟进记录 — home visits and comments).
-    has_results = (
-        db.query(Event)
-        .filter(Event.type == "score", Event.attendees.any(Person.id == student_id))
-        .first()
-        is not None
-    )
-    has_records = (
-        db.query(Event)
-        .filter(Event.type.in_(list(MANUAL_EVENT_TYPES)),
-                Event.attendees.any(Person.id == student_id))
-        .first()
-        is not None
-    )
-    if has_results or has_records:
-        # Soft delete: is_active=false + close enrollments (copy-modify-reassign)
-        payload = dict(s.payload or {})
-        payload["is_active"] = False
-        s.payload = validate_person_payload("student", payload)
-        for e in (
-            db.query(Enrollment)
-            .filter(Enrollment.person_id == student_id, Enrollment.valid_to.is_(None))
-            .all()
-        ):
-            e.valid_to = date.today()
-        create_event(
-            db,
-            event_type="comment",
-            title="账号停用",
-            start_time=utcnow(),
-            payload={
-                "notes": "账号停用",
-                "about": {"id": str(s.id), "name": s.name},
-            },
-            attendee_ids=[s.id],
-        )
-        sync_birthday_event(db, s)
-        db.commit()
-        return {"ok": True, "action": "deactivated"}
-
-    event_ids = [
-        row[0]
-        for row in db.query(person_events.c.event_id)
-        .filter(person_events.c.person_id == student_id)
-        .all()
-    ]
-    if event_ids:
-        db.query(Event).filter(Event.id.in_(event_ids)).delete(synchronize_session=False)
-    db.execute(person_tags.delete().where(person_tags.c.person_id == student_id))
-    db.query(Enrollment).filter(Enrollment.person_id == student_id).delete(
-        synchronize_session=False
-    )
-    db.delete(s)
+    _hard_delete_student(db, student_id)
     db.commit()
     return {"ok": True, "action": "deleted"}

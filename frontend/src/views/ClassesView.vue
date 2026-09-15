@@ -25,13 +25,13 @@ const createError = ref("")
 const createForm = ref(emptyForm())
 
 function emptyForm() {
-  return { name: "", academic_year: defaultYear() }
+  return { name: "", academic_year: defaultEnrollmentMonth() }
 }
 
-function defaultYear() {
+function defaultEnrollmentMonth() {
   const now = new Date()
-  const start = now.getMonth() + 1 >= 8 ? now.getFullYear() : now.getFullYear() - 1
-  return `${start}/${start + 1}`
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  return `${now.getFullYear()}-${month}`
 }
 
 async function load() {
@@ -121,8 +121,8 @@ async function createClass() {
         <FormField :label="t('classes.name')" required>
           <input v-model="createForm.name" class="input" type="text" maxlength="60" />
         </FormField>
-        <FormField :label="t('classes.year')" hint="跨年的学年，比如 2025/2026">
-          <input v-model="createForm.academic_year" class="input" type="text" />
+        <FormField :label="t('classes.year')" :hint="t('classes.yearHint')">
+          <input v-model="createForm.academic_year" class="input" type="month" required />
         </FormField>
       </div>
 

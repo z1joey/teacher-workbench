@@ -15,8 +15,8 @@ from ..database import get_db
 from ..deps import bearer_scheme, require_admin
 from ..models import AuthSession, Class, Enrollment, Event, Feedback, Person, Tag
 from ..payloads import validate_person_payload
-from ..routers.data import _clear_business_data
 from ..security import hash_password
+from ..workspace import build_workspace_admin_maps, workspace_id, workspace_owner_label
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -43,14 +43,8 @@ def admin_stats(
     def _role(p: Person) -> str | None:
         return (p.payload or {}).get("role")
 
-    def _active(p: Person) -> bool:
-        return (p.payload or {}).get("is_active") is not False
-
     persons_total = counts.get("person", 0)
     accounts_total = sum(1 for p in persons if _role(p) in login_roles)
-    accounts_active = sum(
-        1 for p in persons if _role(p) in login_roles and _active(p)
-    )
     return {
         "database": database.engine.url.drivername,
         "tables": counts,
@@ -61,15 +55,50 @@ def admin_stats(
         "users_admins": (
             db.query(Person).filter(Person.payload["role"].as_string() == "admin").count()
         ),
-        "users_active": sum(1 for p in persons if _active(p)),
-        "accounts_active": accounts_active,
+        "users_active": persons_total,
+        "accounts_active": accounts_total,
         "sessions_active": counts.get("auth_session", 0),
+    }
+
+
+def _user_workspace_fields(
+    u: Person,
+    *,
+    teachers_by_wid: dict[str, Person],
+    label_for_wid,
+    guardian_labels: dict,
+) -> dict:
+    role = u.role
+    payload = u.payload or {}
+    wid = payload.get("workspace_id")
+    owner_id = None
+    label = None
+
+    if role == "teacher":
+        wid = wid or workspace_id(u)
+        owner_id = u.id
+        label = workspace_owner_label(u)
+    elif role == "student":
+        owner = teachers_by_wid.get(wid or "")
+        owner_id = owner.id if owner else None
+        label = label_for_wid(wid)
+    elif role == "guardian":
+        labels = guardian_labels.get(u.id, [])
+        label = "、".join(labels) if labels else None
+    elif role == "admin":
+        label = "系统"
+
+    return {
+        "workspace_id": wid,
+        "workspace_owner_id": str(owner_id) if owner_id else None,
+        "workspace_label": label,
     }
 
 
 @router.get("/users")
 def list_users(
     role: str | None = None,
+    workspace_owner_id: str | None = None,
     db: Session = Depends(get_db),
     _me: Person = Depends(require_admin),
 ):
@@ -78,24 +107,56 @@ def list_users(
         if role not in LIST_USER_ROLES:
             raise HTTPException(status_code=400, detail="角色不合法")
         query = query.filter(Person.payload["role"].as_string() == role)
-    return [
-        {
-            "id": str(u.id),
-            "name": u.name,
-            "phone": u.phone,
-            "email": u.email,
-            "role": u.role,
-            "admission_no": (u.payload or {}).get("admission_no") if u.role == "student" else None,
-            "is_active": (u.payload or {}).get("is_active") is not False,
-            "created_at": u.created_at.isoformat() if u.created_at else None,
-        }
-        for u in query.all()
-    ]
+    teachers_by_wid, label_for_wid, guardian_labels = build_workspace_admin_maps(db)
+    owner_uuid = None
+    if workspace_owner_id:
+        try:
+            owner_uuid = uuid.UUID(workspace_owner_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="工作区参数不合法")
+        owner = db.get(Person, owner_uuid)
+        if owner is None or owner.role != "teacher":
+            raise HTTPException(status_code=400, detail="工作区参数不合法")
+        owner_wid = workspace_id(owner)
+
+    rows = []
+    for u in query.all():
+        ws = _user_workspace_fields(
+            u,
+            teachers_by_wid=teachers_by_wid,
+            label_for_wid=label_for_wid,
+            guardian_labels=guardian_labels,
+        )
+        if owner_uuid is not None:
+            if u.role == "teacher" and u.id != owner_uuid:
+                continue
+            if u.role == "student" and ws["workspace_id"] != owner_wid:
+                continue
+            if u.role == "guardian":
+                owner_label = label_for_wid(owner_wid)
+                if not owner_label or owner_label not in (ws["workspace_label"] or ""):
+                    continue
+            if u.role == "admin":
+                continue
+        rows.append(
+            {
+                "id": str(u.id),
+                "name": u.name,
+                "phone": u.phone,
+                "email": u.email,
+                "role": u.role,
+                "admission_no": (u.payload or {}).get("admission_no")
+                if u.role == "student"
+                else None,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                **ws,
+            }
+        )
+    return rows
 
 
 class UserUpdate(BaseModel):
     role: str | None = None
-    is_active: bool | None = None
     password: str | None = None
 
 
@@ -136,33 +197,19 @@ def update_user(
     u = db.get(Person, user_id)
     if u is None:
         raise HTTPException(status_code=404, detail="账号不存在")
-    # A role change rebuilds the payload from {name, is_active} only, which
-    # would wipe a student's admission_no/birth_date/guardian fields — and
-    # hard-deleting a student orphans their attended event rows. Student
-    # profiles are managed on /students instead.
+    # A role change rebuilds the payload from scratch, which would wipe a
+    # student's admission_no/birth_date/guardian fields. Student profiles
+    # are managed on /students instead.
     if (u.payload or {}).get("role") == "student":
         raise HTTPException(status_code=400, detail="学生账号不支持此操作")
-    # Don't allow an admin to lock themselves out — demoting their role or
-    # deactivating their account both make every subsequent request 401/403
-    # with no in-app recovery.
-    if user_id == me.id:
-        if body.role is not None and body.role != "admin":
-            raise HTTPException(status_code=400, detail="不能降级自己的角色")
-        if body.is_active is False:
-            raise HTTPException(status_code=400, detail="不能停用自己的账号")
+    # Don't allow an admin to demote themselves — no in-app recovery.
+    if user_id == me.id and body.role is not None and body.role != "admin":
+        raise HTTPException(status_code=400, detail="不能降级自己的角色")
     payload = dict(u.payload or {})
     if body.role is not None:
         if body.role not in ("admin", "teacher"):
             raise HTTPException(status_code=400, detail="角色不合法")
-        # Re-validate under the new role: payload shapes differ (a teacher's
-        # `is_active` flag is fine for an admin payload too, but the strict
-        # schemas would reject fields from the other role).
-        payload = validate_person_payload(
-            body.role,
-            {"is_active": payload.get("is_active", True)},
-        )
-    if body.is_active is not None:
-        payload["is_active"] = body.is_active
+        payload = validate_person_payload(body.role, {})
     u.payload = payload  # reassign: JSON columns don't see in-place mutation
     if body.password:
         u.password_hash = hash_password(body.password)
@@ -181,8 +228,6 @@ def delete_user(
     u = db.get(Person, user_id)
     if u is None:
         raise HTTPException(status_code=404, detail="账号不存在")
-    # Hard-deleting a student would orphan the event rows they attended.
-    # Students are removed via /students/{id} (soft delete keeps the timeline).
     if (u.payload or {}).get("role") == "student":
         raise HTTPException(status_code=400, detail="学生账号不支持此操作")
     referenced = db.query(Enrollment.id).filter(Enrollment.person_id == user_id).first()
@@ -318,48 +363,6 @@ def inspect_table(
         "total": total,
         "total_pages": total_pages,
     }
-
-
-@router.post("/db/clear-business")
-def clear_business_data_admin(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-):
-    """Delete business rows but keep admin accounts and the current session.
-
-    Unlike /db/reset this does not drop tables or wipe admin logins.
-    """
-    if credentials is None:
-        raise HTTPException(status_code=401, detail="未登录")
-    token = credentials.credentials
-    with Session(database.engine, autoflush=False, expire_on_commit=False) as auth_db:
-        session = auth_db.get(AuthSession, token)
-        if session is None:
-            raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
-        person = auth_db.get(Person, session.person_id)
-        if person is None or not person.is_admin:
-            raise HTTPException(status_code=403, detail="admin only")
-        admin_ids = {
-            p.id
-            for p in auth_db.query(Person).all()
-            if (p.payload or {}).get("role") == "admin"
-        }
-        if not admin_ids:
-            raise HTTPException(status_code=500, detail="未找到管理员账号")
-        primary_id = person.id
-
-    with Session(database.engine, autoflush=False, expire_on_commit=False) as db:
-        try:
-            _clear_business_data(
-                db,
-                token,
-                keep_person_ids=admin_ids,
-                primary_person_id=primary_id,
-            )
-            db.commit()
-        except Exception as exc:
-            db.rollback()
-            raise HTTPException(status_code=500, detail=f"清空失败: {exc}") from exc
-    return {"ok": True}
 
 
 @router.post("/db/reset")

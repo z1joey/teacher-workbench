@@ -21,7 +21,7 @@ def test_full_app_client_smoke(client):
     # per-test engine — boots and serves the no-auth health route.
     r = client.get("/api/health")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "version": "0.1.1", "beta": True}
+    assert r.json() == {"ok": True, "version": "0.1.2", "beta": True}
 
 
 def test_seed_loads_demo_data(tmp_path, monkeypatch):
@@ -154,8 +154,11 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         assert usage["已毕业"] == 6
 
         # graduation: 六1班 is archived; its 6 students carry graduated_at +
-        # is_active=False and their 六1班 enrollment closed on the grad date
+        # graduated_at set and their 六1班 enrollment closed on the grad date
+        c71 = db.query(Class).filter(Class.name == "七年级1班").one()
+        assert c71.academic_year == "2025-09"
         c61 = db.query(Class).filter(Class.name == "六1班").one()
+        assert c61.academic_year == "2024-09"
         assert c61.archived is True
         grad_at = Person.payload["graduated_at"].as_string()
         grads = (
@@ -172,7 +175,7 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
             ("赵一诺", "F"), ("钱思远", "M"), ("孙悦宁", "F"),
             ("黄嘉树", "M"), ("范雨桐", "F"), ("魏子墨", "M"),
         ]}
-        assert all(not (s.payload or {}).get("is_active", True) for s in grads)
+        assert all((s.payload or {}).get("graduated_at") for s in grads)
         closed = (
             db.query(Enrollment)
             .filter(Enrollment.class_id == c61.id, Enrollment.valid_to.is_not(None))

@@ -19,7 +19,7 @@ def client(make_client, db):
     tc = make_client(classes_router.router)
     teacher = seed_person(db, "chen@test.example", phone="13800000001", name="陈老师")
     seed_token(db, teacher, TEACHER_TOKEN)
-    klass = Class(name="初一1班", academic_year="2025/2026", teacher_id=teacher.id)
+    klass = Class(name="初一1班", academic_year="2025-09", teacher_id=teacher.id)
     db.add(klass)
     db.flush()
     s1 = seed_person(db, None, role="student", name="吴梓涵", admission_no="2025070701")

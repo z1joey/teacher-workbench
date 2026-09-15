@@ -17,6 +17,7 @@ import { notify, runUndoable } from "../feedback"
 import { setPageTitle } from "../title"
 import {
   classBreadcrumbLabel,
+  formatEnrollmentMonth,
   friendlyError,
   genderLabel,
   subject,
@@ -94,7 +95,9 @@ const switcherOptions = computed(() =>
 
 function classLabel(c) {
   if (c.is_unassigned) return c.name
-  return duplicateNames.value.has(c.name) ? `${c.name}（${c.academic_year}）` : c.name
+  return duplicateNames.value.has(c.name)
+    ? `${c.name}（${formatEnrollmentMonth(c.academic_year)}）`
+    : c.name
 }
 
 function startEdit() {
@@ -410,8 +413,8 @@ function fmtPct(score, full) {
             <FormField :label="t('classes.name')" required>
               <input v-model="editForm.name" class="input" type="text" maxlength="60" />
             </FormField>
-            <FormField :label="t('classes.year')">
-              <input v-model="editForm.academic_year" class="input" type="text" />
+            <FormField :label="t('classes.year')" :hint="t('classes.yearHint')">
+              <input v-model="editForm.academic_year" class="input" type="month" required />
             </FormField>
           </div>
 

@@ -7,11 +7,13 @@ another teacher's roster or events.
 from __future__ import annotations
 
 import uuid
+from collections import defaultdict
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from .models import Class, Event, Person
+from .models.associations import student_guardians
 from .payloads import validate_person_payload
 from .unassigned import is_unassigned_class
 
@@ -52,6 +54,72 @@ def classes_query(db: Session, teacher: Person, include_archived: bool = False):
     if not include_archived:
         q = q.filter(Class.archived.is_(False))
     return q
+
+
+def admission_no_taken(
+    db: Session,
+    admission_no: str,
+    workspace_wid: str,
+    *,
+    exclude_id: uuid.UUID | None = None,
+) -> bool:
+    """Return whether another student in the same workspace already uses this 学号."""
+    q = db.query(Person.id).filter(
+        Person.payload["role"].as_string() == "student",
+        Person.payload["workspace_id"].as_string() == workspace_wid,
+        Person.payload["admission_no"].as_string() == admission_no,
+    )
+    if exclude_id is not None:
+        q = q.filter(Person.id != exclude_id)
+    return q.first() is not None
+
+
+def workspace_owner_label(teacher: Person | None) -> str | None:
+    if teacher is None:
+        return None
+    name = (teacher.name or "").strip() or "未命名"
+    if teacher.email:
+        return f"{name} · {teacher.email}"
+    if teacher.phone:
+        return f"{name} · {teacher.phone}"
+    return name
+
+
+def build_workspace_admin_maps(db: Session):
+    """Maps for admin listings: workspace_id -> teacher, guardian -> owner labels."""
+    role_teacher = Person.payload["role"].as_string() == "teacher"
+    teachers_by_wid: dict[str, Person] = {}
+    for teacher in db.query(Person).filter(role_teacher).all():
+        wid = (teacher.payload or {}).get("workspace_id")
+        if wid:
+            teachers_by_wid[wid] = teacher
+
+    def label_for_wid(wid: str | None) -> str | None:
+        if not wid:
+            return None
+        return workspace_owner_label(teachers_by_wid.get(wid))
+
+    student_wids: dict[uuid.UUID, str] = {}
+    role_student = Person.payload["role"].as_string() == "student"
+    for student_id, payload in db.query(Person.id, Person.payload).filter(role_student).all():
+        wid = (payload or {}).get("workspace_id")
+        if wid:
+            student_wids[student_id] = wid
+
+    guardian_labels: dict[uuid.UUID, list[str]] = defaultdict(list)
+    if student_wids:
+        for guardian_id, student_id in db.query(
+            student_guardians.c.guardian_id,
+            student_guardians.c.student_id,
+        ):
+            wid = student_wids.get(student_id)
+            if not wid:
+                continue
+            label = label_for_wid(wid)
+            if label and label not in guardian_labels[guardian_id]:
+                guardian_labels[guardian_id].append(label)
+
+    return teachers_by_wid, label_for_wid, guardian_labels
 
 
 def student_in_workspace(student: Person | None, teacher: Person) -> bool:

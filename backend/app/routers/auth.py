@@ -194,7 +194,7 @@ def forgot_password(
     except RedisError:
         raise HTTPException(status_code=503, detail="验证码服务暂不可用，请稍后再试")
     person = db.query(Person).filter(Person.email == email).first()
-    if person is not None and (person.payload or {}).get("is_active", True) is not False:
+    if person is not None:
         try:
             send_mail(email, "重置密码验证码", build_reset_email(code))
         except MailError:

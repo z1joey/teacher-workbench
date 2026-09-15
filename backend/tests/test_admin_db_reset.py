@@ -95,6 +95,34 @@ def test_wipe_and_rebootstrap_repairs_after_bootstrap_failure(engine, monkeypatc
     assert insp.has_table("person")
 
 
+def test_wipe_and_rebootstrap_clears_legacy_teacher_student_tables(engine, monkeypatch):
+    """Orphan pre-person tables must not survive reset and block ensure_schema."""
+    monkeypatch.setenv("DATABASE_URL", str(engine.url))
+    monkeypatch.setenv("ADMIN_EMAIL", "admin136@test.example")
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin-pass-123")
+    monkeypatch.setattr(database_module, "engine", engine)
+    monkeypatch.setattr(bootstrap_db, "engine", engine)
+
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS person"))
+        conn.execute(
+            text(
+                "CREATE TABLE teacher (id INTEGER PRIMARY KEY, email TEXT, password_hash TEXT)"
+            )
+        )
+        conn.execute(text("CREATE TABLE student (id INTEGER PRIMARY KEY, name TEXT)"))
+        conn.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) PRIMARY KEY)"))
+        conn.execute(text("INSERT INTO alembic_version (version_num) VALUES ('0004')"))
+
+    bootstrap_db.wipe_and_rebootstrap()
+
+    insp = inspect(engine)
+    assert "teacher" not in insp.get_table_names()
+    assert "student" not in insp.get_table_names()
+    assert insp.has_table("person")
+    assert insp.has_table("alembic_version")
+
+
 def test_admin_db_reset_failure_leaves_health_ok(client, db, monkeypatch):
     def boom():
         raise RuntimeError("simulated wipe failure")

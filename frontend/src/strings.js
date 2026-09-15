@@ -44,7 +44,7 @@ const messages = {
   "admin.title": "开发者后台",
   "admin.navOverview": "概览",
   "admin.subtitleOverview": "数据库统计与各表行数",
-  "admin.subtitleAccounts": "启停用账号、调整角色与重置密码",
+  "admin.subtitleAccounts": "管理账号、调整角色与重置密码",
   "admin.subtitleFeedback": "查看教师提交的意见与建议",
   "admin.subtitleSessions": "查看并终止活动登录会话",
   "admin.subtitleInspect": "按表预览原始数据，用于排查问题",
@@ -76,12 +76,13 @@ const messages = {
   "admin.dbDriver": "数据库驱动",
   "admin.dbTables": "数据表行数",
   "admin.personsTotal": "身份总数",
-  "admin.accountsTotal": "可登录账号",
-  "admin.usersAdmins": "管理员",
+  "admin.accountsTotal": "注册账号",
   "admin.accountsActive": "活跃账号",
   "admin.sessionsActive": "活动会话",
   "admin.table": "表名",
   "admin.rows": "行数",
+  "admin.workspaceOwner": "所属工作区",
+  "admin.workspaceFilterAll": "全部工作区",
   "admin.teacherId": "ID",
   "admin.teacherName": "姓名",
   "admin.teacherPhone": "手机号",
@@ -121,12 +122,6 @@ const messages = {
   "admin.resetDbDone": "数据库已重置。",
   "admin.resetDbFail": "重置失败",
   "admin.resetDbRelogin": "数据库已重置，请使用管理员账号重新登录。",
-  "admin.clearBusinessData": "清空业务数据（保留管理员）",
-  "admin.clearBusinessDataWarn": "删除全部学生、班级、考试、成绩、跟进记录与用户反馈，但保留管理员账号。",
-  "admin.clearBusinessDataDone": "业务数据已清空。",
-  "admin.clearBusinessDataDoneHint": "教师与学生账号已删除。如需演示数据，请注册或登录教师账号后在「数据」页加载。",
-  "admin.clearBusinessDataFail": "清空失败",
-  "admin.clearBusinessDataConfirm": "清空业务数据",
   "admin.loading": "加载中…",
   "admin.saved": "已保存",
   "admin.error": "操作失败",
@@ -149,7 +144,8 @@ const messages = {
   "classes.creating": "创建中…",
   "classes.name": "班级名称",
   "classes.grade": "年级",
-  "classes.year": "学年",
+  "classes.year": "入学时间",
+  "classes.yearHint": "精确到月，例如 2025-09",
   "classes.viewDetail": "查看详情",
   "classes.delete": "删除班级",
   "classes.deleteConfirm": "删除后，这个班级会从所有列表里消失。",
@@ -301,16 +297,16 @@ const messages = {
   "data.demoSub": "用于本地试用或发布前验收：演示内容绑定当前教师账号，仅教师可操作。",
   "data.demoBody": "包含两个班级、全年成绩曲线、座位表、家访、谈心、辅导、家长沟通、评语、学生总结、比赛活动等真实场景。加载或清空后都会保留你当前登录的教师账号，无需重新登录。",
   "data.demoSeed": "加载演示数据",
-  "data.demoSeedWarn": "这会清空现有业务数据，并写入演示用的班级、学生、考试与跟进记录。",
+  "data.demoSeedWarn": "这会清空你当前工作台的数据，并写入演示用的班级、学生、考试与跟进记录。",
   "data.demoSeedDone": "演示数据已加载",
   "data.demoSeedFail": "加载演示数据失败",
   "data.demoSeedBlocked": "已有业务数据，无法直接加载",
   "data.demoSeedMustClearFirst":
     "当前工作台已有数据（真实数据或演示数据均可）。加载新的演示数据前，必须先「清空业务数据」。",
-  "data.demoSeedMustClearHint": "清空会删除全部学生、班级、考试、成绩与跟进记录，且无法恢复。",
+  "data.demoSeedMustClearHint": "清空只会删除你工作台内的学生、班级、考试、成绩与跟进记录，且无法恢复。",
   "data.demoReset": "清空业务数据",
-  "data.demoResetHint": "注意：已有业务数据时，要先「清空业务数据」才能加载演示数据。清空会删除所有真实数据（学生、班级、考试、成绩、跟进记录），且无法恢复。",
-  "data.demoResetWarn": "这会删除全部数据——不只是演示数据：你真实录入的所有学生、班级、考试、成绩和跟进记录都会被永久删除，回到空白工作台。",
+  "data.demoResetHint": "注意：已有业务数据时，要先「清空业务数据」才能加载演示数据。清空只会删除你工作台内的数据，不会影响其他教师账号。",
+  "data.demoResetWarn": "这会永久删除你工作台内的全部学生、班级、考试、成绩和跟进记录（含真实录入与演示数据），回到空白工作台。",
   "data.demoResetConfirm": "清空数据",
   "data.demoResetDone": "业务数据已清空",
   "data.demoResetFail": "清空失败",
@@ -347,7 +343,6 @@ const messages = {
   // --- 监护人 ---
   "guardian.subtitle": "联系方式与名下的被监护人",
   "guardian.phone": "电话",
-  "guardian.address": "地址",
   "guardian.wardCount": "被监护学生",
   "guardian.wards": "被监护学生",
   "guardian.wardsSub": "同一监护人可能关联多名学生，点击姓名查看学生档案。",
@@ -600,7 +595,7 @@ const messages = {
   "detail.recordEvent": "家访",
   "detail.nameRequired": "请填写学生姓名",
   "detail.admissionNoRequired": "请填写学号",
-  "detail.deleteConfirm": "如果他已有成绩或跟进记录，只会停用账号并保留数据；没有记录才会彻底删除。",
+  "detail.deleteConfirm": "删除后，这名学生及其成绩、跟进记录都会从系统中移除，且无法恢复。",
   "detail.profileEditTitle": "编辑资料",
   "detail.status": "状态",
   "detail.noScores": "还没有成绩",
@@ -632,7 +627,6 @@ const messages = {
 
   // --- 状态枚举 ---
   "status.active": "在读",
-  "status.inactive": "已停用",
   "status.graduated": "已毕业",
   "status.entered": "已录入",
   "status.absent": "缺考",
@@ -790,20 +784,28 @@ export function genderLabel(g) {
   return t(`gender.${g}`) === `gender.${g}` ? g : t(`gender.${g}`)
 }
 
-/** 班级页顶栏面包屑：七年级 1 班 • 2025/2026 */
+/** 将 YYYY-MM 格式化为「2025年9月」；其他格式原样返回。 */
+export function formatEnrollmentMonth(value) {
+  const raw = String(value || "").trim()
+  const m = /^(\d{4})-(\d{2})$/.exec(raw)
+  if (m) return `${m[1]}年${Number(m[2])}月`
+  return raw
+}
+
+/** 班级页顶栏面包屑：七年级 1 班 • 2025年9月 */
 export function classBreadcrumbLabel(name, academicYear) {
   const spaced = String(name || "")
     .replace(/(\D)(\d)/g, "$1 $2")
     .replace(/(\d)(?=\D)/g, "$1 ")
     .replace(/\s+/g, " ")
     .trim()
-  const year = String(academicYear || "").trim()
-  return year ? `${spaced} • ${year}` : spaced
+  const label = formatEnrollmentMonth(academicYear)
+  return label ? `${spaced} • ${label}` : spaced
 }
 
 // ------------------------------------------------------------------ 状态
 
-const STUDENT_STATUS = { active: "在读", inactive: "已停用", graduated: "已毕业" }
+const STUDENT_STATUS = { active: "在读", graduated: "已毕业" }
 export function studentStatusLabel(s) {
   return (s && STUDENT_STATUS[s]) || s || "—"
 }
@@ -872,13 +874,27 @@ export function eventDisplayName(event) {
 
 /** Feed / timeline subtitle — drop text already shown in the title row. */
 export function feedEventDesc(event) {
-  const desc = describeEvent(event.event_type, event.payload || {})
-  if (!desc) return ""
+  const type = event.event_type
+  const p = event.payload || {}
   const title = eventDisplayName(event)
+
+  // 家访：标题已是 summary（或 purpose），副标题只保留监护人、事由等元信息
+  if (type === "home_visited") {
+    const parts = []
+    if (p.guardian) parts.push(`与${p.guardian}`)
+    if (p.purpose && p.purpose !== title) parts.push(p.purpose)
+    return parts.join(" · ")
+  }
+
+  const desc = describeEvent(type, p)
+  if (!desc) return ""
   if (desc === title) return ""
   if (title && desc.startsWith(title)) {
     const rest = desc.slice(title.length).replace(/^\s*·\s*/, "").trim()
     return rest
+  }
+  if (title && desc.includes(` — ${title}`)) {
+    return desc.replace(` — ${title}`, "").trim()
   }
   return desc
 }
@@ -912,9 +928,11 @@ export function describeEvent(type, p = {}) {
       // 全局约定：生日只显示标题（见 eventTitle），不渲染描述
       return ""
     case "home_visited": {
-      const head = [p.guardian ? `与${p.guardian}` : "", p.purpose || ""].filter(Boolean).join(" · ")
-      if (p.summary) return head ? `${head} — ${p.summary}` : p.summary
-      return head
+      const parts = []
+      if (p.guardian) parts.push(`与${p.guardian}`)
+      if (p.purpose) parts.push(p.purpose)
+      if (p.summary) parts.push(p.summary)
+      return parts.join(" · ")
     }
     case "comment": {
       const base = p.notes ?? p.summary ?? p.note ?? ""

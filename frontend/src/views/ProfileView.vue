@@ -15,7 +15,7 @@ import { ask } from "../confirm"
 import { notify } from "../feedback"
 import { clearAll } from "../feedback"
 import { clearSearch } from "../search"
-import { friendlyError, t } from "../strings"
+import { formatEnrollmentMonth, friendlyError, t } from "../strings"
 
 const router = useRouter()
 
@@ -480,7 +480,7 @@ const activity = computed(() => {
                       {{ c.name }} <span class="muted" style="font-weight: 400">{{ t("profile.graduatedSuffix") }}</span>
                     </router-link>
                     <span class="stat__sub">
-                      {{ c.academic_year }}
+                      {{ formatEnrollmentMonth(c.academic_year) }}
                       <template v-if="c.students.length"> · {{ t("profile.studentsCount", { n: c.students.length }) }}</template>
                     </span>
                   </div>

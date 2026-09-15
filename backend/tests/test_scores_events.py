@@ -42,11 +42,8 @@ def _teacher_of(db) -> Person | None:
     )
 
 
-def _seed_person(db, name: str, admission_no: str, *, role: str = "student",
-                 active: bool = True) -> Person:
+def _seed_person(db, name: str, admission_no: str, *, role: str = "student") -> Person:
     payload = validate_person_payload(role, {"admission_no": admission_no})
-    if not active:
-        payload["is_active"] = False
     if role == "student":
         # 工作区隔离：学生要挂到教师工作区，该教师的接口才看得到
         teacher = _teacher_of(db)
@@ -77,7 +74,7 @@ def _headers(db, person: Person, token: str = "t" * 64) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _seed_class(db, name: str = "七年级1班", academic_year: str = "2026") -> Class:
+def _seed_class(db, name: str = "七年级1班", academic_year: str = "2026-09") -> Class:
     # 班级归属到教师：工作区隔离后 require_class_in_workspace 校验所有权
     teacher = _teacher_of(db)
     c = Class(name=name, academic_year=academic_year,
@@ -528,7 +525,7 @@ def test_patch_exam_rewrites_score_titles_and_dates(make_client, db, headers):
                               )}
 
 
-def test_delete_exam_keeps_score_events(make_client, db, headers):
+def test_delete_exam_purges_score_events(make_client, db, headers):
     client = make_client(exams_router.router, classes_router.router)
     cls = _seed_class(db)
     a = _seed_person(db, "张一", "S1")
@@ -544,15 +541,10 @@ def test_delete_exam_keeps_score_events(make_client, db, headers):
     assert r.status_code == 200
     assert r.json() == {"ok": True}
     assert db.query(Event).filter(Event.type == "exam").count() == 0
-    # score events are individual rows — deleting the sitting keeps them
-    assert db.query(Event).filter(Event.type == "score").count() == 1
-    # with no sitting to match, the class trend resolves exam_id to None
+    assert db.query(Event).filter(Event.type == "score").count() == 0
     rows = client.get("/api/classes", headers=headers).json()
     mine = next(r for r in rows if r["id"] == str(cls.id))
-    assert mine["avg_trend"] == [
-        {"exam_id": None, "exam_name": "期中考试", "exam_date": "2026-05-20",
-         "averages": {"语文": 90.0}},
-    ]
+    assert mine["avg_trend"] == []
 
     again = client.delete(f"/api/exams/{e1['id']}", headers=headers)
     assert again.status_code == 404
@@ -569,38 +561,40 @@ def test_class_crud_contract(make_client, db, headers):
     db.commit()
 
     r = client.post("/api/classes", json={
-        "name": "七年级1班", "academic_year": "2026",
+        "name": "七年级1班", "academic_year": "2026-09",
     }, headers=headers)
     assert r.status_code == 201, r.text
     data = r.json()
     assert data == {
         "id": data["id"], "name": "七年级1班",
-        "academic_year": "2026", "is_unassigned": False,
+        "academic_year": "2026-09", "is_unassigned": False,
         "archived": False,
         "student_count": 0, "students": [],
     }
 
     dup = client.post("/api/classes", json={
-        "name": "七年级1班", "academic_year": "2026",
+        "name": "七年级1班", "academic_year": "2026-09",
     }, headers=headers)
     assert dup.status_code == 409
-    assert dup.json()["detail"] == "该学年已存在同名班级"
+    assert dup.json()["detail"] == "该入学时间已存在同名班级"
 
     _enroll(db, student, db.get(Class, uuid.UUID(data["id"])))
     db.commit()
     patched = client.patch(f"/api/classes/{data['id']}", json={
-        "name": "七年级1班", "academic_year": "2026/2027",
+        "name": "七年级1班", "academic_year": "2027-03",
     }, headers=headers)
     assert patched.status_code == 200
-    assert patched.json()["academic_year"] == "2026/2027"
+    assert patched.json()["academic_year"] == "2027-03"
     assert patched.json()["student_count"] == 1
 
-    conflict = client.delete(f"/api/classes/{data['id']}", headers=headers)
-    assert conflict.status_code == 409
-    assert conflict.json()["detail"] == "班级内仍有学生或历史记录，无法删除"
+    gone_with_students = client.delete(f"/api/classes/{data['id']}", headers=headers)
+    assert gone_with_students.status_code == 200
+    assert gone_with_students.json() == {"ok": True}
+    assert db.get(Class, uuid.UUID(data["id"])) is None
+    assert db.get(Person, student.id) is not None
 
     empty = client.post("/api/classes", json={
-        "name": "七年级3班", "academic_year": "2026",
+        "name": "七年级3班", "academic_year": "2026-09",
     }, headers=headers)
     assert empty.status_code == 201
     gone = client.delete(f"/api/classes/{empty.json()['id']}", headers=headers)
@@ -610,6 +604,80 @@ def test_class_crud_contract(make_client, db, headers):
     missing = client.get(f"/api/classes/{uuid.uuid4()}", headers=headers)
     assert missing.status_code == 404
     assert missing.json()["detail"] == "class not found"
+
+
+def test_class_same_name_different_enrollment_months_allowed(make_client, db, headers):
+    client = make_client(classes_router.router)
+    r1 = client.post(
+        "/api/classes",
+        json={"name": "七年级1班", "academic_year": "2026-09"},
+        headers=headers,
+    )
+    r2 = client.post(
+        "/api/classes",
+        json={"name": "七年级1班", "academic_year": "2027-03"},
+        headers=headers,
+    )
+    assert r1.status_code == 201, r1.text
+    assert r2.status_code == 201, r2.text
+    assert r1.json()["id"] != r2.json()["id"]
+
+
+def test_class_rejects_invalid_enrollment_month(make_client, db, headers):
+    client = make_client(classes_router.router)
+    r = client.post(
+        "/api/classes",
+        json={"name": "七年级1班", "academic_year": "2025/2026"},
+        headers=headers,
+    )
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    if isinstance(detail, list):
+        detail = "; ".join(item.get("msg", "") for item in detail)
+    assert "YYYY-MM" in detail
+
+
+def test_class_same_name_allowed_across_teachers(make_client, db):
+    t1 = _seed_teacher(db, phone="13800000021", email="c1@test.example")
+    t2 = _seed_teacher(db, phone="13800000022", email="c2@test.example")
+    h1 = _headers(db, t1, "a" * 64)
+    h2 = _headers(db, t2, "b" * 64)
+    client = make_client(classes_router.router)
+
+    r1 = client.post(
+        "/api/classes",
+        json={"name": "七年级1班", "academic_year": "2026-09"},
+        headers=h1,
+    )
+    r2 = client.post(
+        "/api/classes",
+        json={"name": "七年级1班", "academic_year": "2026-09"},
+        headers=h2,
+    )
+    assert r1.status_code == 201, r1.text
+    assert r2.status_code == 201, r2.text
+    assert r1.json()["id"] != r2.json()["id"]
+
+
+def test_class_patch_delete_rejects_foreign_workspace(make_client, db):
+    t1 = _seed_teacher(db, phone="13800000031", email="p1@test.example")
+    t2 = _seed_teacher(db, phone="13800000032", email="p2@test.example")
+    h1 = _headers(db, t1, "c" * 64)
+    h2 = _headers(db, t2, "d" * 64)
+    client = make_client(classes_router.router)
+
+    foreign = client.post(
+        "/api/classes",
+        json={"name": "别班", "academic_year": "2026-09"},
+        headers=h2,
+    ).json()["id"]
+
+    assert client.patch(
+        f"/api/classes/{foreign}",
+        json={"name": "篡改"},
+        headers=h1,
+    ).status_code == 404
+    assert client.delete(f"/api/classes/{foreign}", headers=h1).status_code == 404
 
 
 # ---------------------------------------------------------------------------

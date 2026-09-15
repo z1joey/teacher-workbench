@@ -19,8 +19,8 @@ def get_current_person(
     if session is None:
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     person = db.get(Person, session.person_id)
-    if person is None or (person.payload or {}).get("is_active") is False:
-        raise HTTPException(status_code=403, detail="account disabled")
+    if person is None:
+        raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     return person
 
 

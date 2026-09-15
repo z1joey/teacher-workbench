@@ -83,7 +83,7 @@ def _seed_student_with_evidence(db):
     teacher = seed_person(db, "chen139@test.example", phone="13900000001", name="陈老师")
     seed_token(db, teacher, TEACHER_TOKEN)
     student = seed_person(db, None, role="student", name="林小明", admission_no="S901")
-    klass = Class(name="七年级1班", academic_year="2025/2026")
+    klass = Class(name="七年级1班", academic_year="2025-09")
     db.add(klass)
     db.flush()
     db.add(Enrollment(person_id=student.id, class_id=klass.id, valid_from=date(2025, 9, 1)))
@@ -105,37 +105,22 @@ def test_removed_weakness_and_failed_question_routes_404(client, db):
     assert r.status_code == 404
 
 
-def test_delete_student_with_evidence_soft_deactivates(client, db):
-    """Deleting a student that has written evidence keeps the person and
-    flips is_active off + logs a 停用 note (was: ExamResult/home-visit
-    evidence; now score/record Events are the evidence)."""
-    from app.models import Enrollment, Event, Person
+def test_delete_student_with_evidence_hard_deletes(client, db):
+    """Deleting a student removes the person and all linked timeline rows."""
+    from app.models import Event, Person
 
     _, student = _seed_student_with_evidence(db)
-    before = db.query(Event).filter(Event.attendees.any(Person.id == student.id)).count()
+    sid = student.id
 
-    r = client.delete(f"/api/students/{student.id}",
-                      headers={"Authorization": f"Bearer {TEACHER_TOKEN}"})
+    r = client.delete(
+        f"/api/students/{sid}",
+        headers={"Authorization": f"Bearer {TEACHER_TOKEN}"},
+    )
     assert r.status_code == 200, r.text
-    assert r.json() == {"ok": True, "action": "deactivated"}
+    assert r.json() == {"ok": True, "action": "deleted"}
 
     db.expire_all()
-    st = db.get(Person, student.id)
-    assert st is not None, "student was hard-deleted despite having evidence"
-    assert (st.payload or {}).get("is_active") is False
-    # +1 comment ("账号停用") on the timeline; enrollments closed
-    after = db.query(Event).filter(Event.attendees.any(Person.id == student.id)).count()
-    assert after == before + 1
-    note = (
-        db.query(Event)
-        .filter(Event.type == "comment", Event.attendees.any(Person.id == student.id))
-        .order_by(Event.start_time.desc())
-        .first()
-    )
-    assert note.title == "账号停用"
-    assert note.payload["notes"] == "账号停用"
-    assert all(e.valid_to is not None for e in db.query(Enrollment)
-               .filter(Enrollment.person_id == student.id).all())
+    assert db.query(Person).filter(Person.id == sid).first() is None
 
 
 @pytest.fixture()

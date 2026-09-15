@@ -25,7 +25,7 @@ def _student(client, headers, name):
 def _class(client, headers, name):
     r = client.post(
         "/api/classes",
-        json={"name": name, "academic_year": "2025/2026"},
+        json={"name": name, "academic_year": "2025-09"},
         headers=headers,
     )
     assert r.status_code == 201, r.text

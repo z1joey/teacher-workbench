@@ -30,12 +30,16 @@ from .workspace import ensure_workspace_id, tag_student_workspace
 from .eventing import create_event
 from .models import Class, ClassSeating, Enrollment, Event, Person, Tag, student_guardians
 from .payloads import validate_person_payload
-from .routers.students import _find_or_create_guardian, _guardians_of
+from .routers.students import (
+    _find_or_create_guardian,
+    _find_or_create_tag,
+    _guardians_of,
+)
 from .security import hash_password
 
 random.seed(2026)
 
-ACADEMIC_YEAR = "2025/2026"
+ACADEMIC_YEAR = "2025-09"
 ENROLL_DATE = date(2025, 9, 1)
 
 # 初中全科：科目 key 与满分（语数英 120，其余 100），颜色与前端目录一致
@@ -95,11 +99,7 @@ def _apply_completed_home_visit_tags(db: Session) -> None:
     """Mirror mark-done API: completed visits earn the 已家访 student tag."""
     from .models import person_tags
 
-    tag = db.query(Tag).filter(Tag.name == "已家访").first()
-    if tag is None:
-        tag = Tag(name="已家访", color="#2f7d4f")
-        db.add(tag)
-        db.flush()
+    tag = _find_or_create_tag(db, "已家访", "#2f7d4f")
     for ev in db.query(Event).filter(Event.type == "home_visited").all():
         if not (ev.payload or {}).get("done"):
             continue
@@ -241,19 +241,16 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     # 王浩 (祖母) and 邓晓彤 (外祖母) — same name/phone merges into one Person
     by_name = {s.name: s for s in students}
     wang, deng = by_name["王浩"], by_name["邓晓彤"]
-    grandmah = _find_or_create_guardian(db, "王秀英", "13900000000",
-                                        address="解放路108号")
+    grandmah = _find_or_create_guardian(db, "王秀英", "13900000000")
     db.execute(student_guardians.insert().values(
         student_id=wang.id, guardian_id=grandmah.id, relationship="祖母"))
     db.execute(student_guardians.insert().values(
         student_id=deng.id, guardian_id=grandmah.id, relationship="外祖母"))
     db.flush()
 
-    # demo tags (globally reusable once attached)
-    focus_tag = Tag(name="需关注", color="#b42318")
-    rep_tag = Tag(name="课代表", color="#177245")
-    db.add_all([focus_tag, rep_tag])
-    db.flush()
+    # demo tags — find-or-create so a second teacher's demo seed can reuse them
+    focus_tag = _find_or_create_tag(db, "需关注", "#b42318")
+    rep_tag = _find_or_create_tag(db, "课代表", "#177245")
     for tag, names in ((focus_tag, ["林晓雨", "王浩"]), (rep_tag, ["宋雅轩", "郭浩然"])):
         for n in names:
             s = by_name.get(n)
@@ -551,16 +548,14 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     _apply_completed_home_visit_tags(db)
 
     # --- 毕业归档：上一届班级整体毕业（数据保留，默认列表隐藏）--------------
-    # 学生：graduated_at + is_active=False + 「已毕业」标签，学籍关闭于毕业日；
+    # 学生：graduated_at + 「已毕业」标签，学籍关闭于毕业日；
     # 班级：archived=True。全部在个人中心「毕业归档」卡片中可见。
-    GRAD_YEAR = "2024/2025"
+    GRAD_YEAR = "2024-09"
     GRAD_DATE = date(2025, 7, 4)
     c61 = Class(name="六1班", academic_year=GRAD_YEAR, teacher_id=teacher.id, archived=True)
     db.add(c61)
     db.flush()
-    grad_tag = Tag(name="已毕业", color="#b7791f")
-    db.add(grad_tag)
-    db.flush()
+    grad_tag = _find_or_create_tag(db, "已毕业", "#b7791f")
 
     GRAD_NAMES = [
         ("赵一诺", "F"), ("钱思远", "M"), ("孙悦宁", "F"),
@@ -572,7 +567,6 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
             "gender": gender,
             "birth_date": date(2011, random.randint(1, 12), random.randint(1, 28)).isoformat(),
             "address": f"文化路{200 + i}号",
-            "is_active": False,
             "graduated_at": GRAD_DATE.isoformat(),
         })
         s = Person(name=name, password_hash=hash_password(uuid.uuid4().hex),

@@ -8,7 +8,7 @@ import PageHeader from "../components/PageHeader.vue"
 import FormField from "../components/FormField.vue"
 import AsyncState from "../components/AsyncState.vue"
 import api from "../api"
-import { friendlyError, GENDER_OPTIONS, t } from "../strings"
+import { formatEnrollmentMonth, friendlyError, GENDER_OPTIONS, t } from "../strings"
 
 const router = useRouter()
 const classes = ref([])
@@ -149,7 +149,7 @@ async function submit() {
           <select v-model="form.class_id" class="select">
             <option :value="null">{{ t("new.classPlaceholder") }}</option>
             <option v-for="c in selectableClasses" :key="c.id" :value="c.id">
-              {{ c.name }} · {{ c.academic_year }}（{{ t("profile.studentsCount", { n: c.student_count } ) }}）
+              {{ c.name }} · {{ formatEnrollmentMonth(c.academic_year) }}（{{ t("profile.studentsCount", { n: c.student_count } ) }}）
             </option>
           </select>
         </FormField>

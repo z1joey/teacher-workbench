@@ -368,14 +368,21 @@ code {
 }
 .nav-item__badge {
   margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 18px;
-  padding: 1px 6px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: 999px;
   background: var(--danger);
   color: #fff;
+  font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 700;
-  line-height: 1.35;
+  line-height: 1;
+  letter-spacing: -0.02em;
   text-align: center;
 }
 .nav-item.is-active .nav-item__badge {
@@ -1805,6 +1812,22 @@ mark.hl {
     gap: var(--sp-3);
     padding: var(--sp-3) var(--sp-4) var(--sp-4);
   }
+}
+
+.admin-workspace-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+  flex-wrap: wrap;
+}
+.admin-workspace-filter__label {
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.admin-workspace-filter__select {
+  min-width: min(320px, 100%);
+  max-width: 100%;
 }
 
 .admin-inspect-hint {
@@ -3368,8 +3391,25 @@ a.chip:hover {
     padding: var(--sp-1) 0 var(--sp-3);
   }
   .nav-item {
+    position: relative;
     justify-content: center;
     padding: var(--sp-2) 0;
+  }
+  .nav-item__badge {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    margin-left: 0;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 4px;
+    font-size: 10px;
+    box-shadow: 0 0 0 2px var(--board);
+  }
+  .nav-item.is-active .nav-item__badge {
+    background: var(--danger);
+    color: #fff;
+    box-shadow: 0 0 0 2px var(--board-soft);
   }
   .nav-item.is-active {
     box-shadow: none;
@@ -3647,6 +3687,26 @@ a.chip:hover {
   margin-top: var(--sp-4);
   padding-top: var(--sp-4);
   border-top: 1px solid var(--line);
+}
+
+/* 学生资料卡宽 340px：单列全宽，控件等高 */
+.profile-edit-form__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3);
+}
+.profile-edit-form__grid > .field,
+.profile-edit-form__grid > .profile-edit-form__span .field {
+  margin-bottom: 0;
+}
+.profile-edit-form__grid .input,
+.profile-edit-form__grid .select {
+  width: 100%;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+.profile-edit-form__grid .field__label {
+  min-height: 1.25rem;
 }
 
 /* 评语表单：@ 其他学生 */

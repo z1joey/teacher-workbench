@@ -24,8 +24,8 @@ def ctx(make_client, db):
     headers = _headers(db, teacher)
     client = make_client(exams_router.router)
 
-    a = _seed_class(db, "初一1班", "2025/2026")
-    b = _seed_class(db, "初二2班", "2025/2026")
+    a = _seed_class(db, "初一1班", "2025-09")
+    b = _seed_class(db, "初二2班", "2025-09")
     in_a = _seed_person(db, "张一", "S1")
     in_b = _seed_person(db, "李二", "S2")
     free = _seed_person(db, "赵三", "S3")  # 未分班

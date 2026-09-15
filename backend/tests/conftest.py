@@ -123,7 +123,7 @@ def client(engine):
 
 
 def seed_person(db, email: str | None, *, phone: str | None = None,
-                role: str = "teacher", active: bool = True,
+                role: str = "teacher",
                 name: str = "用户", admission_no: str | None = None):
     """Insert a Person row with a registry-validated payload (the common
     arrange step of the router tests). `name` is a typed person column; the
@@ -133,8 +133,6 @@ def seed_person(db, email: str | None, *, phone: str | None = None,
     data = {}
     if admission_no is not None:
         data["admission_no"] = admission_no
-    if not active:
-        data["is_active"] = False
     payload = validate_person_payload(role, data)
     p = Person(name=name, email=email, phone=phone,
                password_hash=hash_password("123456"), payload=payload)

@@ -19,10 +19,6 @@ const emit = defineEmits(["save", "cancel", "update:password"])
       <span class="muted tnum">{{ user.id }}</span>
     </div>
     <div class="form-grid">
-      <label class="check">
-        <input v-model="form.is_active" type="checkbox" />
-        <span>启用这个账号</span>
-      </label>
       <div class="field" style="margin: 0">
         <span class="field__label">{{ t("admin.userRole") }}</span>
         <select v-model="form.role" class="select" :disabled="user.id === selfId">

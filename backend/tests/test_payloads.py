@@ -8,7 +8,7 @@ from app.payloads import validate_event_payload, validate_person_payload
 def test_student_payload_roundtrip():
     out = validate_person_payload("student", {"admission_no": "S1",
                                               "birth_date": "2012-05-14"})
-    assert out["role"] == "student" and out["is_active"] is True
+    assert out["role"] == "student"
     assert "name" not in out  # name lives on the person column, not the payload
 
 
@@ -22,7 +22,6 @@ def test_teacher_payload_carries_no_subject():
     assert out == {
         "role": "teacher",
         "workspace_id": None,
-        "is_active": True,
         "auto_tags": True,
         "calendar_birthdays": True,
     }
@@ -74,16 +73,13 @@ def test_student_payload_strips_legacy_name_and_guardian():
 
 def test_admin_payload_strips_legacy_name():
     out = validate_person_payload("admin", {"name": "开发者"})
-    assert out == {"role": "admin", "is_active": True}
+    assert out == {"role": "admin"}
 
 
 def test_guardian_payload_recognized():
     out = validate_person_payload("guardian", {"phone": "13900000001",
                                                "address": "解放路100号"})
-    assert out["role"] == "guardian"
-    assert out["phone"] == "13900000001"
-    assert out["address"] == "解放路100号"
-    assert out["is_active"] is True
+    assert out == {"role": "guardian", "phone": "13900000001"}
 
 
 def test_unknown_role_rejected():
