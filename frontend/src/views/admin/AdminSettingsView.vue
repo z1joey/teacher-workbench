@@ -1,11 +1,15 @@
 <script setup>
 import { onMounted, ref } from "vue"
-import api from "../../api"
+import { useRouter } from "vue-router"
+import api, { setToken } from "../../api"
+import { clearMe } from "../../auth"
 import Icon from "../../components/Icon.vue"
 import PageHeader from "../../components/PageHeader.vue"
 import { ask } from "../../confirm"
 import { notify } from "../../feedback"
 import { friendlyError, t } from "../../strings"
+
+const router = useRouter()
 
 const settings = ref({ registration_enabled: true })
 const loadingSettings = ref(true)
@@ -57,10 +61,18 @@ async function resetDb() {
   if (!ok) return
   resetting.value = true
   try {
-    await api.post("/admin/db/reset")
-    notify({ tone: "ok", title: t("admin.resetDbDone"), timeout: 4000 })
+    const res = await api.post("/admin/db/reset")
+    setToken(null)
+    clearMe()
+    notify({
+      tone: "ok",
+      title: t("admin.resetDbDone"),
+      detail: res?.relogin_required ? t("admin.resetDbRelogin") : "",
+      timeout: 6000,
+    })
+    await router.replace("/login")
   } catch (e) {
-    notify({ tone: "error", title: t("admin.error"), detail: friendlyError(e) })
+    notify({ tone: "error", title: t("admin.resetDbFail"), detail: friendlyError(e) })
   } finally {
     resetting.value = false
   }

@@ -4,12 +4,15 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..app_settings import is_registration_enabled, set_registration_enabled
-from ..database import Base, engine, get_db
-from ..deps import require_admin
+from .. import database
+from ..bootstrap_db import wipe_and_rebootstrap
+from ..database import get_db
+from ..deps import bearer_scheme, require_admin
 from ..models import AuthSession, Class, Enrollment, Event, Feedback, Person, Tag
 from ..payloads import validate_person_payload
 from ..security import hash_password
@@ -48,7 +51,7 @@ def admin_stats(
         1 for p in persons if _role(p) in login_roles and _active(p)
     )
     return {
-        "database": engine.url.drivername,
+        "database": database.engine.url.drivername,
         "tables": counts,
         # users_total kept for older clients — same as persons_total
         "users_total": persons_total,
@@ -318,17 +321,32 @@ def inspect_table(
 
 @router.post("/db/reset")
 def reset_db(
-    db: Session = Depends(get_db),
-    _me: Person = Depends(require_admin),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ):
-    """Drop all tables and recreate them — wipes everything. Intentionally
-    does NOT call seed(), so the DB will be empty after this."""
+    """Drop all tables and rebuild via alembic bootstrap (not raw create_all).
+
+    Auth is checked on a short-lived session that closes before DDL so
+    PostgreSQL does not deadlock. All sessions are wiped; caller must
+    re-login (or use ADMIN_EMAIL bootstrap after restart).
+    """
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="未登录")
+    with Session(database.engine, autoflush=False, expire_on_commit=False) as db:
+        session = db.get(AuthSession, credentials.credentials)
+        if session is None:
+            raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
+        person = db.get(Person, session.person_id)
+        if person is None or not person.is_admin:
+            raise HTTPException(status_code=403, detail="admin only")
     try:
-        Base.metadata.drop_all(bind=engine)
-        Base.metadata.create_all(bind=engine)
+        wipe_and_rebootstrap()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"重置失败: {e}")
-    return {"ok": True, "note": "数据库已清空并重建，请通过后端 seed 脚本重新初始化演示数据。"}
+    return {
+        "ok": True,
+        "relogin_required": True,
+        "note": "数据库已清空并重建。请重新登录；演示数据可通过 seed 脚本或教师端「加载演示数据」导入。",
+    }
 
 
 @router.get("/feedback")
