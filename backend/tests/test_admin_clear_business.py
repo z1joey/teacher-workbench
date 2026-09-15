@@ -86,7 +86,7 @@ def test_admin_clear_business_failure_is_atomic(client, db, monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("simulated clear failure")
 
-    monkeypatch.setattr(admin_router, "clear_business_data", boom)
+    monkeypatch.setattr(admin_router, "_clear_business_data", boom)
     res = client.post("/api/admin/db/clear-business")
     assert res.status_code == 500
     assert "清空失败" in res.json()["detail"]

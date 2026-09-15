@@ -73,7 +73,12 @@ async function clearBusinessData() {
   clearingBusiness.value = true
   try {
     await api.post("/admin/db/clear-business")
-    notify({ tone: "ok", title: t("admin.clearBusinessDataDone"), timeout: 4000 })
+    notify({
+      tone: "ok",
+      title: t("admin.clearBusinessDataDone"),
+      detail: t("admin.clearBusinessDataDoneHint"),
+      timeout: 6000,
+    })
   } catch (e) {
     notify({ tone: "error", title: t("admin.clearBusinessDataFail"), detail: friendlyError(e) })
   } finally {

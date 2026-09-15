@@ -190,19 +190,20 @@ def _require_teacher(user: Person) -> None:
         raise HTTPException(status_code=403, detail="仅教师账号可使用演示数据功能")
 
 
-def clear_business_data(
+def _clear_business_data(
     db: Session,
+    token: str,
     *,
     keep_person_ids: set[uuid_mod.UUID],
-    keep_token: str,
     load_seed: bool = False,
     primary_person_id: uuid_mod.UUID | None = None,
 ) -> Person:
     """Delete business rows; keep listed persons and the current session.
 
-    Uses row DELETEs instead of drop_all/create_all. On PostgreSQL, DDL on a
-    second connection while this request still holds a read transaction (from
-    auth) deadlocks until rollback — which used to run only after the wipe.
+    Shared by teacher demo reset/seed and admin clear-business. Uses row
+    DELETEs instead of drop_all/create_all. On PostgreSQL, DDL on a second
+    connection while this request still holds a read transaction (from auth)
+    deadlocks until rollback — which used to run only after the wipe.
     """
     if not keep_person_ids:
         raise ValueError("keep_person_ids must not be empty")
@@ -227,7 +228,7 @@ def clear_business_data(
     )
     db.execute(
         delete(AuthSession).where(
-            AuthSession.token != keep_token,
+            AuthSession.token != token,
             ~AuthSession.person_id.in_(keep_person_ids),
         )
     )
@@ -242,17 +243,17 @@ def clear_business_data(
     return kept
 
 
-def _clear_business_data(
+def _clear_business_data_for_teacher(
     db: Session,
     teacher: Person,
     token: str,
     *,
     load_seed: bool,
 ) -> Person:
-    return clear_business_data(
+    return _clear_business_data(
         db,
+        token,
         keep_person_ids={teacher.id},
-        keep_token=token,
         load_seed=load_seed,
         primary_person_id=teacher.id,
     )
@@ -297,7 +298,7 @@ def load_demo_data(
             detail="系统中已有业务数据（可能属于其他教师账号），加载演示数据会清空全部数据；请先「清空业务数据」后再加载演示数据",
         )
     try:
-        teacher = _clear_business_data(
+        teacher = _clear_business_data_for_teacher(
             db, user, credentials.credentials, load_seed=True
         )
         db.commit()
@@ -321,7 +322,7 @@ def reset_app_data(
     if credentials is None:
         raise HTTPException(status_code=401, detail="未登录")
     try:
-        teacher = _clear_business_data(
+        teacher = _clear_business_data_for_teacher(
             db, user, credentials.credentials, load_seed=False
         )
         db.commit()

@@ -55,9 +55,13 @@ const keyboardOpen = computed(() => {
   return window.innerHeight - viewport.value.height > 80
 })
 
+const pinToVisualViewport = computed(
+  () => viewport.value && window.matchMedia("(max-width: 560px)").matches,
+)
+
 const overlayStyle = computed(() => {
   const vv = viewport.value
-  if (!vv) return undefined
+  if (!vv || !pinToVisualViewport.value) return undefined
   return {
     top: `${vv.top}px`,
     left: `${vv.left}px`,
@@ -70,7 +74,7 @@ const overlayStyle = computed(() => {
 
 const modalStyle = computed(() => {
   const vv = viewport.value
-  if (!vv) return undefined
+  if (!vv || !pinToVisualViewport.value) return undefined
   const pad = 24
   return { maxHeight: `${Math.max(220, vv.height - pad)}px` }
 })

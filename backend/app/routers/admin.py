@@ -15,7 +15,7 @@ from ..database import get_db
 from ..deps import bearer_scheme, require_admin
 from ..models import AuthSession, Class, Enrollment, Event, Feedback, Person, Tag
 from ..payloads import validate_person_payload
-from ..routers.data import clear_business_data
+from ..routers.data import _clear_business_data
 from ..security import hash_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -349,10 +349,10 @@ def clear_business_data_admin(
 
     with Session(database.engine, autoflush=False, expire_on_commit=False) as db:
         try:
-            clear_business_data(
+            _clear_business_data(
                 db,
+                token,
                 keep_person_ids=admin_ids,
-                keep_token=token,
                 primary_person_id=primary_id,
             )
             db.commit()
