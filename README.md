@@ -2,7 +2,7 @@
 
 面向中小学教师的教学管理工作台：学生档案（角色与扩展字段在 JSONB payload）、
 分科考试成绩、全校/班级 **平均分**、**家访**、学生 **标签**，以及按学生聚合的
-**时间线**事件流。当前版本 **0.1.1**（Beta）。
+**时间线**事件流。当前版本 **0.1.2**（Beta）。
 
 - **Backend**: Python 3.14 · FastAPI · SQLAlchemy 2（Docker 部署使用 PostgreSQL 17，本地开发默认 SQLite）
 - **Frontend**: Vue 3 · Vite · vue-router（纯 CSS，无 UI 框架）
@@ -133,7 +133,15 @@ docker compose up -d --build     # 修改代码后重新构建并启动
 
 ### 版本号
 
-当前版本：**0.1.1**（界面显示 **Beta** 角标）。
+当前版本：**0.1.2**（界面显示 **Beta** 角标）。
+
+### 0.1.2 变更摘要
+
+- **工作区隔离**：学号、班级、考试、演示数据按教师工作台隔离；Alembic `0005`–`0009` 迁移清理旧版全局唯一约束。
+- **入学时间**：班级唯一键改为「名称 + 入学月份（`YYYY-MM`）」，前后端与演示数据已同步。
+- **硬删除**：学生、班级、考试、家访等删除均为物理删除；移除 `is_active` 停用逻辑。
+- **家庭住址**：仅保存在学生档案；监护人不再单独维护地址字段。
+- **管理后台**：账号页支持按工作区筛选；移除账号启停用开关。
 
 | 文件 | 字段 | 用途 |
 | --- | --- | --- |
@@ -165,7 +173,7 @@ docker compose up -d --build     # 修改代码后重新构建并启动
 | GET | `/api/exams/trend` | 各科全校平均分趋势（趋势图数据） |
 | GET | `/api/exams/{id}/averages` | 全校 + 各班平均分 |
 | GET | `/api/classes`、`/api/classes/{id}` | 班级列表 · 班级详情（趋势/平均/名单） |
-| PATCH · DELETE | `/api/classes/{id}` | 编辑班级 · 删除（有学生记录 → 409） |
+| PATCH · DELETE | `/api/classes/{id}` | 编辑班级 · 删除（级联清除学籍与座位，学生保留） |
 | GET | `/api/teachers` | 教师列表 |
 | POST | `/api/data/import/roster` | 花名册导入（Excel）；导入目前仅支持花名册 |
 | GET | `/api/data/export/roster` · `home-visits` · `scores` | 按班级导出花名册、家访记录、成绩 |
@@ -250,8 +258,9 @@ exam_taken / result_changed）由业务流程自动写入，教师手写事件�
 
 ### 建表与迁移
 
-迁移工具为 **Alembic**（v1 起单条 `0001_initial`，从当前模型建表）。
-部署入口是 `python -m app.bootstrap_db`，每次启动执行 `alembic upgrade head`。
+迁移工具为 **Alembic**（`0001_initial` 起，当前 head 含工作区隔离与数据清理迁移
+`0005`–`0009`）。部署入口是 `python -m app.bootstrap_db`，每次启动执行
+`alembic upgrade head`。
 本地 SQLite 开发库可跳过 Alembic——删掉文件重跑 `python -m app.seed`（内部
 `create_all`）即可。
 

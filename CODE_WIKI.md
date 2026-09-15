@@ -2,7 +2,7 @@
 
 > 本文档全面介绍 Teacher Workbench（**高素质工作台**）项目的**整体架构、模块职责、关键类与函数、依赖关系以及运行指南**，作为开发者快速上手与日常维护的参考手册。
 >
-> **当前版本：0.1.1（Beta）** — 版本号维护见 README「版本号」一节。
+> **当前版本：0.1.2（Beta）** — 版本号维护见 README「版本号」一节。
 
 ***
 
@@ -167,7 +167,7 @@ teacher-workbench/
 [main.py](file:///Users/joey/Projects/teacher-workbench/backend/app/main.py)
 
 - `FastAPI(title="Teacher Workbench API", version=APP_VERSION)`（`APP_VERSION` 来自
-  `version.py`，当前 **0.1.1**）；建表/迁移由部署入口 `python -m app.bootstrap_db`
+  `version.py`，当前 **0.1.2**）；建表/迁移由部署入口 `python -m app.bootstrap_db`
   负责（`alembic upgrade head`）
 
 - CORS：允许所有来源（演示配置）
@@ -209,7 +209,7 @@ new_token() -> str                          # secrets.token_hex(32) — 64 字�
 
 | 函数                                                   | 职责                                                                                      |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `get_current_person(credentials, db)` → `Person`   | 从 `Authorization: Bearer <token>` 查 `auth_session` → `person`；401 若未登录 / 账号禁用（payload.is_active=False → 403） |
+| `get_current_person(credentials, db)` → `Person`   | 从 `Authorization: Bearer <token>` 查 `auth_session` → `person`；401 若未登录或会话无效 |
 | `require_admin(person)` → `Person`                 | 在 `get_current_person` 之上再校验 `is_admin`（payload.role=="admin"），否则 403                |
 
 #### `eventing.py` — 事件写入辅助
@@ -314,7 +314,7 @@ AUTO_RECORD_EVENT_TYPES = {"birthday"}   # 不落库：时间线由 payload.birt
 | POST     | `/students`                                | 新建学生 + 自动生成学号 S递增 + 入班 + enrolled 事件              |
 | GET      | `/students/{id}`                           | 档案 + 历次成绩 + 家访记录                                  |
 | PATCH    | `/students/{id}`                           | 编辑资料；**转班走关旧开新 + class\_moved 事件**                |
-| DELETE   | `/students/{id}`                           | 有历史数据时软删除（payload.is_active=false + 关闭 enrollment），无数据时硬删 |
+| DELETE   | `/students/{id}`                           | 硬删学生及其时间线、成绩、学籍关联 |
 | GET      | `/students/{id}/timeline`                  | 右侧时间线（系统 + 人工 全部事件）                               |
 | GET · POST · DELETE | `/tags` · `/students/{id}/tags[/{tag_id}]` | 标签列表/新建 · 给学生打/摘标签                         |
 | **POST** | **`/students/{id}/events`**                | 记录人工事件（家访/谈心/辅导/家长沟通/备注/自定义类型）                    |
@@ -330,10 +330,10 @@ AUTO_RECORD_EVENT_TYPES = {"birthday"}   # 不落库：时间线由 payload.birt
 | 方法     | 路径              | 说明                                               |
 | ------ | --------------- | ------------------------------------------------ |
 | GET    | `/classes`      | 班级列表（含班主任 + 在读学生数 + 名单）                          |
-| POST   | `/classes`      | 新建（UQ 名称×学年）                                     |
+| POST   | `/classes`      | 新建（同一工作区内 UQ 名称×入学月份 `YYYY-MM`）                     |
 | GET    | `/classes/{id}` | 班级详情：基本信息 + 名单 + **按考试当日 enrollment 统计的各科平均分趋势** |
 | PATCH  | `/classes/{id}` | 编辑                                               |
-| DELETE | `/classes/{id}` | 仍有 enrollment（含历史）时 409 拒绝                       |
+| DELETE | `/classes/{id}` | 硬删班级并清除学籍/座位记录（学生 Person 保留）                  |
 
 #### 考试 `/api/exams/*` — [exams.py](file:///Users/joey/Projects/teacher-workbench/backend/app/routers/exams.py)
 
@@ -345,7 +345,7 @@ AUTO_RECORD_EVENT_TYPES = {"birthday"}   # 不落库：时间线由 payload.birt
 | GET    | `/exams/{id}`          | 考试基本信息 + 科目                                                      |
 | GET    | `/exams/{id}/averages` | 全校统计（avg/min/max/count）+ **各班按考试当日 enrollment 归属** 的班级平均         |
 | PATCH  | `/exams/{id}`          | 改名称/日期；改科目需此考试未录入成绩                                              |
-| DELETE | `/exams/{id}`          | 删除考试坐席 Event 本身；score 成绩事件是独立行（无父引用），有意保留 |
+| DELETE | `/exams/{id}`          | 硬删考试坐席及关联 score / exam_taken 事件                |
 
 #### 仪表盘 `/api/dashboard` — [dashboard.py](file:///Users/joey/Projects/teacher-workbench/backend/app/routers/dashboard.py)
 
@@ -369,8 +369,8 @@ AUTO_RECORD_EVENT_TYPES = {"birthday"}   # 不落库：时间线由 payload.birt
 | 方法     | 路径                         | 说明                                            |
 | ------ | -------------------------- | --------------------------------------------- |
 | GET    | `/admin/stats`             | 数据库驱动、6 张表行数、用户/管理员/活跃/会话数                    |
-| GET    | `/admin/users`             | 用户全列表（含 role / is_active / 创建时间，可按 role 过滤）   |
-| PATCH  | `/admin/users/{id}`        | 启停用、改角色、重置密码（不能自降 admin；学生账号 → 400）           |
+| GET    | `/admin/users`             | 用户全列表（含 role / 工作区，可按 role 与工作区过滤）           |
+| PATCH  | `/admin/users/{id}`        | 改角色、重置密码（不能自降 admin；学生账号 → 400）                 |
 | DELETE | `/admin/users/{id}`        | 删除（不能删自己；学生账号 → 400；仍有关联记录 → 409）             |
 | GET    | `/admin/sessions`          | 活动会话（Token 只显前 8 位+…）                         |
 | DELETE | `/admin/sessions/{prefix}` | 按前缀终止会话                                       |

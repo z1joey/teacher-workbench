@@ -21,7 +21,7 @@ def test_full_app_client_smoke(client):
     # per-test engine — boots and serves the no-auth health route.
     r = client.get("/api/health")
     assert r.status_code == 200
-    assert r.json() == {"ok": True, "version": "0.1.1", "beta": True}
+    assert r.json() == {"ok": True, "version": "0.1.2", "beta": True}
 
 
 def test_seed_loads_demo_data(tmp_path, monkeypatch):
