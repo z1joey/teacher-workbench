@@ -39,7 +39,7 @@ from .security import hash_password
 
 random.seed(2026)
 
-ACADEMIC_YEAR = "2025/2026"
+ACADEMIC_YEAR = "2025-09"
 ENROLL_DATE = date(2025, 9, 1)
 
 # 初中全科：科目 key 与满分（语数英 120，其余 100），颜色与前端目录一致
@@ -551,7 +551,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     # --- 毕业归档：上一届班级整体毕业（数据保留，默认列表隐藏）--------------
     # 学生：graduated_at + is_active=False + 「已毕业」标签，学籍关闭于毕业日；
     # 班级：archived=True。全部在个人中心「毕业归档」卡片中可见。
-    GRAD_YEAR = "2024/2025"
+    GRAD_YEAR = "2024-09"
     GRAD_DATE = date(2025, 7, 4)
     c61 = Class(name="六1班", academic_year=GRAD_YEAR, teacher_id=teacher.id, archived=True)
     db.add(c61)

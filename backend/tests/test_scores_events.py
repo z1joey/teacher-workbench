@@ -77,7 +77,7 @@ def _headers(db, person: Person, token: str = "t" * 64) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _seed_class(db, name: str = "七年级1班", academic_year: str = "2026") -> Class:
+def _seed_class(db, name: str = "七年级1班", academic_year: str = "2026-09") -> Class:
     # 班级归属到教师：工作区隔离后 require_class_in_workspace 校验所有权
     teacher = _teacher_of(db)
     c = Class(name=name, academic_year=academic_year,
@@ -569,30 +569,30 @@ def test_class_crud_contract(make_client, db, headers):
     db.commit()
 
     r = client.post("/api/classes", json={
-        "name": "七年级1班", "academic_year": "2026",
+        "name": "七年级1班", "academic_year": "2026-09",
     }, headers=headers)
     assert r.status_code == 201, r.text
     data = r.json()
     assert data == {
         "id": data["id"], "name": "七年级1班",
-        "academic_year": "2026", "is_unassigned": False,
+        "academic_year": "2026-09", "is_unassigned": False,
         "archived": False,
         "student_count": 0, "students": [],
     }
 
     dup = client.post("/api/classes", json={
-        "name": "七年级1班", "academic_year": "2026",
+        "name": "七年级1班", "academic_year": "2026-09",
     }, headers=headers)
     assert dup.status_code == 409
-    assert dup.json()["detail"] == "该学年已存在同名班级"
+    assert dup.json()["detail"] == "该入学时间已存在同名班级"
 
     _enroll(db, student, db.get(Class, uuid.UUID(data["id"])))
     db.commit()
     patched = client.patch(f"/api/classes/{data['id']}", json={
-        "name": "七年级1班", "academic_year": "2026/2027",
+        "name": "七年级1班", "academic_year": "2027-03",
     }, headers=headers)
     assert patched.status_code == 200
-    assert patched.json()["academic_year"] == "2026/2027"
+    assert patched.json()["academic_year"] == "2027-03"
     assert patched.json()["student_count"] == 1
 
     conflict = client.delete(f"/api/classes/{data['id']}", headers=headers)
@@ -600,7 +600,7 @@ def test_class_crud_contract(make_client, db, headers):
     assert conflict.json()["detail"] == "班级内仍有学生或历史记录，无法删除"
 
     empty = client.post("/api/classes", json={
-        "name": "七年级3班", "academic_year": "2026",
+        "name": "七年级3班", "academic_year": "2026-09",
     }, headers=headers)
     assert empty.status_code == 201
     gone = client.delete(f"/api/classes/{empty.json()['id']}", headers=headers)
@@ -612,6 +612,37 @@ def test_class_crud_contract(make_client, db, headers):
     assert missing.json()["detail"] == "class not found"
 
 
+def test_class_same_name_different_enrollment_months_allowed(make_client, db, headers):
+    client = make_client(classes_router.router)
+    r1 = client.post(
+        "/api/classes",
+        json={"name": "七年级1班", "academic_year": "2026-09"},
+        headers=headers,
+    )
+    r2 = client.post(
+        "/api/classes",
+        json={"name": "七年级1班", "academic_year": "2027-03"},
+        headers=headers,
+    )
+    assert r1.status_code == 201, r1.text
+    assert r2.status_code == 201, r2.text
+    assert r1.json()["id"] != r2.json()["id"]
+
+
+def test_class_rejects_invalid_enrollment_month(make_client, db, headers):
+    client = make_client(classes_router.router)
+    r = client.post(
+        "/api/classes",
+        json={"name": "七年级1班", "academic_year": "2025/2026"},
+        headers=headers,
+    )
+    assert r.status_code == 400
+    detail = r.json()["detail"]
+    if isinstance(detail, list):
+        detail = "; ".join(item.get("msg", "") for item in detail)
+    assert "YYYY-MM" in detail
+
+
 def test_class_same_name_allowed_across_teachers(make_client, db):
     t1 = _seed_teacher(db, phone="13800000021", email="c1@test.example")
     t2 = _seed_teacher(db, phone="13800000022", email="c2@test.example")
@@ -621,12 +652,12 @@ def test_class_same_name_allowed_across_teachers(make_client, db):
 
     r1 = client.post(
         "/api/classes",
-        json={"name": "七年级1班", "academic_year": "2026"},
+        json={"name": "七年级1班", "academic_year": "2026-09"},
         headers=h1,
     )
     r2 = client.post(
         "/api/classes",
-        json={"name": "七年级1班", "academic_year": "2026"},
+        json={"name": "七年级1班", "academic_year": "2026-09"},
         headers=h2,
     )
     assert r1.status_code == 201, r1.text
@@ -643,7 +674,7 @@ def test_class_patch_delete_rejects_foreign_workspace(make_client, db):
 
     foreign = client.post(
         "/api/classes",
-        json={"name": "别班", "academic_year": "2026"},
+        json={"name": "别班", "academic_year": "2026-09"},
         headers=h2,
     ).json()["id"]
 

@@ -8,7 +8,7 @@ import FormField from "../components/FormField.vue"
 import api, { downloadFile, triggerDownload, uploadFile } from "../api"
 import { ask } from "../confirm"
 import { notify } from "../feedback"
-import { friendlyError, t } from "../strings"
+import { formatEnrollmentMonth, friendlyError, t } from "../strings"
 
 const loading = ref(true)
 const error = ref("")
@@ -98,7 +98,7 @@ const classOptions = computed(() => classes.value)
 
 function classOptionLabel(c) {
   if (c.is_unassigned) return `${c.name}（${c.student_count} 人）`
-  return `${c.name}（${c.academic_year}，${c.student_count} 人）`
+  return `${c.name}（${formatEnrollmentMonth(c.academic_year)}，${c.student_count} 人）`
 }
 
 function requireExportClass() {
@@ -148,7 +148,7 @@ async function downloadTemplate() {
 function targetClassLabel(result) {
   if (!result?.target_class) return t("students.ungrouped")
   const c = result.target_class
-  return `${c.name}（${c.academic_year}）`
+  return `${c.name}（${formatEnrollmentMonth(c.academic_year)}）`
 }
 
 const seeding = ref(false)

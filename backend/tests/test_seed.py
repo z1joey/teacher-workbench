@@ -155,7 +155,10 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
 
         # graduation: 六1班 is archived; its 6 students carry graduated_at +
         # is_active=False and their 六1班 enrollment closed on the grad date
+        c71 = db.query(Class).filter(Class.name == "七年级1班").one()
+        assert c71.academic_year == "2025-09"
         c61 = db.query(Class).filter(Class.name == "六1班").one()
+        assert c61.academic_year == "2024-09"
         assert c61.archived is True
         grad_at = Person.payload["graduated_at"].as_string()
         grads = (

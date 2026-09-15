@@ -144,7 +144,8 @@ const messages = {
   "classes.creating": "创建中…",
   "classes.name": "班级名称",
   "classes.grade": "年级",
-  "classes.year": "学年",
+  "classes.year": "入学时间",
+  "classes.yearHint": "精确到月，例如 2025-09",
   "classes.viewDetail": "查看详情",
   "classes.delete": "删除班级",
   "classes.deleteConfirm": "删除后，这个班级会从所有列表里消失。",
@@ -785,15 +786,23 @@ export function genderLabel(g) {
   return t(`gender.${g}`) === `gender.${g}` ? g : t(`gender.${g}`)
 }
 
-/** 班级页顶栏面包屑：七年级 1 班 • 2025/2026 */
+/** 将 YYYY-MM 格式化为「2025年9月」；其他格式原样返回。 */
+export function formatEnrollmentMonth(value) {
+  const raw = String(value || "").trim()
+  const m = /^(\d{4})-(\d{2})$/.exec(raw)
+  if (m) return `${m[1]}年${Number(m[2])}月`
+  return raw
+}
+
+/** 班级页顶栏面包屑：七年级 1 班 • 2025年9月 */
 export function classBreadcrumbLabel(name, academicYear) {
   const spaced = String(name || "")
     .replace(/(\D)(\d)/g, "$1 $2")
     .replace(/(\d)(?=\D)/g, "$1 ")
     .replace(/\s+/g, " ")
     .trim()
-  const year = String(academicYear || "").trim()
-  return year ? `${spaced} • ${year}` : spaced
+  const label = formatEnrollmentMonth(academicYear)
+  return label ? `${spaced} • ${label}` : spaced
 }
 
 // ------------------------------------------------------------------ 状态

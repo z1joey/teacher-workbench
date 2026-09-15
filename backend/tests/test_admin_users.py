@@ -39,7 +39,7 @@ def client(make_client, db):
     teacher = seed_person(db, "teacher136@test.example", phone="13600000001", name="陈老师")
     teacher2 = seed_person(db, "teacher237@test.example", phone="13600000002", name="赵老师")
 
-    klass = Class(name="七年级1班", academic_year="2025/2026")
+    klass = Class(name="七年级1班", academic_year="2025-09")
     db.add(klass)
     db.flush()
     student = Person(

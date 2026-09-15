@@ -133,7 +133,7 @@ def test_roster_import_to_unassigned_by_default(client, db):
 
 
 def test_roster_import_into_existing_class(client, db):
-    klass = Class(name="707班", academic_year="2025")
+    klass = Class(name="707班", academic_year="2025-09")
     db.add(klass)
     db.commit()
 
@@ -146,7 +146,7 @@ def test_roster_import_into_existing_class(client, db):
 
 
 def test_roster_import_updates_existing_without_moving_class(client, db):
-    old = Class(name="七年级1班", academic_year="2025/2026")
+    old = Class(name="七年级1班", academic_year="2025-09")
     db.add(old)
     db.flush()
     existing = _student(db, "吴梓涵", "2025070701", gender="M")
@@ -168,8 +168,8 @@ def test_roster_import_updates_existing_without_moving_class(client, db):
 
 
 def test_roster_import_with_class_id_moves_existing(client, db):
-    old = Class(name="七年级1班", academic_year="2025/2026")
-    target = Class(name="707班", academic_year="2025")
+    old = Class(name="七年级1班", academic_year="2025-09")
+    target = Class(name="707班", academic_year="2025-09")
     db.add_all([old, target])
     db.flush()
     existing = _student(db, "吴梓涵", "2025070701")
@@ -238,7 +238,7 @@ def test_roster_import_without_header_fails(client, db):
 
 
 def test_roster_export_roundtrip(client, db):
-    klass = Class(name="707班", academic_year="2025")
+    klass = Class(name="707班", academic_year="2025-09")
     db.add(klass)
     db.flush()
     s1 = _student(db, "吴梓涵", "2025070701", gender="F", birth_date="2012-05-14")
@@ -661,7 +661,7 @@ def test_demo_reset_only_clears_current_workspace(client, db):
 # ---------------------------------------------------------------------------
 
 def _setup_owned_class(db, teacher: Person, students: list[tuple[str, str]]) -> tuple[Class, list[Person]]:
-    klass = Class(name="707班", academic_year="2025", teacher_id=teacher.id)
+    klass = Class(name="707班", academic_year="2025-09", teacher_id=teacher.id)
     db.add(klass)
     db.flush()
     rows: list[Person] = []
@@ -791,7 +791,7 @@ def test_export_scores_empty_returns_400(client, db):
 def test_export_cross_workspace_class_404(client, db):
     other = seed_person(db, "other@test.example", phone="13800000002", name="李老师")
     ensure_workspace_id(other)
-    klass = Class(name="808班", academic_year="2025", teacher_id=other.id)
+    klass = Class(name="808班", academic_year="2025-09", teacher_id=other.id)
     db.add(klass)
     db.commit()
 
