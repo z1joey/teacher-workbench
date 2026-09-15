@@ -368,14 +368,21 @@ code {
 }
 .nav-item__badge {
   margin-left: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 18px;
-  padding: 1px 6px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: 999px;
   background: var(--danger);
   color: #fff;
+  font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 700;
-  line-height: 1.35;
+  line-height: 1;
+  letter-spacing: -0.02em;
   text-align: center;
 }
 .nav-item.is-active .nav-item__badge {
@@ -3368,8 +3375,25 @@ a.chip:hover {
     padding: var(--sp-1) 0 var(--sp-3);
   }
   .nav-item {
+    position: relative;
     justify-content: center;
     padding: var(--sp-2) 0;
+  }
+  .nav-item__badge {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    margin-left: 0;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 4px;
+    font-size: 10px;
+    box-shadow: 0 0 0 2px var(--board);
+  }
+  .nav-item.is-active .nav-item__badge {
+    background: var(--danger);
+    color: #fff;
+    box-shadow: 0 0 0 2px var(--board-soft);
   }
   .nav-item.is-active {
     box-shadow: none;

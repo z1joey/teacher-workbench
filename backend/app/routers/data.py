@@ -200,7 +200,7 @@ def _clear_business_data(
 ) -> Person:
     """Delete business rows; keep listed persons and the current session.
 
-    Shared by teacher demo reset/seed and admin clear-business. Uses row
+    Shared by teacher demo reset/seed. Uses row
     DELETEs instead of drop_all/create_all. On PostgreSQL, DDL on a second
     connection while this request still holds a read transaction (from auth)
     deadlocks until rollback — which used to run only after the wipe.

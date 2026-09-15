@@ -33,7 +33,6 @@ const overviewCards = computed(() => {
   return [
     { label: t("admin.personsTotal"), value: stats.value.persons_total },
     { label: t("admin.accountsTotal"), value: stats.value.accounts_total },
-    { label: t("admin.usersAdmins"), value: stats.value.users_admins },
     { label: t("admin.sessionsActive"), value: stats.value.sessions_active },
   ]
 })

@@ -90,6 +90,27 @@ def ensure_schema() -> None:
         db.commit()
 
 
+def _drop_all_database_tables() -> None:
+    """Drop every user table in the catalog, including legacy tables no longer
+    registered on ``Base.metadata`` (pre-person ``teacher``/``student`` era).
+
+    ``Base.metadata.drop_all`` alone leaves those orphans behind, which makes
+    ``ensure_schema`` think the volume is a broken legacy schema and abort.
+    """
+    insp = inspect(engine)
+    tables = insp.get_table_names()
+    if not tables:
+        return
+    cascade = " CASCADE" if engine.dialect.name == "postgresql" else ""
+    with engine.begin() as conn:
+        if engine.dialect.name == "sqlite":
+            conn.execute(text("PRAGMA foreign_keys = OFF"))
+        for name in tables:
+            conn.execute(text(f'DROP TABLE IF EXISTS "{name}"{cascade}'))
+        if engine.dialect.name == "sqlite":
+            conn.execute(text("PRAGMA foreign_keys = ON"))
+
+
 def wipe_and_rebootstrap() -> None:
     """Drop every table and rerun the same bootstrap path as app startup.
 
@@ -102,7 +123,7 @@ def wipe_and_rebootstrap() -> None:
     """
     engine.dispose()
     try:
-        Base.metadata.drop_all(bind=engine)
+        _drop_all_database_tables()
         ensure_schema()
     except Exception as exc:
         try:
