@@ -205,7 +205,6 @@ const messages = {
   "forgot.backToLogin": "返回登录",
 
   // --- 注册 ---
-  "signup.subtitle": "创建教师账号",
   "signup.emailRequired": "请输入邮箱",
   "signup.emailInvalid": "邮箱格式不正确",
   "signup.passwordShort": "密码至少 6 位",

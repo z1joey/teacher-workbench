@@ -76,7 +76,6 @@ async function submit() {
     <div class="card auth-card">
       <div class="auth-mark"><Icon name="board" :size="24" /></div>
       <h1 class="auth-title">{{ t("app.title") }}</h1>
-      <p class="auth-sub">{{ t("signup.subtitle") }}</p>
 
       <div v-if="checkingStatus" class="skeleton skeleton--row" style="margin-bottom: 16px" />
 
