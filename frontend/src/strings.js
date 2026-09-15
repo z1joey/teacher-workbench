@@ -119,6 +119,8 @@ const messages = {
   "admin.resetDb": "重置数据库",
   "admin.resetDbWarn": "这会清空所有表里的全部数据，并重建空表。",
   "admin.resetDbDone": "数据库已重置。",
+  "admin.resetDbFail": "重置失败",
+  "admin.resetDbRelogin": "数据库已重置，请使用管理员账号重新登录。",
   "admin.loading": "加载中…",
   "admin.saved": "已保存",
   "admin.error": "操作失败",

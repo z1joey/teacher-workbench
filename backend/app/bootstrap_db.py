@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from . import models  # noqa: F401  (registers the tables on Base.metadata)
 from .create_admin import bootstrap_admin_from_env
-from .database import engine
+from .database import Base, engine
 from .eventing import sync_all_birthday_events
 from .unassigned import ensure_unassigned_class
 from .workspace import migrate_legacy_workspace
@@ -88,6 +88,27 @@ def ensure_schema() -> None:
         sync_all_birthday_events(db)
         bootstrap_admin_from_env(db)
         db.commit()
+
+
+def wipe_and_rebootstrap() -> None:
+    """Drop every table and rerun the same bootstrap path as app startup.
+
+    Call only after any request-scoped ORM sessions are closed — DDL while
+    auth still holds a read transaction deadlocks on PostgreSQL (see
+    routers/data._clear_business_data).
+
+    If bootstrap fails after a successful drop, ``ensure_schema`` is retried
+    once before re-raising so the volume is less likely to stay headless.
+    """
+    engine.dispose()
+    try:
+        Base.metadata.drop_all(bind=engine)
+        ensure_schema()
+    except Exception as exc:
+        try:
+            ensure_schema()
+        except Exception:
+            raise exc
 
 
 def main() -> None:
