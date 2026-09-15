@@ -2350,6 +2350,7 @@ a.chip:hover {
   width: 100%;
   max-width: 460px;
   max-height: min(86vh, 720px);
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -2357,6 +2358,25 @@ a.chip:hover {
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   animation: modal-in 0.16s ease;
+}
+.overlay--confirm {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+@media (max-width: 560px) {
+  .overlay--confirm.overlay--keyboard {
+    align-items: flex-start;
+    padding: var(--sp-3);
+    padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom, 0px));
+  }
+  .overlay--confirm.overlay--keyboard .modal {
+    max-width: none;
+    border-radius: var(--r-lg);
+    animation: none;
+    margin-top: auto;
+    margin-bottom: auto;
+  }
 }
 @keyframes modal-in {
   from {
@@ -2413,10 +2433,16 @@ a.chip:hover {
   color: var(--danger);
 }
 .modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 0 var(--sp-5);
   overflow-y: auto;
   font-size: var(--fs-base);
   color: var(--ink-soft);
+}
+.modal__head,
+.modal__foot {
+  flex-shrink: 0;
 }
 .modal__foot {
   display: flex;

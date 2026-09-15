@@ -1,21 +1,79 @@
 <script setup>
 // 确认对话框：说清「删掉什么」和「连带什么」，不逼用户猜
-import { computed, nextTick, ref, watch } from "vue"
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue"
 import Icon from "./Icon.vue"
 import { closeConfirm, confirmDialog, confirmEnabled } from "../confirm"
 
 const wordInput = ref(null)
 const cancelBtn = ref(null)
+const viewport = ref(null)
+
+function syncViewport() {
+  const vv = window.visualViewport
+  if (!vv) {
+    viewport.value = null
+    return
+  }
+  viewport.value = {
+    top: vv.offsetTop,
+    left: vv.offsetLeft,
+    width: vv.width,
+    height: vv.height,
+  }
+}
+
+function bindViewport() {
+  syncViewport()
+  window.visualViewport?.addEventListener("resize", syncViewport)
+  window.visualViewport?.addEventListener("scroll", syncViewport)
+}
+
+function unbindViewport() {
+  window.visualViewport?.removeEventListener("resize", syncViewport)
+  window.visualViewport?.removeEventListener("scroll", syncViewport)
+  viewport.value = null
+}
 
 // 破坏性对话框默认焦点落在「取消」上，避免顺手回车造成误删
 watch(confirmDialog, async (d) => {
-  if (!d) return
+  if (!d) {
+    unbindViewport()
+    return
+  }
+  bindViewport()
   await nextTick()
   if (d.confirmWord) wordInput.value?.focus()
   else cancelBtn.value?.focus()
 })
 
+onBeforeUnmount(unbindViewport)
+
 const canConfirm = computed(() => confirmEnabled(confirmDialog.value))
+
+const keyboardOpen = computed(() => {
+  if (!viewport.value) return false
+  return window.innerHeight - viewport.value.height > 80
+})
+
+const overlayStyle = computed(() => {
+  const vv = viewport.value
+  if (!vv) return undefined
+  return {
+    top: `${vv.top}px`,
+    left: `${vv.left}px`,
+    width: `${vv.width}px`,
+    height: `${vv.height}px`,
+    right: "auto",
+    bottom: "auto",
+  }
+})
+
+const modalStyle = computed(() => {
+  const vv = viewport.value
+  if (!vv) return undefined
+  const pad = 24
+  return { maxHeight: `${Math.max(220, vv.height - pad)}px` }
+})
 
 function onConfirm() {
   if (canConfirm.value) closeConfirm(true)
@@ -25,13 +83,15 @@ function onConfirm() {
 <template>
   <div
     v-if="confirmDialog"
-    class="overlay"
+    class="overlay overlay--confirm"
+    :class="{ 'overlay--keyboard': keyboardOpen }"
+    :style="overlayStyle"
     role="dialog"
     aria-modal="true"
     :aria-labelledby="'confirm-title'"
     @click.self="closeConfirm(false)"
   >
-    <div class="modal">
+    <div class="modal" :style="modalStyle">
       <div class="modal__head">
         <span
           class="modal__icon"
