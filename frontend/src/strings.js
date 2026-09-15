@@ -273,7 +273,14 @@ const messages = {
   "home.calNotifyNextWeek": "下周",
 
   // --- 数据 ---
-  "data.exportTitle": "数据导出（Excel）",
+  "data.ioTitle": "数据转移",
+  "data.importTitle": "数据导入",
+  "data.importNote": "目前仅支持花名册（Excel）导入。",
+  "data.importDesc": "表头需含学号、姓名、性别，可含出生日期与监护人信息。只导入学生，不创建班级。",
+  "data.importClassHint": "默认进入未分班；已有学生仅更新资料",
+  "data.importTemplate": "下载模板",
+  "data.importRoster": "导入花名册",
+  "data.exportTitle": "数据导出",
   "data.exportDesc": "按当前班级名单导出花名册、家访记录或成绩。成绩为一个工作簿，每场考试单独一个 Sheet，格式与考试详情页成绩模板一致。",
   "data.exportClass": "班级",
   "data.exportClassPlaceholder": "选择班级",

@@ -1,5 +1,5 @@
 <script setup>
-// 数据管理：花名册导入导出（Excel）。只导入学生，不创建班级。
+// 数据管理：导入导出（Excel）。导入目前仅支持花名册；只导入学生，不创建班级。
 // 数据入口收敛到个人中心，本组件作为其内嵌区块使用（无独立页头）。
 import { computed, onMounted, ref } from "vue"
 import Icon from "../components/Icon.vue"
@@ -24,11 +24,16 @@ async function loadDemoStatus() {
   }
 }
 
+function unassignedClassId(list = classes.value) {
+  return list.find((c) => c.is_unassigned)?.id ?? ""
+}
+
 async function load() {
   loading.value = true
   error.value = ""
   try {
     classes.value = await api.get("/classes")
+    if (!rosterClassId.value) rosterClassId.value = unassignedClassId()
     await loadDemoStatus()
   } catch (e) {
     error.value = friendlyError(e)
@@ -58,7 +63,8 @@ async function importRoster() {
     return
   }
   const fields = {}
-  if (rosterClassId.value) fields.class_id = rosterClassId.value
+  const target = classes.value.find((c) => c.id === rosterClassId.value)
+  if (target && !target.is_unassigned) fields.class_id = rosterClassId.value
   importing.value = true
   rosterResult.value = null
   try {
@@ -87,14 +93,13 @@ const exportingRoster = ref(false)
 const exportingVisits = ref(false)
 const exportingScores = ref(false)
 
-// 系统未分班（is_unassigned）：导入默认就落未分班，导出也不列出——
-// 其 academic_year 为内部标识 __system__，且后端按真实班级导出。
-const importClassOptions = computed(() =>
-  classes.value.filter((c) => !c.is_unassigned)
-)
-const exportClassOptions = computed(() =>
-  classes.value.filter((c) => !c.is_unassigned)
-)
+// 导入/导出共用班级列表；未分班不展示内部学年标识 __system__。
+const classOptions = computed(() => classes.value)
+
+function classOptionLabel(c) {
+  if (c.is_unassigned) return `${c.name}（${c.student_count} 人）`
+  return `${c.name}（${c.academic_year}，${c.student_count} 人）`
+}
 
 function requireExportClass() {
   if (!exportClassId.value) {
@@ -209,7 +214,7 @@ async function resetApp() {
     await api.post("/data/demo/reset")
     notify({ tone: "ok", title: t("data.demoResetDone"), timeout: 4000 })
     rosterResult.value = null
-    rosterClassId.value = ""
+    rosterClassId.value = unassignedClassId()
     exportClassId.value = ""
     hasBusinessData.value = false
     await load()
@@ -226,132 +231,131 @@ async function resetApp() {
     <div style="display: flex; flex-direction: column; margin-top: var(--sp-5)">
       <div class="card">
         <div class="card__head">
-          <h2 class="card__title"><Icon name="upload" :size="16" /> 花名册导入（Excel）</h2>
-          <button class="btn btn--sm" @click="downloadTemplate">
-            <Icon name="download" :size="13" /> 下载模板
-          </button>
+          <h2 class="card__title"><Icon name="note" :size="16" /> {{ t("data.ioTitle") }}</h2>
         </div>
         <div class="card__body stack" style="gap: 16px">
-          <p class="muted" style="margin: 0">
-            支持学校下发的通用格式：首行班级标题，第二列表头为
-            <b>学号、姓名、性别</b>，可另加出生日期、家庭住址、监护人（姓名 / 电话 / 关系）等列，无法识别的列会自动忽略。
-            只导入学生，不会创建班级。默认进入「未分班」；选择班级时会把导入的学生分配到该班。
-            学号已存在的学生会被<b>更新</b>；未选班级时不改变其当前班级。
-          </p>
-
-          <div class="form-grid">
-            <FormField
-              label="分配到班级"
-              optional
-              hint="留空则新建学生进入未分班；已有学生仅更新资料"
-            >
-              <select v-model="rosterClassId" class="input">
-                <option value="">{{ t("students.ungrouped") }}（默认）</option>
-                <option v-for="c in importClassOptions" :key="c.id" :value="c.id">
-                  {{ c.name }}（{{ c.academic_year }}，{{ c.student_count }} 人）
-                </option>
-              </select>
-            </FormField>
-          </div>
-
-          <FormField label="Excel 文件" required hint=".xlsx 格式，支持含备注等额外列">
-            <button type="button" class="btn" @click="rosterFileInput?.click()">
-              <Icon name="note" :size="15" /> {{ rosterFile ? rosterFile.name : "选择花名册文件（.xlsx）" }}
-            </button>
-            <input
-              ref="rosterFileInput"
-              type="file"
-              accept=".xlsx"
-              class="sr-only"
-              @change="onRosterFile"
-            />
-          </FormField>
-
-          <div>
-            <button class="btn btn--primary" :disabled="importing" @click="importRoster">
-              <span v-if="importing" class="spinner" />
-              <Icon name="upload" :size="15" /> 导入花名册
-            </button>
-          </div>
-
-          <div v-if="rosterResult" class="stack" style="gap: 10px">
-            <div class="row-wrap">
-              <span class="pill pill--outline">{{ targetClassLabel(rosterResult) }}</span>
-              <span class="pill pill--outline">新建 <b class="tnum">{{ rosterResult.created }}</b></span>
-              <span class="pill pill--outline">更新 <b class="tnum">{{ rosterResult.updated }}</b></span>
-              <span v-if="rosterResult.errors.length" class="pill pill--outline">
-                未导入 <b class="tnum">{{ rosterResult.errors.length }}</b>
-              </span>
-            </div>
+          <section class="stack" style="gap: 16px">
+            <h3 class="section-title" style="margin: 0">{{ t("data.importTitle") }}</h3>
             <p class="muted" style="margin: 0">
-              「更新」指文件里的学号已经存在，会覆盖对应学生的资料，不会产生新学生。
+              <b>{{ t("data.importNote") }}</b>
+              {{ t("data.importDesc") }}
             </p>
-            <div v-if="changedRows.length" class="table-wrap">
-              <table class="table">
-                <thead>
-                  <tr><th>更新明细</th><th>学号</th><th>改动</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="r in changedRows" :key="r.row">
-                    <td>{{ r.name }}</td>
-                    <td class="tnum">{{ r.admission_no }}</td>
-                    <td>{{ r.changes }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p v-if="rosterResult.ignored_columns.length" class="muted" style="margin: 0">
-              已忽略无法识别的列：{{ rosterResult.ignored_columns.join("、") }}
-            </p>
-            <div v-if="rosterResult.errors.length" class="table-wrap">
-              <table class="table">
-                <thead>
-                  <tr><th>行号</th><th>学号</th><th>姓名</th><th>原因</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="r in rosterResult.errors" :key="r.row">
-                    <td class="tnum">{{ r.row }}</td>
-                    <td>{{ r.admission_no || "—" }}</td>
-                    <td>{{ r.name || "—" }}</td>
-                    <td>{{ r.message }}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <div class="card">
-        <div class="card__head">
-          <h2 class="card__title"><Icon name="download" :size="16" /> {{ t("data.exportTitle") }}</h2>
-        </div>
-        <div class="card__body stack" style="gap: 16px">
-          <p class="muted" style="margin: 0">{{ t("data.exportDesc") }}</p>
-          <div class="form-grid">
-            <FormField :label="t('data.exportClass')" required>
-              <select v-model="exportClassId" class="input">
-                <option value="" disabled>{{ t("data.exportClassPlaceholder") }}</option>
-                <option v-for="c in exportClassOptions" :key="c.id" :value="c.id">
-                  {{ c.name }}（{{ c.academic_year }}，{{ c.student_count }} 人）
-                </option>
-              </select>
+            <div class="form-grid">
+              <FormField
+                label="分配到班级"
+                optional
+                :hint="t('data.importClassHint')"
+              >
+                <select v-model="rosterClassId" class="input">
+                  <option v-for="c in classOptions" :key="c.id" :value="c.id">
+                    {{ classOptionLabel(c) }}
+                  </option>
+                </select>
+              </FormField>
+            </div>
+
+            <FormField label="Excel 文件" required hint=".xlsx 格式，支持含备注等额外列">
+              <button type="button" class="btn" @click="rosterFileInput?.click()">
+                <Icon name="note" :size="15" /> {{ rosterFile ? rosterFile.name : "选择花名册文件（.xlsx）" }}
+              </button>
+              <input
+                ref="rosterFileInput"
+                type="file"
+                accept=".xlsx"
+                class="sr-only"
+                @change="onRosterFile"
+              />
             </FormField>
-          </div>
-          <div class="row-wrap">
-            <button class="btn btn--primary" :disabled="exportingRoster" @click="exportRoster">
-              <span v-if="exportingRoster" class="spinner" />
-              <Icon name="download" :size="15" /> {{ t("data.exportRoster") }}
-            </button>
-            <button class="btn" :disabled="exportingVisits" @click="exportHomeVisits">
-              <span v-if="exportingVisits" class="spinner" />
-              <Icon name="download" :size="15" /> {{ t("data.exportVisits") }}
-            </button>
-            <button class="btn" :disabled="exportingScores" @click="exportScores">
-              <span v-if="exportingScores" class="spinner" />
-              <Icon name="download" :size="15" /> {{ t("data.exportScores") }}
-            </button>
-          </div>
+
+            <div class="row-wrap">
+              <button type="button" class="btn" @click="downloadTemplate">
+                <Icon name="download" :size="15" /> {{ t("data.importTemplate") }}
+              </button>
+              <button type="button" class="btn" :disabled="importing" @click="importRoster">
+                <span v-if="importing" class="spinner" />
+                <Icon name="upload" :size="15" /> {{ t("data.importRoster") }}
+              </button>
+            </div>
+
+            <div v-if="rosterResult" class="stack" style="gap: 10px">
+              <div class="row-wrap">
+                <span class="pill pill--outline">{{ targetClassLabel(rosterResult) }}</span>
+                <span class="pill pill--outline">新建 <b class="tnum">{{ rosterResult.created }}</b></span>
+                <span class="pill pill--outline">更新 <b class="tnum">{{ rosterResult.updated }}</b></span>
+                <span v-if="rosterResult.errors.length" class="pill pill--outline">
+                  未导入 <b class="tnum">{{ rosterResult.errors.length }}</b>
+                </span>
+              </div>
+              <p class="muted" style="margin: 0">
+                「更新」指文件里的学号已经存在，会覆盖对应学生的资料，不会产生新学生。
+              </p>
+              <div v-if="changedRows.length" class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr><th>更新明细</th><th>学号</th><th>改动</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in changedRows" :key="r.row">
+                      <td>{{ r.name }}</td>
+                      <td class="tnum">{{ r.admission_no }}</td>
+                      <td>{{ r.changes }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p v-if="rosterResult.ignored_columns.length" class="muted" style="margin: 0">
+                已忽略无法识别的列：{{ rosterResult.ignored_columns.join("、") }}
+              </p>
+              <div v-if="rosterResult.errors.length" class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr><th>行号</th><th>学号</th><th>姓名</th><th>原因</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in rosterResult.errors" :key="r.row">
+                      <td class="tnum">{{ r.row }}</td>
+                      <td>{{ r.admission_no || "—" }}</td>
+                      <td>{{ r.name || "—" }}</td>
+                      <td>{{ r.message }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section
+            class="stack"
+            style="gap: 16px; padding-top: var(--sp-4); border-top: 1px solid var(--line)"
+          >
+            <h3 class="section-title" style="margin: 0">{{ t("data.exportTitle") }}</h3>
+            <p class="muted" style="margin: 0">{{ t("data.exportDesc") }}</p>
+            <div class="form-grid">
+              <FormField :label="t('data.exportClass')" required>
+                <select v-model="exportClassId" class="input">
+                  <option value="" disabled>{{ t("data.exportClassPlaceholder") }}</option>
+                  <option v-for="c in classOptions" :key="c.id" :value="c.id">
+                    {{ classOptionLabel(c) }}
+                  </option>
+                </select>
+              </FormField>
+            </div>
+            <div class="row-wrap">
+              <button type="button" class="btn" :disabled="exportingRoster" @click="exportRoster">
+                <span v-if="exportingRoster" class="spinner" />
+                <Icon name="download" :size="15" /> {{ t("data.exportRoster") }}
+              </button>
+              <button type="button" class="btn" :disabled="exportingVisits" @click="exportHomeVisits">
+                <span v-if="exportingVisits" class="spinner" />
+                <Icon name="download" :size="15" /> {{ t("data.exportVisits") }}
+              </button>
+              <button type="button" class="btn" :disabled="exportingScores" @click="exportScores">
+                <span v-if="exportingScores" class="spinner" />
+                <Icon name="download" :size="15" /> {{ t("data.exportScores") }}
+              </button>
+            </div>
+          </section>
         </div>
       </div>
 

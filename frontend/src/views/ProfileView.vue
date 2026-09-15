@@ -511,7 +511,7 @@ const activity = computed(() => {
         </div>
       </div>
 
-      <!-- 数据管理：花名册导入导出与演示数据（原「数据」页并入） -->
+      <!-- 数据管理：导入导出与演示数据（原「数据」页并入） -->
       <DataView />
 
       <div class="form-actions" style="justify-content: center">

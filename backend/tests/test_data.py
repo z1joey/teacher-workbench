@@ -269,11 +269,18 @@ def test_roster_export_roundtrip(client, db):
     assert not is_unassigned_class(klass)
 
 
-def test_roster_export_unassigned_class_404(client, db):
+def test_roster_export_unassigned_class(client, db):
     unassigned = _unassigned(db)
+    s = _student(db, "未分班生", "2025091501", gender="M")
+    db.add(Enrollment(person_id=s.id, class_id=unassigned.id, valid_from=date(2025, 9, 1)))
     db.commit()
     res = client.get(f"/api/data/export/roster?class_id={unassigned.id}", headers=AUTH)
-    assert res.status_code == 404
+    assert res.status_code == 200
+    ws = load_workbook(io.BytesIO(res.content)).active
+    assert ws.cell(1, 1).value == "未分班花名册"
+    assert "__system__" not in str(ws.cell(1, 1).value)
+    assert ws.cell(3, 1).value == "2025091501"
+    assert ws.cell(3, 2).value == "未分班生"
 
 
 def test_roster_import_creates_birthday_events(client, db):
