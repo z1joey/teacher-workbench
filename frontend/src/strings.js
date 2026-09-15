@@ -234,7 +234,7 @@ const messages = {
   "feedback.featureClasses": "班级",
   "feedback.featureExams": "考试",
   "feedback.featureVisits": "家访",
-  "feedback.featureSettings": "个人中心",
+  "feedback.featureSettings": "个人",
   "feedback.featureOther": "其他",
 
   // --- 首页 ---
