@@ -176,7 +176,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
             # 演示场景回退固定账密；配置了 ADMIN_EMAIL/ADMIN_PASSWORD 时以环境变量为准
             admin_email = os.environ.get("ADMIN_EMAIL", "admin@school.dev")
             admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
-            admin = Person(name="开发者", phone="13800000000", email=admin_email,
+            admin = Person(name="管理员", phone="13800000000", email=admin_email,
                            password_hash=hash_password(admin_password),
                            payload=validate_person_payload("admin", {}))
             db.add(admin)

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..app_settings import is_registration_enabled, set_registration_enabled
 from ..database import Base, engine, get_db
 from ..deps import require_admin
 from ..models import AuthSession, Class, Enrollment, Event, Feedback, Person, Tag
@@ -14,6 +15,8 @@ from ..payloads import validate_person_payload
 from ..security import hash_password
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+LIST_USER_ROLES = ("admin", "teacher", "student", "guardian")
 
 # All models that map to real DB tables — used for table-count introspection.
 ALL_MODELS = [Person, AuthSession, Event, Tag, Class, Enrollment, Feedback]
@@ -31,16 +34,31 @@ def admin_stats(
     # PostgreSQL's ->> yields text. Count in Python with the same
     # default-true rule the users list uses.
     persons = db.query(Person).all()
+    login_roles = {"teacher", "admin"}
+
+    def _role(p: Person) -> str | None:
+        return (p.payload or {}).get("role")
+
+    def _active(p: Person) -> bool:
+        return (p.payload or {}).get("is_active") is not False
+
+    persons_total = counts.get("person", 0)
+    accounts_total = sum(1 for p in persons if _role(p) in login_roles)
+    accounts_active = sum(
+        1 for p in persons if _role(p) in login_roles and _active(p)
+    )
     return {
         "database": engine.url.drivername,
         "tables": counts,
-        "users_total": counts.get("person", 0),
+        # users_total kept for older clients — same as persons_total
+        "users_total": persons_total,
+        "persons_total": persons_total,
+        "accounts_total": accounts_total,
         "users_admins": (
             db.query(Person).filter(Person.payload["role"].as_string() == "admin").count()
         ),
-        "users_active": sum(
-            1 for p in persons if (p.payload or {}).get("is_active") is not False
-        ),
+        "users_active": sum(1 for p in persons if _active(p)),
+        "accounts_active": accounts_active,
         "sessions_active": counts.get("auth_session", 0),
     }
 
@@ -53,7 +71,7 @@ def list_users(
 ):
     query = db.query(Person).order_by(Person.id)
     if role is not None:
-        if role not in ("admin", "teacher"):
+        if role not in LIST_USER_ROLES:
             raise HTTPException(status_code=400, detail="角色不合法")
         query = query.filter(Person.payload["role"].as_string() == role)
     return [
@@ -63,6 +81,7 @@ def list_users(
             "phone": u.phone,
             "email": u.email,
             "role": u.role,
+            "admission_no": (u.payload or {}).get("admission_no") if u.role == "student" else None,
             "is_active": (u.payload or {}).get("is_active") is not False,
             "created_at": u.created_at.isoformat() if u.created_at else None,
         }
@@ -74,6 +93,33 @@ class UserUpdate(BaseModel):
     role: str | None = None
     is_active: bool | None = None
     password: str | None = None
+
+
+class SiteSettingsOut(BaseModel):
+    registration_enabled: bool
+
+
+class SiteSettingsUpdate(BaseModel):
+    registration_enabled: bool
+
+
+@router.get("/settings")
+def get_site_settings(
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    return SiteSettingsOut(registration_enabled=is_registration_enabled(db))
+
+
+@router.patch("/settings")
+def update_site_settings(
+    body: SiteSettingsUpdate,
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    set_registration_enabled(db, body.registration_enabled)
+    db.commit()
+    return SiteSettingsOut(registration_enabled=body.registration_enabled)
 
 
 @router.patch("/users/{user_id}")
@@ -194,12 +240,21 @@ def kill_all_sessions(
     return {"ok": True}
 
 
+INSPECT_PAGE_SIZE = 20
+
+
 class InspectIn(BaseModel):
     table: str
-    limit: int = 20
+    page: int = 1
 
 
 TABLE_ALLOWLIST = {m.__tablename__ for m in ALL_MODELS}
+
+
+@router.get("/inspect/tables")
+def inspect_tables(_me: Person = Depends(require_admin)):
+    """Inspectable ORM tables (current schema only)."""
+    return {"tables": sorted(TABLE_ALLOWLIST)}
 
 
 @router.post("/inspect")
@@ -211,8 +266,8 @@ def inspect_table(
     """Preview rows from any known table — read-only."""
     if body.table not in TABLE_ALLOWLIST:
         raise HTTPException(status_code=400, detail="未知数据表")
-    if body.limit < 1 or body.limit > 100:
-        raise HTTPException(status_code=400, detail="limit 需在 1–100 之间")
+    if body.page < 1:
+        raise HTTPException(status_code=400, detail="page 需 >= 1")
 
     # Safer: resolve model from table name and query via ORM.
     model = next(m for m in ALL_MODELS if m.__tablename__ == body.table)
@@ -221,10 +276,17 @@ def inspect_table(
         if col.primary_key:
             pk_col = col
             break
-    query = db.query(model)
+    base_query = db.query(model)
+    total = base_query.count()
+    query = base_query
     if pk_col is not None:
         query = query.order_by(pk_col.desc())
-    rows = query.limit(body.limit).all()
+    rows = (
+        query.offset((body.page - 1) * INSPECT_PAGE_SIZE)
+        .limit(INSPECT_PAGE_SIZE)
+        .all()
+    )
+    total_pages = (total + INSPECT_PAGE_SIZE - 1) // INSPECT_PAGE_SIZE if total else 0
 
     # Use model's column attrs so we don't hit lazy-loaded relationships.
     columns = [c.key for c in model.__table__.columns]
@@ -247,6 +309,10 @@ def inspect_table(
         "table": body.table,
         "columns": columns,
         "rows": row_dicts,
+        "page": body.page,
+        "page_size": INSPECT_PAGE_SIZE,
+        "total": total,
+        "total_pages": total_pages,
     }
 
 
@@ -274,3 +340,45 @@ def admin_feedback(
     from .feedback import list_feedback
 
     return list_feedback(db)
+
+
+@router.get("/feedback/unresolved-count")
+def admin_feedback_unresolved_count(
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    from .feedback import unresolved_feedback_count
+
+    return {"count": unresolved_feedback_count(db)}
+
+
+class FeedbackResolveIn(BaseModel):
+    resolved: bool
+
+
+@router.patch("/feedback/{feedback_id}")
+def admin_feedback_resolve(
+    feedback_id: uuid.UUID,
+    body: FeedbackResolveIn,
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    from .feedback import feedback_out, set_feedback_resolved
+
+    fb = set_feedback_resolved(db, feedback_id, body.resolved)
+    author = db.get(Person, fb.person_id)
+    db.commit()
+    return feedback_out(fb, author=author)
+
+
+@router.delete("/feedback/{feedback_id}")
+def admin_feedback_delete(
+    feedback_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _me: Person = Depends(require_admin),
+):
+    from .feedback import delete_feedback
+
+    delete_feedback(db, feedback_id)
+    db.commit()
+    return {"ok": True}

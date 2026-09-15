@@ -2,7 +2,7 @@
 // 把后端存储的枚举代码（math、F、active…）渲染成人话。
 // subjectColor 与 EVENT_TYPES 供图表和时间线取色/取图标。
 const messages = {
-  "app.title": "高老师工作台",
+  "app.title": "高素质工作台",
   "nav.home": "首页",
   "nav.students": "学生",
   "nav.classes": "班级",
@@ -10,6 +10,8 @@ const messages = {
   "nav.admin": "管理",
   "nav.profile": "个人中心",
   "nav.menu": "导航菜单",
+  "nav.commandPalette": "命令面板",
+  "nav.help": "帮助与快捷键",
   "auth.logout": "退出登录",
 
   // --- 通用动作 ---
@@ -40,19 +42,43 @@ const messages = {
 
   // --- 管理后台 ---
   "admin.title": "开发者后台",
-  "admin.subtitle": "系统概览、数据探查与账号管理",
+  "admin.navOverview": "概览",
+  "admin.subtitleOverview": "数据库统计与各表行数",
+  "admin.subtitleAccounts": "启停用账号、调整角色与重置密码",
+  "admin.subtitleFeedback": "查看教师提交的意见与建议",
+  "admin.subtitleSessions": "查看并终止活动登录会话",
+  "admin.subtitleInspect": "按表预览原始数据，用于排查问题",
+  "admin.subtitleSettings": "注册开关与系统维护",
+  "admin.subtitleDanger": "不可撤销的系统级操作",
   "admin.refresh": "刷新",
   "admin.sectionOverview": "数据库概览",
+  "admin.sectionSettings": "站点设置",
+  "admin.sectionSettingsGeneral": "常规",
+  "admin.dangerZoneDesc": "这一区的操作不可撤销，执行前会要求你再次确认。",
+  "admin.registrationEnabled": "开放用户注册",
+  "admin.registrationEnabledDesc": "关闭后，新用户无法自行注册教师账号，已有账号不受影响。",
+  "admin.registrationEnabledOn": "已开放注册",
+  "admin.registrationEnabledOff": "已关闭注册",
   "admin.sectionAccounts": "账号管理",
   "admin.sectionSessions": "活动会话",
   "admin.sectionInspect": "数据探查",
   "admin.sectionDanger": "危险操作",
   "admin.sectionFeedback": "用户反馈",
+  "admin.feedbackEmpty": "还没有收到反馈",
+  "admin.feedbackOpenLabel": "待处理",
+  "admin.feedbackResolvedLabel": "已解决",
+  "admin.feedbackResolve": "标记已解决",
+  "admin.feedbackResolved": "已标记为解决",
+  "admin.feedbackReopened": "已重新打开",
+  "admin.feedbackDeleted": "反馈已删除",
+  "admin.feedbackDeleteTitle": "删除这条反馈？",
+  "admin.feedbackDeleteConfirm": "删除后无法恢复。",
   "admin.dbDriver": "数据库驱动",
   "admin.dbTables": "数据表行数",
-  "admin.usersTotal": "账号总数",
+  "admin.personsTotal": "身份总数",
+  "admin.accountsTotal": "可登录账号",
   "admin.usersAdmins": "管理员",
-  "admin.usersActive": "活跃账号",
+  "admin.accountsActive": "活跃账号",
   "admin.sessionsActive": "活动会话",
   "admin.table": "表名",
   "admin.rows": "行数",
@@ -63,6 +89,10 @@ const messages = {
   "admin.userRole": "角色",
   "admin.roleTeacher": "教师",
   "admin.roleAdmin": "管理员",
+  "admin.roleStudent": "学生",
+  "admin.roleGuardian": "监护人",
+  "admin.accountEmail": "邮箱",
+  "admin.manageOnStudents": "在学生档案管理",
   "admin.teacherActions": "操作",
   "admin.teacherSave": "保存",
   "admin.teacherResetPwd": "重置密码",
@@ -80,7 +110,12 @@ const messages = {
   "admin.inspectTable": "选择数据表",
   "admin.inspectLimit": "行数",
   "admin.inspectRun": "预览",
+  "admin.inspectPrev": "上一页",
+  "admin.inspectNext": "下一页",
+  "admin.inspectPage": "第 {page} / {total} 页",
+  "admin.inspectTotal": "共 {total} 行",
   "admin.inspectNoData": "暂无数据",
+  "admin.inspectViewFull": "查看完整内容",
   "admin.resetDb": "重置数据库",
   "admin.resetDbWarn": "这会清空所有表里的全部数据，并重建空表。",
   "admin.resetDbDone": "数据库已重置。",
@@ -170,7 +205,6 @@ const messages = {
   "forgot.backToLogin": "返回登录",
 
   // --- 注册 ---
-  "signup.subtitle": "创建教师账号",
   "signup.emailRequired": "请输入邮箱",
   "signup.emailInvalid": "邮箱格式不正确",
   "signup.passwordShort": "密码至少 6 位",
@@ -181,6 +215,8 @@ const messages = {
   "signup.success": "注册成功，欢迎加入",
   "signup.hasAccount": "已有账号？",
   "signup.goLogin": "去登录",
+  "signup.closed": "当前未开放注册",
+  "signup.closedHint": "如需开通账号，请联系管理员。",
 
   // --- 用户反馈 ---
   "feedback.entry": "用户反馈",
@@ -198,7 +234,7 @@ const messages = {
   "feedback.featureClasses": "班级",
   "feedback.featureExams": "考试",
   "feedback.featureVisits": "家访",
-  "feedback.featureSettings": "个人中心 / 设置",
+  "feedback.featureSettings": "个人",
   "feedback.featureOther": "其他",
 
   // --- 首页 ---
@@ -237,7 +273,14 @@ const messages = {
   "home.calNotifyNextWeek": "下周",
 
   // --- 数据 ---
-  "data.exportTitle": "数据导出（Excel）",
+  "data.ioTitle": "数据转移",
+  "data.importTitle": "数据导入",
+  "data.importNote": "目前仅支持花名册（Excel）导入。",
+  "data.importDesc": "表头需含学号、姓名、性别，可含出生日期与监护人信息。只导入学生，不创建班级。",
+  "data.importClassHint": "默认进入未分班；已有学生仅更新资料",
+  "data.importTemplate": "下载模板",
+  "data.importRoster": "导入花名册",
+  "data.exportTitle": "数据导出",
   "data.exportDesc": "按当前班级名单导出花名册、家访记录或成绩。成绩为一个工作簿，每场考试单独一个 Sheet，格式与考试详情页成绩模板一致。",
   "data.exportClass": "班级",
   "data.exportClassPlaceholder": "选择班级",
@@ -906,6 +949,7 @@ const ERROR_HINTS = [
   [/已存在|already|duplicate|unique/i, "已经有重复的内容了，请换个名称"],
   [/仍有学生|still has/i, "这个班级里还有学生，请先给他们换个班级"],
   [/权限|forbidden|无权/i, "你没有执行这个操作的权限"],
+  [/当前已关闭注册/i, "当前未开放注册，请联系管理员开通账号"],
 ]
 
 export function friendlyError(e) {

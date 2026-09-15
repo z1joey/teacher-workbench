@@ -43,3 +43,10 @@ def class_for_api(cls: Class | None) -> dict | None:
     if cls is None or is_unassigned_class(cls):
         return None
     return {"id": str(cls.id), "name": cls.name}
+
+
+def class_export_heading(cls: Class, doc_kind: str) -> str:
+    """Workbook title and download filename stem (without extension)."""
+    if is_unassigned_class(cls):
+        return f"{cls.name}{doc_kind}"
+    return f"{cls.academic_year}级{cls.name}{doc_kind}"

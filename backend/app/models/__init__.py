@@ -17,6 +17,7 @@ Design (2026-09 discussion):
 - Tags attach to persons (students only, by convention) via person_tags.
 - Guardians are Persons linked to students via student_guardians.
 """
+from .app_setting import AppSetting
 from .associations import person_events, person_tags, student_guardians
 from .class_ import Class, ClassSeating, Enrollment
 from .event import EVENT_TYPES, Event
@@ -25,6 +26,7 @@ from .person import AuthSession, Person
 from .tag import Tag
 
 __all__ = [
+    "AppSetting",
     "AuthSession",
     "Class",
     "ClassSeating",

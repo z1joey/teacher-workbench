@@ -11,6 +11,7 @@ from datetime import date, datetime
 
 import pytest
 
+from app.app_settings import set_registration_enabled
 from app.eventing import create_event
 from app.models import AuthSession, Class, Enrollment, Event, Person
 from app.payloads import validate_person_payload
@@ -89,6 +90,10 @@ def test_admin_lists_users_with_role_filter(client):
 
     teachers = tc.get("/api/admin/users", params={"role": "teacher"}).json()
     assert {u["id"] for u in teachers} == {ids["teacher"], ids["teacher2"]}
+    students = tc.get("/api/admin/users", params={"role": "student"}).json()
+    assert {u["id"] for u in students} == {ids["student"]}
+    assert students[0]["admission_no"] == "S1"
+    assert tc.get("/api/admin/users", params={"role": "guardian"}).json() == []
     assert tc.get("/api/admin/users", params={"role": "boss"}).status_code == 400
 
 
@@ -192,12 +197,38 @@ def test_stats_keys(client, db):
     seed_person(db, "inactive@test.example", phone="13600000003", name="已停用", active=False)
     db.commit()
     stats = tc.get("/api/admin/stats").json()
-    assert set(stats) == {"database", "tables", "users_total", "users_admins",
-                          "users_active", "sessions_active"}
-    assert stats["users_total"] == 5
+    assert set(stats) == {
+        "database", "tables", "users_total", "persons_total", "accounts_total",
+        "users_admins", "users_active", "accounts_active", "sessions_active",
+    }
+    assert stats["persons_total"] == stats["users_total"] == 5
+    assert stats["accounts_total"] == 4  # admin + 2 teachers + inactive teacher
     assert stats["users_admins"] == 1
-    assert stats["users_active"] == 4  # excludes the disabled teacher
+    assert stats["users_active"] == 4  # all roles, excludes disabled teacher
+    assert stats["accounts_active"] == 3  # login roles only, excludes disabled teacher
     assert stats["sessions_active"] == 3
     assert stats["tables"]["person"] == 5
     assert "user" not in stats["tables"]
     assert "teacher_profile" not in stats["tables"]
+
+
+def test_admin_site_settings_registration_toggle(client, db):
+    tc, _ = client
+    assert tc.get("/api/admin/settings").json() == {"registration_enabled": True}
+
+    r = tc.patch("/api/admin/settings", json={"registration_enabled": False})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"registration_enabled": False}
+    assert tc.get("/api/admin/settings").json() == {"registration_enabled": False}
+
+    _as(tc, TEACHER_TOKEN)
+    assert tc.patch("/api/admin/settings", json={"registration_enabled": True}).status_code == 403
+
+    _as(tc, ADMIN_TOKEN)
+    r = tc.patch("/api/admin/settings", json={"registration_enabled": True})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"registration_enabled": True}
+
+    set_registration_enabled(db, False)
+    db.commit()
+    assert tc.get("/api/auth/registration-status").json() == {"enabled": False}

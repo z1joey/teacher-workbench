@@ -1,14 +1,13 @@
-# Teacher Workbench (MVP demo)
+# 高素质工作台（Teacher Workbench）
 
-A school-management workbench for teachers: student profiles (role + profile
-fields live in a JSONB payload), per-subject exam scores, exam **averages**
-(school-wide and per class), **home visits**, student **tags**, and a
-per-student **timeline** of every event.
+面向中小学教师的教学管理工作台：学生档案（角色与扩展字段在 JSONB payload）、
+分科考试成绩、全校/班级 **平均分**、**家访**、学生 **标签**，以及按学生聚合的
+**时间线**事件流。当前版本 **0.1.1**（Beta）。
 
 - **Backend**: Python 3.14 · FastAPI · SQLAlchemy 2（Docker 部署使用 PostgreSQL 17，本地开发默认 SQLite）
 - **Frontend**: Vue 3 · Vite · vue-router（纯 CSS，无 UI 框架）
 
-Design notes and schema rationale: [docs/design.md](docs/design.md)
+架构与模块说明见 [CODE_WIKI.md](CODE_WIKI.md)。
 
 ## 启动与关闭
 
@@ -123,8 +122,9 @@ docker compose up -d --build     # 修改代码后重新构建并启动
 | 路由 | 用途 |
 | --- | --- |
 | `/login` | 邮箱注册 / 登录 |
-| `/` | 首页仪表盘：统计、考试倒计时、最新动态、待跟进家访、快捷操作 |
-| `/profile` | 个人中心：资料编辑、我的班级、教学足迹 |
+| `/` | 首页：月历 + 最新动态 |
+| `/profile` | 个人中心：资料编辑、我的班级、教学足迹、**数据转移**（导入/导出 Excel）、演示数据 |
+| `/admin` 及子路由 | 开发者后台：概览、账号管理、用户反馈、活动会话、数据探查、站点设置 |
 | `/classes`、`/classes/:id` | 班级列表（新建/编辑/删除）与班级详情（趋势图/平均成绩/名单） |
 | `/students`、`/students/new`、`/students/:id` | 学生列表、添加学生、学生工作台（成绩趋势/标签/事件/家访/时间线） |
 | `/exams`、`/exams/new`、`/exams/:id` | 考试列表、新建考试、平均分与全校趋势图 |
@@ -133,11 +133,15 @@ docker compose up -d --build     # 修改代码后重新构建并启动
 
 ### 版本号
 
-用户界面显示的版本来自 `frontend/package.json` 的 `version` 字段（当前为测试版 **Beta**）。
-发版时：
+当前版本：**0.1.1**（界面显示 **Beta** 角标）。
 
-1. 修改 `frontend/package.json` 中的 `version`（遵循 [语义化版本](https://semver.org/lang/zh-CN/)）。
-2. 同步更新 `backend/app/version.py` 中的 `APP_VERSION`（供 `/api/health` 与 OpenAPI 文档使用）。
+| 文件 | 字段 | 用途 |
+| --- | --- | --- |
+| `frontend/package.json` | `version` | 侧栏/登录页 `v0.1.x`（经 `frontend/src/version.js` 读取） |
+| `backend/app/version.py` | `APP_VERSION` | `/api/health`、OpenAPI 文档 |
+| `frontend/src/version.js` · `backend/app/version.py` | `IS_BETA` | 是否显示 Beta 角标 |
+
+发版时按 [语义化版本](https://semver.org/lang/zh-CN/) 同步修改以上三处，合并到 `main` 后由 GitHub Actions 自动构建部署（镜像标签为 `sha-<commit>`，可选打 git tag `v0.1.x`）。
 
 ## API
 
@@ -163,6 +167,10 @@ docker compose up -d --build     # 修改代码后重新构建并启动
 | GET | `/api/classes`、`/api/classes/{id}` | 班级列表 · 班级详情（趋势/平均/名单） |
 | PATCH · DELETE | `/api/classes/{id}` | 编辑班级 · 删除（有学生记录 → 409） |
 | GET | `/api/teachers` | 教师列表 |
+| POST | `/api/data/import/roster` | 花名册导入（Excel）；导入目前仅支持花名册 |
+| GET | `/api/data/export/roster` · `home-visits` · `scores` | 按班级导出花名册、家访记录、成绩 |
+| GET | `/api/data/export/roster-template` | 下载花名册空白模板 |
+| POST | `/api/feedback` | 提交用户反馈（教师） |
 
 所有查询均通过 SQLAlchemy 参数绑定（无字符串拼接 SQL）。密码使用
 PBKDF2-HMAC-SHA256（20 万次迭代 + 每用户盐值）；token 为 `auth_session`
@@ -285,10 +293,14 @@ backend/
       exams.py         # 考试 + 平均分 + 趋势（按考试当日班级归属）
       dashboard.py     # 首页聚合 + 日历
       profile.py       # 教师资料
+      data.py          # 花名册导入导出、演示数据
+      feedback.py      # 用户反馈
       misc.py          # 教师列表
 frontend/
   src/
     views/             # 首页/登录/个人中心/学生/班级/考试各页面
+    views/admin/       # 开发者后台（多路由分区）
+    views/DataView.vue # 数据转移（嵌入个人中心）
     components/        # LineChart.vue（SVG 折线图）、Timeline.vue、Icon.vue（内联图标）
     strings.js         # 中文界面词典 + 枚举代码的中文标签/取色
     auth.js  api.js  router.js  style.css

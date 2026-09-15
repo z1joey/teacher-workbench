@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue"
+import { onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import Icon from "../components/Icon.vue"
 import FormField from "../components/FormField.vue"
@@ -14,6 +14,19 @@ const form = ref({ email: "", password: "", password2: "" })
 const errors = ref({ email: "", password: "", password2: "" })
 const error = ref("")
 const busy = ref(false)
+const registrationOpen = ref(true)
+const checkingStatus = ref(true)
+
+onMounted(async () => {
+  try {
+    const res = await api.get("/auth/registration-status")
+    registrationOpen.value = res.enabled !== false
+  } catch {
+    registrationOpen.value = true
+  } finally {
+    checkingStatus.value = false
+  }
+})
 
 function validate() {
   errors.value = { email: "", password: "", password2: "" }
@@ -63,9 +76,15 @@ async function submit() {
     <div class="card auth-card">
       <div class="auth-mark"><Icon name="board" :size="24" /></div>
       <h1 class="auth-title">{{ t("app.title") }}</h1>
-      <p class="auth-sub">{{ t("signup.subtitle") }}</p>
 
-      <form @submit.prevent="submit" novalidate>
+      <div v-if="checkingStatus" class="skeleton skeleton--row" style="margin-bottom: 16px" />
+
+      <p v-else-if="!registrationOpen" class="state__desc" style="margin: 0 0 16px; text-align: center">
+        {{ t("signup.closed") }}<br />
+        <span class="muted">{{ t("signup.closedHint") }}</span>
+      </p>
+
+      <form v-else @submit.prevent="submit" novalidate>
         <FormField
           :label="t('login.email')"
           required
@@ -111,7 +130,7 @@ async function submit() {
         </button>
       </form>
 
-      <div class="auth-note auth-note--center">
+      <div v-if="!checkingStatus" class="auth-note auth-note--center">
         <p class="muted" style="margin: 0">
           {{ t("signup.hasAccount") }}
           <router-link to="/login">{{ t("signup.goLogin") }}</router-link>

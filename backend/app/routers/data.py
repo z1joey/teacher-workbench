@@ -39,6 +39,7 @@ from ..seed import seed
 from ..unassigned import (
     UNASSIGNED_ACADEMIC_YEAR,
     UNASSIGNED_CLASS_NAME,
+    class_export_heading,
     class_for_api,
     ensure_unassigned_class,
     is_unassigned_class,
@@ -134,9 +135,13 @@ def _resolve_target_class(db: Session, class_id: uuid_mod.UUID | None, user: Per
 
 
 def _class_for_export(db: Session, user: Person, class_id: uuid_mod.UUID) -> Class:
-    """Export endpoints: same ownership rules as import, but reject 未分班."""
-    cls = _resolve_target_class(db, class_id, user)
+    """Export endpoints: allow 未分班; real classes need workspace ownership."""
+    cls = db.get(Class, class_id)
+    if cls is None:
+        raise HTTPException(status_code=404, detail="class not found")
     if is_unassigned_class(cls):
+        return cls
+    if cls.teacher_id is not None and cls.teacher_id != user.id:
         raise HTTPException(status_code=404, detail="class not found")
     return cls
 
@@ -478,7 +483,7 @@ def _roster_workbook(db: Session, cls: Class, students: list[Person]) -> Workboo
     wb = Workbook()
     ws = wb.active
     ws.title = "花名册"
-    ws.append([f"{cls.academic_year}级{cls.name}花名册"])
+    ws.append([class_export_heading(cls, "花名册")])
     ws.append(_ROSTER_HEADERS)
     for s in students:
         payload = s.payload or {}
@@ -528,7 +533,7 @@ def export_roster(
     students = _class_roster_students(db, cls)
     return _xlsx_response(
         _roster_workbook(db, cls, students),
-        f"{cls.academic_year}级{cls.name}花名册.xlsx",
+        f"{class_export_heading(cls, '花名册')}.xlsx",
     )
 
 
@@ -540,7 +545,7 @@ def _home_visits_workbook(
     wb = Workbook()
     ws = wb.active
     ws.title = "家访记录"
-    ws.append([f"{cls.academic_year}级{cls.name}家访记录"])
+    ws.append([class_export_heading(cls, "家访记录")])
     ws.append(_HOME_VISIT_HEADERS)
     student_ids = [s.id for s in students]
     students_by_id = {s.id: s for s in students}
@@ -622,7 +627,7 @@ def export_home_visits(
     students = _class_roster_students(db, cls)
     return _xlsx_response(
         _home_visits_workbook(db, cls, students),
-        f"{cls.academic_year}级{cls.name}家访记录.xlsx",
+        f"{class_export_heading(cls, '家访记录')}.xlsx",
     )
 
 
@@ -637,7 +642,7 @@ def export_scores(
     students = _class_roster_students(db, cls)
     return _xlsx_response(
         _scores_workbook(db, cls, students, user),
-        f"{cls.academic_year}级{cls.name}成绩.xlsx",
+        f"{class_export_heading(cls, '成绩')}.xlsx",
     )
 
 

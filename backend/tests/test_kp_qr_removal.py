@@ -165,3 +165,42 @@ def test_admin_inspect_rejects_legacy_tables(admin_client):
         r = admin_client.post("/api/admin/inspect", json={"table": tbl, "limit": 5})
         assert r.status_code == 400, f"table={tbl}: {r.status_code} {r.text}"
         assert r.json()["detail"] == "未知数据表"
+
+
+def test_admin_inspect_tables_lists_current_schema(admin_client):
+    r = admin_client.get("/api/admin/inspect/tables")
+    assert r.status_code == 200, r.text
+    assert r.json()["tables"] == sorted({
+        "person", "auth_session", "event", "tag", "class", "enrollment", "feedback",
+    })
+
+
+def test_admin_inspect_pagination(admin_client, db):
+    from app.payloads import validate_person_payload
+    from app.security import hash_password
+    from app.models import Person
+
+    for i in range(25):
+        db.add(
+            Person(
+                name=f"分页测试{i}",
+                email=f"inspect-page-{i}@test.example",
+                password_hash=hash_password("123456"),
+                payload=validate_person_payload("teacher", {}),
+            )
+        )
+    db.commit()
+
+    r = admin_client.post("/api/admin/inspect", json={"table": "person", "page": 1})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["rows"]) == 20
+    assert body["page"] == 1
+    assert body["page_size"] == 20
+    assert body["total"] >= 26  # admin fixture + 25 inserted
+    assert body["total_pages"] >= 2
+
+    r2 = admin_client.post("/api/admin/inspect", json={"table": "person", "page": 2})
+    assert r2.status_code == 200, r2.text
+    assert len(r2.json()["rows"]) >= 6
+    assert r2.json()["page"] == 2

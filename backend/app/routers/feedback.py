@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..deps import get_current_person
 from ..models import Feedback, Person
+from ..models._common import utcnow
 from ..database import get_db
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
@@ -26,6 +27,7 @@ def feedback_out(f: Feedback, author: Person | None = None) -> dict:
         "feature": f.feature,
         "content": f.content,
         "created_at": f.created_at.isoformat(),
+        "resolved_at": f.resolved_at.isoformat() if f.resolved_at else None,
     }
     if author is not None:
         out["author_name"] = author.name
@@ -68,3 +70,22 @@ def list_feedback(db: Session, limit: int = 200) -> list[dict]:
         .all()
     )
     return [feedback_out(f, author=p) for f, p in rows]
+
+
+def unresolved_feedback_count(db: Session) -> int:
+    return db.query(Feedback).filter(Feedback.resolved_at.is_(None)).count()
+
+
+def set_feedback_resolved(db: Session, feedback_id, resolved: bool) -> Feedback:
+    fb = db.get(Feedback, feedback_id)
+    if fb is None:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+    fb.resolved_at = utcnow() if resolved else None
+    return fb
+
+
+def delete_feedback(db: Session, feedback_id) -> None:
+    fb = db.get(Feedback, feedback_id)
+    if fb is None:
+        raise HTTPException(status_code=404, detail="反馈不存在")
+    db.delete(fb)

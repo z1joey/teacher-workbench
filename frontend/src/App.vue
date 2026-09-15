@@ -17,6 +17,7 @@ import api, { getToken, setToken } from "./api"
 import { AUTH_PATHS } from "./router"
 import { clearMe, loadMe, me } from "./auth"
 import { clearSearch } from "./search"
+import { refreshUnresolvedFeedbackCount, unresolvedFeedbackCount } from "./adminFeedback"
 import { ADMIN_NAV, TEACHER_NAV, isNavActive } from "./nav"
 import { t } from "./strings"
 import { pageCrumbs, pageTitle, setPageCrumbs, setPageTitle } from "./title"
@@ -56,7 +57,10 @@ const crumbs = computed(() => {
   return out
 })
 
-onMounted(loadMe)
+onMounted(() => {
+  loadMe()
+  if (me.value?.role === "admin") refreshUnresolvedFeedbackCount()
+})
 watch(
   () => route.path,
   (path) => {
@@ -64,7 +68,16 @@ watch(
     setPageTitle("") // 切换页面先清掉上一个详情页留下的名字
     setPageCrumbs([])
     if (path !== "/login" && getToken() && !me.value) loadMe()
+    if (me.value?.role === "admin") refreshUnresolvedFeedbackCount()
   }
+)
+watch(
+  () => me.value?.role,
+  (role) => {
+    if (role === "admin") refreshUnresolvedFeedbackCount()
+    else unresolvedFeedbackCount.value = 0
+  },
+  { immediate: true }
 )
 
 // ------------------------------------------------------------------ 首登称呼弹窗
@@ -120,8 +133,11 @@ async function onLogout() {
 const paletteActions = computed(() => {
   if (isAdmin.value) {
     return [
-      { id: "reload", label: "重新加载数据", icon: "refresh", run: () => window.location.reload() },
-      { id: "help", label: "帮助与快捷键", icon: "help", hint: "?", run: () => openHelp() },
+      { id: "admin-accounts", label: t("admin.sectionAccounts"), icon: "users", run: () => router.push("/admin/accounts") },
+      { id: "admin-feedback", label: t("admin.sectionFeedback"), icon: "flag", run: () => router.push("/admin/feedback") },
+      { id: "submit-feedback", label: t("feedback.entry"), icon: "note", run: () => { feedbackOpen.value = true } },
+      { id: "reload", label: "重新加载页面", icon: "refresh", run: () => window.location.reload() },
+      { id: "help", label: t("nav.help"), icon: "help", hint: "?", run: () => openHelp() },
       { id: "logout", label: "退出登录", icon: "logout", run: onLogout },
     ]
   }
@@ -180,7 +196,8 @@ function onKeydown(e) {
 
   if (e.key === "/") {
     e.preventDefault()
-    searchRef.value?.focus()
+    if (isAdmin.value) paletteOpen.value = true
+    else searchRef.value?.focus()
     return
   }
 
@@ -244,6 +261,13 @@ watch(paletteOpen, (v) => {
         >
           <Icon :name="item.icon" :size="18" />
           <span class="nav-item__text">{{ item.label }}</span>
+          <span
+            v-if="item.key === 'adminFeedback' && unresolvedFeedbackCount > 0"
+            class="nav-item__badge tnum"
+            :title="`${unresolvedFeedbackCount} 条待处理反馈`"
+          >
+            {{ unresolvedFeedbackCount > 99 ? "99+" : unresolvedFeedbackCount }}
+          </span>
           <kbd v-if="item.g" class="kbd nav-item__count">{{ item.g }}</kbd>
         </router-link>
       </nav>
@@ -257,7 +281,7 @@ watch(paletteOpen, (v) => {
           </span>
         </router-link>
 
-        <button class="nav-item" @click="feedbackOpen = true">
+        <button v-if="!isAdmin" class="nav-item" @click="feedbackOpen = true">
           <Icon name="flag" :size="18" />
           <span class="nav-item__text">{{ t("feedback.entry") }}</span>
         </button>
@@ -291,8 +315,8 @@ watch(paletteOpen, (v) => {
           </template>
         </nav>
 
-        <div class="topbar__actions">
-          <NavSearch v-if="!isAdmin" ref="searchRef" />
+        <div v-if="!isAdmin" class="topbar__actions">
+          <NavSearch ref="searchRef" />
           <button class="icon-btn" aria-label="打开命令面板" :title="'命令面板 ⌘K'" @click="paletteOpen = true">
             <Icon name="search" :size="17" />
           </button>
