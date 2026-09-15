@@ -7,6 +7,7 @@ import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
 import api, { downloadFile, triggerDownload, uploadFile } from "../api"
 import { ask } from "../confirm"
+import { recoverDemoSeedIfPresent } from "../demoSeedRecovery"
 import { notify } from "../feedback"
 import { formatEnrollmentMonth, friendlyError, t } from "../strings"
 
@@ -154,6 +155,15 @@ function targetClassLabel(result) {
 const seeding = ref(false)
 const resetting = ref(false)
 
+async function finishDemoSeed() {
+  notify({ tone: "ok", title: t("data.demoSeedDone"), timeout: 4000 })
+  rosterResult.value = null
+  rosterClassId.value = unassignedClassId()
+  exportClassId.value = ""
+  hasBusinessData.value = true
+  await load()
+}
+
 async function loadDemoData() {
   await loadDemoStatus()
   if (hasBusinessData.value) {
@@ -183,13 +193,17 @@ async function loadDemoData() {
   seeding.value = true
   try {
     await api.post("/data/demo/seed")
-    notify({ tone: "ok", title: t("data.demoSeedDone"), timeout: 4000 })
-    window.location.reload()
+    await finishDemoSeed()
   } catch (e) {
     if (e?.status === 409) {
       hasBusinessData.value = true
       notify({ tone: "warn", title: t("data.demoSeedBlocked"), detail: friendlyError(e), timeout: 8000 })
-    } else {
+    } else if (
+      !(await recoverDemoSeedIfPresent(
+        () => api.get("/data/demo/status"),
+        finishDemoSeed,
+      ))
+    ) {
       notify({ tone: "error", title: t("data.demoSeedFail"), detail: friendlyError(e) })
     }
   } finally {
