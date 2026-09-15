@@ -20,27 +20,28 @@ depends_on = None
 
 
 def _table_sql(bind) -> str | None:
-    return bind.execute(
-        sa.text("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'class'")
-    ).scalar()
+    return bind.exec_driver_sql("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'class'").scalar()
 
 
-def _index_exists(bind, name: str) -> bool:
+def _index_exists(bind, table: str, name: str) -> bool:
     if bind.dialect.name == "sqlite":
-        return (
-            bind.execute(
-                sa.text(
-                    "SELECT 1 FROM sqlite_master "
-                    "WHERE type = 'index' AND name = :name"
-                ),
-                {"name": name},
-            ).first()
-            is not None
-        )
-    if not sa.inspect(bind).has_table("class"):
+        row = bind.exec_driver_sql("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?", (name,)).first()
+        return row is not None
+    if not sa.inspect(bind).has_table(table):
         return False
     return name in {
-        idx["name"] for idx in sa.inspect(bind).get_indexes("class")
+        idx["name"] for idx in sa.inspect(bind).get_indexes(table)
+    }
+
+
+def _constraint_exists(bind, table: str, name: str) -> bool:
+    if bind.dialect.name == "sqlite":
+        # _table_sql reads the class table only, the sole sqlite caller here.
+        return name in (_table_sql(bind) or "")
+    if not sa.inspect(bind).has_table(table):
+        return False
+    return name in {
+        c["name"] for c in sa.inspect(bind).get_unique_constraints(table)
     }
 
 
@@ -60,25 +61,34 @@ def upgrade() -> None:
         if "uq_class_name_year" in constraints:
             op.drop_constraint("uq_class_name_year", "class", type_="unique")
 
-    if not _index_exists(bind, "uq_class_teacher_name_year"):
-        op.create_index(
-            "uq_class_teacher_name_year",
-            "class",
-            ["teacher_id", "name", "academic_year"],
-            unique=True,
-        )
+    if not _constraint_exists(
+        bind, "class", "uq_class_teacher_name_year"
+    ) and not _index_exists(bind, "class", "uq_class_teacher_name_year"):
+        # Match the ORM model, which declares this as a UNIQUE constraint.
+        if bind.dialect.name == "sqlite":
+            with op.batch_alter_table("class") as batch_op:
+                batch_op.create_unique_constraint(
+                    "uq_class_teacher_name_year",
+                    ["teacher_id", "name", "academic_year"],
+                )
+        else:
+            op.create_unique_constraint(
+                "uq_class_teacher_name_year",
+                "class",
+                ["teacher_id", "name", "academic_year"],
+            )
 
     if sa.inspect(bind).has_table("person") and _index_exists(
-        bind, "uq_person_admission_no"
+        bind, "person", "uq_person_admission_no"
     ):
         if bind.dialect.name == "sqlite":
-            op.execute(sa.text("DROP INDEX uq_person_admission_no"))
+            bind.exec_driver_sql("DROP INDEX uq_person_admission_no")
         else:
             op.drop_index("uq_person_admission_no", table_name="person")
 
     _STUDENT_WHERE = "payload->>'role' = 'student'"
     if sa.inspect(bind).has_table("person") and not _index_exists(
-        bind, "uq_person_workspace_admission_no"
+        bind, "person", "uq_person_workspace_admission_no"
     ):
         op.create_index(
             "uq_person_workspace_admission_no",
@@ -98,7 +108,15 @@ def downgrade() -> None:
     if not sa.inspect(bind).has_table("class"):
         return
 
-    if _index_exists(bind, "uq_class_teacher_name_year"):
+    if _constraint_exists(bind, "class", "uq_class_teacher_name_year"):
+        if bind.dialect.name == "sqlite":
+            with op.batch_alter_table("class") as batch_op:
+                batch_op.drop_constraint(
+                    "uq_class_teacher_name_year", type_="unique"
+                )
+        else:
+            op.drop_constraint("uq_class_teacher_name_year", "class", type_="unique")
+    elif _index_exists(bind, "class", "uq_class_teacher_name_year"):
         op.drop_index("uq_class_teacher_name_year", table_name="class")
 
     if bind.dialect.name == "sqlite":
