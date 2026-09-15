@@ -494,3 +494,148 @@ def test_demo_seed_allowed_after_reset(client, db):
     res = client.post("/api/data/demo/seed", headers=AUTH)
     assert res.status_code == 200, res.text
     assert len(_students(db)) >= 20
+
+
+# ---------------------------------------------------------------------------
+# Export: home visits & scores
+# ---------------------------------------------------------------------------
+
+def _setup_owned_class(db, teacher: Person, students: list[tuple[str, str]]) -> tuple[Class, list[Person]]:
+    klass = Class(name="707班", academic_year="2025", teacher_id=teacher.id)
+    db.add(klass)
+    db.flush()
+    rows: list[Person] = []
+    for name, admission_no in students:
+        p = _student(db, name, admission_no)
+        tag_student_workspace(p, teacher)
+        db.add(Enrollment(person_id=p.id, class_id=klass.id, valid_from=date(2025, 9, 1)))
+        rows.append(p)
+    db.commit()
+    return klass, rows
+
+
+@pytest.fixture()
+def data_exam_client(make_client, db):
+    from app.routers import exams as exams_router
+
+    tc = make_client(data.router, exams_router.router)
+    teacher = seed_person(db, "chen@test.example", phone="13800000001", name="陈老师")
+    ensure_workspace_id(teacher)
+    seed_token(db, teacher, TEACHER_TOKEN)
+    db.commit()
+    return tc
+
+
+def test_export_home_visits(client, db):
+    teacher = _teacher_row(db)
+    klass, students = _setup_owned_class(db, teacher, [("吴梓涵", "2025070701")])
+    s1 = students[0]
+    create_event(
+        db,
+        event_type="home_visited",
+        title="期末家访",
+        start_time=datetime(2026, 6, 5, 15, 0),
+        payload={
+            "summary": "期末家访",
+            "purpose": "例行家访",
+            "guardian": "吴母",
+            "done": True,
+        },
+        attendee_ids=[s1.id, teacher.id],
+        commit=True,
+    )
+
+    res = client.get(
+        "/api/data/export/home-visits",
+        params={"class_id": str(klass.id)},
+        headers=AUTH,
+    )
+    assert res.status_code == 200, res.text
+    ws = load_workbook(io.BytesIO(res.content)).active
+    assert ws.cell(3, 1).value == "2025070701"
+    assert ws.cell(3, 2).value == "吴梓涵"
+    assert ws.cell(3, 4).value == "例行家访"
+    assert ws.cell(3, 5).value == "期末家访"
+    assert ws.cell(3, 6).value == "吴母"
+    assert ws.cell(3, 7).value == "已完成"
+
+
+def test_export_scores_workbook(data_exam_client, db):
+    teacher = _teacher_row(db)
+    klass, students = _setup_owned_class(
+        db, teacher, [("吴梓涵", "2025070701"), ("邢宇辰", "2025070702")]
+    )
+    r = data_exam_client.post(
+        "/api/exams",
+        json={
+            "name": "九月月考",
+            "exam_date": "2026-09-08",
+            "class_ids": [str(klass.id)],
+            "subjects": [
+                {"subject": "math", "full_score": 120},
+                {"subject": "english", "full_score": 120},
+            ],
+        },
+        headers=AUTH,
+    )
+    assert r.status_code == 201, r.text
+    exam_id = r.json()["id"]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["学号", "姓名", "数学(满分120)", "英语(满分120)"])
+    ws.append(["2025070701", "吴梓涵", 96, "缺考"])
+    ws.append(["2025070702", "邢宇辰", 88, 91])
+    buf = io.BytesIO()
+    wb.save(buf)
+    imp = data_exam_client.post(
+        f"/api/exams/{exam_id}/scores/import",
+        files={"file": ("scores.xlsx", buf.getvalue(), XLSX_MIME)},
+        headers=AUTH,
+    )
+    assert imp.status_code == 200, imp.text
+
+    res = data_exam_client.get(
+        "/api/data/export/scores",
+        params={"class_id": str(klass.id)},
+        headers=AUTH,
+    )
+    assert res.status_code == 200, res.text
+    out = load_workbook(io.BytesIO(res.content))
+    assert len(out.worksheets) == 1
+    sheet = out.worksheets[0]
+    rows = list(sheet.iter_rows(values_only=True))
+    headers = rows[1]
+    assert headers[:2] == ("学号", "姓名")
+    assert sorted(headers[2:]) == ["数学(满分120)", "英语(满分120)"]
+    math_idx = headers.index("数学(满分120)")
+    english_idx = headers.index("英语(满分120)")
+    by_no = {row[0]: row for row in rows[2:]}
+    assert by_no["2025070701"][math_idx] == 96
+    assert by_no["2025070701"][english_idx] == "缺考"
+    assert by_no["2025070702"][math_idx] == 88
+    assert by_no["2025070702"][english_idx] == 91
+
+
+def test_export_scores_empty_returns_400(client, db):
+    teacher = _teacher_row(db)
+    klass, _ = _setup_owned_class(db, teacher, [("吴梓涵", "2025070701")])
+    res = client.get(
+        "/api/data/export/scores",
+        params={"class_id": str(klass.id)},
+        headers=AUTH,
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == "该班暂无考试成绩可导出"
+
+
+def test_export_cross_workspace_class_404(client, db):
+    other = seed_person(db, "other@test.example", phone="13800000002", name="李老师")
+    ensure_workspace_id(other)
+    klass = Class(name="808班", academic_year="2025", teacher_id=other.id)
+    db.add(klass)
+    db.commit()
+
+    for path in ("/api/data/export/roster", "/api/data/export/home-visits", "/api/data/export/scores"):
+        res = client.get(path, params={"class_id": str(klass.id)}, headers=AUTH)
+        assert res.status_code == 404
