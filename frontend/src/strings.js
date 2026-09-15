@@ -2,7 +2,7 @@
 // 把后端存储的枚举代码（math、F、active…）渲染成人话。
 // subjectColor 与 EVENT_TYPES 供图表和时间线取色/取图标。
 const messages = {
-  "app.title": "高老师工作台",
+  "app.title": "高素质工作台",
   "nav.home": "首页",
   "nav.students": "学生",
   "nav.classes": "班级",
