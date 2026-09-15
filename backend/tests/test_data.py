@@ -499,6 +499,18 @@ def test_demo_status_detects_students(client, db):
     assert res.json() == {"has_business_data": True}
 
 
+def test_demo_status_true_after_seed_for_timeout_recovery(client, db):
+    """Frontend recovers from false-negative seed failures via this status probe."""
+    assert client.get("/api/data/demo/status", headers=AUTH).json() == {
+        "has_business_data": False
+    }
+    seed_res = client.post("/api/data/demo/seed", headers=AUTH)
+    assert seed_res.status_code == 200, seed_res.text
+    assert client.get("/api/data/demo/status", headers=AUTH).json() == {
+        "has_business_data": True
+    }
+
+
 def test_demo_seed_blocked_when_students_exist(client, db):
     s = _workspace_student(db, "林晓雨", "S770001")
 
