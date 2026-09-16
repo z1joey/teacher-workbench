@@ -16,9 +16,13 @@ SQLite engine as the `db` fixture:
 `tests.conftest`) so tests keep a linear arrange section instead of juggling
 fixture return values.
 """
+import os
 import sys
 import warnings
 from pathlib import Path
+
+# app.database requires DATABASE_URL at import; tests use their own SQLite engines.
+os.environ.setdefault("DATABASE_URL", "sqlite://")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

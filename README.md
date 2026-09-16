@@ -4,7 +4,7 @@
 分科考试成绩、全校/班级 **平均分**、**家访**、学生 **标签**，以及按学生聚合的
 **时间线**事件流。当前版本 **0.1.2**（Beta）。
 
-- **Backend**: Python 3.14 · FastAPI · SQLAlchemy 2（Docker 部署使用 PostgreSQL 17，本地开发默认 SQLite）
+- **Backend**: Python 3.14 · FastAPI · SQLAlchemy 2 · PostgreSQL 17（本地开发与 Docker 部署均使用 PostgreSQL）
 - **Frontend**: Vue 3 · Vite · vue-router（纯 CSS，无 UI 框架）
 
 架构与模块说明见 [CODE_WIKI.md](CODE_WIKI.md)。
@@ -19,34 +19,39 @@
 
 ### 方式一：本地开发模式
 
+本地开发使用 **PostgreSQL**（Docker 容器，与生产一致）。一键脚本会启动
+Postgres + Redis 容器，并在首次空库时自动执行 `bootstrap_db`（Alembic）与
+`seed`。
+
 **首次准备（只需一次）：**
 
 ```bash
+cp .env.example .env              # 按需修改 POSTGRES_* / DATABASE_URL
+./scripts/run-dev.sh              # 创建 venv、启动 Docker db/redis、灌演示数据
+```
+
+`DATABASE_URL` 为必填项（见 `.env.example`）；`run-dev.sh` 会从 `.env` 读取
+`POSTGRES_*` 并导出连接串。需安装 **Docker** 以运行 PostgreSQL 与 Redis。
+
+**手动分终端启动**（与脚本等价，便于单独调试某一端）：
+
+```bash
+docker compose up -d db redis     # Postgres @ 127.0.0.1:5432
 cd backend
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
-./.venv/bin/python -m app.seed        # 建表 + 灌入演示数据
-```
-
-不设置 `DATABASE_URL` 时，本地开发默认使用 SQLite 文件
-`backend/teacher_workbench.db`，无需安装任何数据库。
-
-**启动（两个终端分别运行）：**
-
-```bash
-# 终端 1 —— 后端：API 在 http://127.0.0.1:8001，交互文档在 /docs
-cd backend
+set -a && source ../.env && set +a   # 或 export DATABASE_URL=…
+./.venv/bin/python -m app.bootstrap_db   # 首次或空库
+./.venv/bin/python -m app.seed           # 可选演示数据
 ./.venv/bin/uvicorn app.main:app --port 8001 --reload
 
-# 终端 2 —— 前端：Vite 会打印实际地址（默认 http://localhost:5173）
-cd frontend
-npm install                           # 首次需要
-npm run dev
+# 另一终端
+cd frontend && npm install && npm run dev
 ```
 
 浏览器打开 Vite 打印的地址即可（若 5173 被占用会自动顺延到 5174，以终端输出为准）。
 
-**停止**：在对应终端按 `Ctrl + C` 即可。
+**停止**：在对应终端按 `Ctrl + C` 即可；`./scripts/run-dev.sh stop` 只停前后端进程，Docker 容器仍运行。
 
 **端口被占用时**，找到并结束占用进程：
 
@@ -55,19 +60,10 @@ lsof -nP -iTCP:8001 -sTCP:LISTEN      # 查看占用进程（前端查 5173/5174
 kill <PID>                            # 结束它
 ```
 
-**重置演示数据**：seed 脚本在非全新数据库上会**重复灌入**数据——先删除
-SQLite 文件 `backend/teacher_workbench.db`（或 drop 掉整个 schema），再执行
-`./.venv/bin/python -m app.seed`。
+**重置演示数据**：seed 在非全新库上会**重复灌入**——先 `docker compose down -v`
+删 Postgres 卷，再 `./scripts/run-dev.sh`（或手动 `bootstrap_db` + `seed`）。
 
 > 注意：若修改后端端口，需同步修改 `frontend/vite.config.js` 里的代理目标。
-
-**（可选）本地后端连接 Docker 里的 PostgreSQL**：先按方式二把 `db` 服务跑起来，
-然后给后端设置连接串再启动（需先重装一次依赖以获得 psycopg 驱动）：
-
-```bash
-./.venv/bin/pip install -r requirements.txt
-export DATABASE_URL=postgresql+psycopg://workbench:workbench@127.0.0.1:5433/workbench
-```
 
 ### 方式二：Docker Compose
 
@@ -189,7 +185,7 @@ PBKDF2-HMAC-SHA256（20 万次迭代 + 每用户盐值）；token 为 `auth_sess
 Schema 定义在 `backend/app/models/` 包（SQLAlchemy 2.0 声明式映射），共 **6 张表**
 （person / event / tag / class / enrollment / auth_session，外加 person_events、
 person_tags 两张多对多关联表），部署在 PostgreSQL（`docker compose` 中的 `db`
-服务），本地开发可回退 SQLite。半结构化数据（角色档案、事件载荷）在
+服务），本地开发与 Docker 部署均使用 PostgreSQL。半结构化数据（角色档案、事件载荷）在
 PostgreSQL 上落在 **JSONB** 列。
 
 > 自 2026-09 起数据模型整体切换为**以事件为中心**的 schema：person 是唯一的
@@ -259,10 +255,8 @@ exam_taken / result_changed）由业务流程自动写入，教师手写事件�
 ### 建表与迁移
 
 迁移工具为 **Alembic**（`0001_initial` 起，当前 head 含工作区隔离与数据清理迁移
-`0005`–`0009`）。部署入口是 `python -m app.bootstrap_db`，每次启动执行
-`alembic upgrade head`。
-本地 SQLite 开发库可跳过 Alembic——删掉文件重跑 `python -m app.seed`（内部
-`create_all`）即可。
+`0005`–`0009`）。部署与本地开发入口均为 `python -m app.bootstrap_db`，执行
+`alembic upgrade head` 后再灌演示数据（`python -m app.seed`）。
 
 ## 演示数据与故事线
 
@@ -275,23 +269,22 @@ exam_taken / result_changed）由业务流程自动写入，教师手写事件�
 - **王浩**——2026-03-01 由七年级2班转入七年级1班；平均分页按"考试当日所在
   班级"归属，所以两场考试都计入 7-1。
 
-重置演示数据：本地模式先删除 `backend/teacher_workbench.db` 再跑
-`python -m app.seed`（非全新库重跑会重复灌入）；Docker 模式先
-`docker compose down -v` 删卷，重启后再执行
-`docker compose exec backend python -m app.seed`。
+重置演示数据：本地模式 `docker compose down -v` 后重跑 `./scripts/run-dev.sh`
+（或 `bootstrap_db` + `seed`）；Docker 全栈模式同样 `docker compose down -v`
+删卷，重启后再执行 `docker compose exec backend python -m app.seed`。
 
 ## 项目结构
 
 ```
 backend/
   app/
-    database.py        # 引擎 + 会话（DATABASE_URL 优先，缺省 SQLite 文件）
+    database.py        # 引擎 + 会话（必填 DATABASE_URL，见 .env.example）
     models/            # 事件中心 schema：Person(payload 角色) / Event / Tag / Class / Enrollment / AuthSession
     payloads.py        # 角色/事件 payload 的校验注册表
     eventing.py        # create_event：事件表唯一写入口
     security.py        # PBKDF2 密码哈希 / token
     deps.py            # get_current_person 鉴权依赖
-    seed.py            # 确定性演示数据（建表 + 灌数据）
+    seed.py            # 确定性演示数据（需先 bootstrap_db）
     bootstrap_db.py    # 部署入口：alembic upgrade head + 运行时数据修补
     main.py            # FastAPI 应用与路由装配
     alembic/           # 迁移链（v1：0001_initial）
@@ -319,9 +312,8 @@ docs/design.md
 
 ## 生产化说明
 
-Docker 部署已使用 PostgreSQL 17（JSONB、部分唯一索引、事件索引均已生效）；
-本地开发仍可用 SQLite，连接串由 `DATABASE_URL` 决定。数据库凭据统一放在
-`.env`（已 gitignore / dockerignore，compose 从中读取；模板见 `.env.example`，
+Docker 部署与本地开发均使用 PostgreSQL 17（JSONB、部分唯一索引、事件索引均已生效）；
+连接串由 `.env` 中的 `DATABASE_URL` 提供（模板见 `.env.example`，
 凭据仅在 pgdata 卷首次初始化时生效）。数据库迁移走 Alembic（`0001_initial`，
 容器启动时 `python -m app.bootstrap_db` 自动 `upgrade head`）。接入生产前还需处理：
 会话 token 无过期时间（需加过期与刷新机制）、CORS 允许任意来源（演示配置）、
