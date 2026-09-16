@@ -658,13 +658,15 @@ const headerMeta = computed(() => {
           <!-- 成绩 -->
           <div class="card">
             <div class="card__head">
-              <div>
-                <h2 class="card__title"><Icon name="chart" :size="16" /> {{ t("detail.scores") }}</h2>
+              <div class="grow">
+                <div class="between">
+                  <h2 class="card__title"><Icon name="chart" :size="16" /> {{ t("detail.scores") }}</h2>
+                  <button type="button" class="btn btn--sm" style="flex-shrink: 0" @click="goAddScores">
+                    <Icon name="plus" :size="14" /> {{ t("detail.addScore") }}
+                  </button>
+                </div>
                 <p class="card__desc">{{ t("detail.scoresHint") }}</p>
               </div>
-              <button class="btn btn--sm" @click="goAddScores">
-                <Icon name="plus" :size="14" /> {{ t("detail.addScore") }}
-              </button>
             </div>
 
             <div class="card__body">
