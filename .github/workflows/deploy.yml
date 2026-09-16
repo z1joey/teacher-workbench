@@ -230,7 +230,7 @@ jobs:
     name: 部署到服务器（production）
     runs-on: ubuntu-latest
     needs: build-and-push
-    timeout-minutes: 15
+    timeout-minutes: 20
     # 仅 main：push 自动部署；手动触发用于回滚（填 image_tag）或重新部署当前 commit。
     # !cancelled()：回滚时测试与构建任务被跳过，本任务仍需执行。
     # production 环境分支策略已限定 main（受保护分支）；SERVER_*/POSTGRES_* 用环境级 Secrets。
@@ -276,6 +276,36 @@ jobs:
           overwrite: true
 
       # -----------------------------------------------------------------------
+      # 在构建机侧拉取镜像并打包：服务器直连 Docker Hub 已被网络阻断
+      # （DNS 污染 + TCP 超时，2026-09-16 部署失败的根因），公共加速器
+      # 又代理不了个人仓库镜像。改由构建机拉取后经 scp 传给服务器 load。
+      # -----------------------------------------------------------------------
+      - name: 构建机拉取镜像并打包
+        env:
+          IMAGE_TAG: ${{ steps.meta.outputs.tag }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          docker pull "$DOCKERHUB_USERNAME/teacher-workbench-backend:$IMAGE_TAG"
+          docker pull "$DOCKERHUB_USERNAME/teacher-workbench-frontend:$IMAGE_TAG"
+          docker save \
+            "$DOCKERHUB_USERNAME/teacher-workbench-backend:$IMAGE_TAG" \
+            "$DOCKERHUB_USERNAME/teacher-workbench-frontend:$IMAGE_TAG" \
+            | gzip > teacher-workbench-images.tar.gz
+          du -sh teacher-workbench-images.tar.gz
+
+      - name: 上传镜像包到服务器
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1.0.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: teacher-workbench-images.tar.gz
+          target: ${{ secrets.PROJECT_DIR }}
+          overwrite: true
+
+      # -----------------------------------------------------------------------
       # 通过 SSH 部署：secrets 经环境变量传递，不在脚本里明文内插
       # -----------------------------------------------------------------------
       - name: 部署到服务器
@@ -304,10 +334,11 @@ jobs:
             echo "镜像标签: $IMAGE_TAG"
             echo "=========================================="
 
-            # 1. 拉取镜像（失败立即中止，不影响正在运行的服务）
-            echo "📥 拉取镜像..."
-            docker pull "$DOCKERHUB_USERNAME/teacher-workbench-backend:$IMAGE_TAG"
-            docker pull "$DOCKERHUB_USERNAME/teacher-workbench-frontend:$IMAGE_TAG"
+            # 1. 载入构建机传来的镜像包：load 保留仓库与 tag，载入后的镜像名
+            #    与 compose 引用一致。服务器不再直连 Docker Hub。
+            echo "📥 载入镜像包..."
+            docker load -i "$PROJECT_DIR/teacher-workbench-images.tar.gz"
+            rm -f "$PROJECT_DIR/teacher-workbench-images.tar.gz"
 
             # 2. 滚动更新
             #    - db 单独 up：配置未变化时不重建，避免每次部署重启数据库
