@@ -17,7 +17,7 @@ from collections import defaultdict
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from .models import Class, Event, Person
+from .models import Class, Enrollment, Event, Person
 from .models.associations import student_guardians
 from .payloads import validate_person_payload
 from .unassigned import is_unassigned_class
@@ -66,6 +66,38 @@ def classes_query(db: Session, teacher: Person, include_archived: bool = False):
     if not include_archived:
         q = q.filter(Class.archived.is_(False))
     return q
+
+
+def archived_class_students_query(db: Session, class_id: uuid.UUID):
+    """Graduates of an archived class, ordered by 学号.
+
+    Must not use SELECT DISTINCT on ``Person`` while ordering by a JSON
+    extract. PostgreSQL requires ORDER BY expressions to appear in the
+    select list, and ``payload->>'admission_no'`` is not a selected column
+    of ``person.*``. Demo seed creates 六1班 as archived, so GET /profile
+    hits this after load-demo.
+    """
+    return (
+        db.query(Person)
+        .join(Enrollment, Enrollment.person_id == Person.id)
+        .filter(
+            Enrollment.class_id == class_id,
+            Person.payload["graduated_at"].as_string().is_not(None),
+        )
+        .order_by(Person.payload["admission_no"].as_string(), Person.id)
+    )
+
+
+def archived_class_students(db: Session, class_id: uuid.UUID) -> list[Person]:
+    """Unique graduates of an archived class, ordered by 学号."""
+    seen: set[uuid.UUID] = set()
+    out: list[Person] = []
+    for person in archived_class_students_query(db, class_id):
+        if person.id in seen:
+            continue
+        seen.add(person.id)
+        out.append(person)
+    return out
 
 
 def admission_no_taken(

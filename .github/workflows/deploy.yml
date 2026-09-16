@@ -114,7 +114,9 @@ jobs:
   # ===========================================================================
   # 单测全部走 SQLite（create_all 引导），0.1.2 的 0006 迁移在生产 PG 上首跑
   # 即崩、backend 崩溃循环。本任务在 PG17 上 upgrade → downgrade → 再 upgrade，
-  # 挡住只对 SQLite 成立的迁移改动；回滚部署（手动填 image_tag）时跳过。
+  # 挡住只对 SQLite 成立的迁移改动；并跑 GET /profile after demo seed，挡住
+  # SELECT DISTINCT + ORDER BY json 这类 SQLite 放行、生产 PG 500 的查询。
+  # 回滚部署（手动填 image_tag）时跳过。
   test-migrations-postgres:
     name: 迁移冒烟（PostgreSQL）
     runs-on: ubuntu-latest
@@ -152,16 +154,22 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: 安装依赖
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          pip install pytest "httpx>=0.27"
 
-      - name: 迁移链双向冒烟（upgrade → downgrade → upgrade）
+      - name: 迁移链双向冒烟 + profile after demo seed
         env:
           # localhost 走端口映射，避免 GHA service 容器 DNS 偶发解析失败
           DATABASE_URL: postgresql+psycopg://tw:tw@127.0.0.1:5432/tw
+          RUN_POSTGRES_TESTS: "1"
         run: |
           alembic upgrade head
           alembic downgrade base
           alembic upgrade head
+          # SQLite pytest cannot catch DISTINCT + ORDER BY json; this is the
+          # production GET /profile 500 after demo seed.
+          pytest tests/test_profile_postgres.py -q
 
   # ===========================================================================
   # Job 4: 构建并推送 Docker 镜像（测试通过后才会执行）
