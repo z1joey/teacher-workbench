@@ -7,6 +7,7 @@ import Icon from "../components/Icon.vue"
 import PageHeader from "../components/PageHeader.vue"
 import AsyncState from "../components/AsyncState.vue"
 import FormField from "../components/FormField.vue"
+import EnrollmentMonthInput from "../components/EnrollmentMonthInput.vue"
 import ClassDetailContent from "../components/ClassDetailContent.vue"
 import api from "../api"
 import { notify } from "../feedback"
@@ -122,7 +123,7 @@ async function createClass() {
           <input v-model="createForm.name" class="input" type="text" maxlength="60" />
         </FormField>
         <FormField :label="t('classes.year')" :hint="t('classes.yearHint')">
-          <input v-model="createForm.academic_year" class="input" type="month" required />
+          <EnrollmentMonthInput v-model="createForm.academic_year" required />
         </FormField>
       </div>
 

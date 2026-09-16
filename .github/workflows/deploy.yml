@@ -407,9 +407,11 @@ jobs:
             echo "📊 服务状态："
             docker compose ps
 
-            # 3. 端到端验证：从宿主机访问后端健康检查接口
-            echo "🩺 验证后端健康检查..."
+            # 3. 端到端验证：健康检查含 DB ping；auth 读路径确认数据库查询可用
+            echo "🩺 验证后端健康检查（含数据库）..."
             curl -fsS --max-time 10 http://127.0.0.1:8001/api/health
+            echo "🩺 验证登录相关读路径..."
+            curl -fsS --max-time 10 http://127.0.0.1:8001/api/auth/registration-status
 
             # 4. 清理悬空镜像（节省磁盘空间）
             echo "🧹 清理悬空镜像..."
