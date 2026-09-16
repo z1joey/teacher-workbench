@@ -11,6 +11,8 @@ import { recoverDemoSeedIfPresent } from "../demoSeedRecovery"
 import { notify } from "../feedback"
 import { formatEnrollmentMonth, friendlyError, t } from "../strings"
 
+const emit = defineEmits(["workspace-changed"])
+
 const loading = ref(true)
 const error = ref("")
 const classes = ref([])
@@ -162,6 +164,7 @@ async function finishDemoSeed() {
   exportClassId.value = ""
   hasBusinessData.value = true
   await load()
+  emit("workspace-changed")
 }
 
 async function loadDemoData() {
@@ -232,6 +235,7 @@ async function resetApp() {
     exportClassId.value = ""
     hasBusinessData.value = false
     await load()
+    emit("workspace-changed")
   } catch (e) {
     notify({ tone: "error", title: t("data.demoResetFail"), detail: friendlyError(e) })
   } finally {

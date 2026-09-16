@@ -512,7 +512,7 @@ const activity = computed(() => {
       </div>
 
       <!-- 数据管理：导入导出与演示数据（原「数据」页并入） -->
-      <DataView />
+      <DataView @workspace-changed="load" />
 
       <div class="form-actions" style="justify-content: center">
         <button type="button" class="btn btn--danger" @click="logout">
