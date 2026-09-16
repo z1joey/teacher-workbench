@@ -3,10 +3,13 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-# PostgreSQL in deployment (docker-compose sets DATABASE_URL); SQLite stands
-# in for local runs outside Docker. The schema is PostgreSQL-first
-# (see docs/design.md), so this really is just a connection-string change.
-DATABASE_URL: str = os.environ.get("DATABASE_URL", "sqlite:///./teacher_workbench.db")
+# PostgreSQL everywhere outside unit tests (tests set DATABASE_URL to SQLite).
+DATABASE_URL: str = os.environ.get("DATABASE_URL", "")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is required. Copy .env.example to .env and run "
+        "./scripts/run-dev.sh (or export DATABASE_URL before starting the backend)."
+    )
 
 engine = create_engine(
     DATABASE_URL,

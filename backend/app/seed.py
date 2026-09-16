@@ -12,8 +12,9 @@ timeline (visits, notes) is written through app.eventing.create_event.
 Class/Enrollment keep current membership; tags attach to persons. Birthdays
 are NOT persisted — the timeline projects them from payload["birth_date"].
 
-Re-seeding an existing database duplicates the demo data — remove the SQLite
-file (or drop the schema) first.
+Re-seeding an existing database duplicates the demo data — wipe the schema
+first (e.g. docker compose down -v, or python -m app.bootstrap_db --wipe).
+Run python -m app.bootstrap_db before seed on a fresh PostgreSQL volume.
 """
 import os
 import random
@@ -23,7 +24,7 @@ from datetime import date, datetime, time
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .database import Base, SessionLocal, engine
+from .database import SessionLocal, engine
 from .eventing import sync_all_birthday_events
 from .unassigned import ensure_unassigned_class
 from .workspace import ensure_workspace_id, tag_student_workspace
@@ -172,7 +173,8 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
     to that account. CLI seed creates the fixed demo teacher/admin accounts.
     """
     if teacher is None:
-        if include_admin:
+        role_of = Person.payload["role"].as_string()
+        if include_admin and db.query(Person).filter(role_of == "admin").first() is None:
             # 演示场景回退固定账密；配置了 ADMIN_EMAIL/ADMIN_PASSWORD 时以环境变量为准
             admin_email = os.environ.get("ADMIN_EMAIL", "admin@school.dev")
             admin_password = os.environ.get("ADMIN_PASSWORD", "admin123")
@@ -596,9 +598,7 @@ def seed(db: Session, *, teacher: Person | None = None, include_admin: bool = Tr
 
 
 def run() -> None:
-    # Local SQLite dev: create tables directly. Docker / PostgreSQL: run
-    # python -m app.bootstrap_db first, then seed.
-    Base.metadata.create_all(engine)
+    # Schema must exist (alembic upgrade head via app.bootstrap_db).
     db = SessionLocal()
     try:
         ensure_unassigned_class(db)

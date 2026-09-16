@@ -33,8 +33,9 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
         if mod == "app" or mod.startswith("app."):
             del sys.modules[mod]
 
-    from app import seed as seed_mod
+    from app import bootstrap_db, seed as seed_mod
 
+    bootstrap_db.main()
     seed_mod.run()
 
     from sqlalchemy import func
@@ -186,7 +187,7 @@ def test_seed_loads_demo_data(tmp_path, monkeypatch):
 
         # seeded logins verify: admin/admin123, 陈老师/123456 — and the hashes
         # are not interchangeable
-        admin = db.query(Person).filter(Person.phone == "13800000000").one()
+        admin = db.query(Person).filter(Person.email == "admin@school.dev").one()
         chen = db.query(Person).filter(Person.phone == "13800000001").one()
         assert admin.role == "admin" and chen.role == "teacher"
         # `name` is a typed person column — it is not part of the payload

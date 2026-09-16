@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Start (or stop) the local dev stack: Redis (docker) + FastAPI backend + Vite frontend.
+# Start (or stop) the local dev stack: PostgreSQL + Redis (docker) + FastAPI + Vite.
 #
 # Usage:
-#   ./scripts/run-dev.sh              # SQLite dev (default)
-#   USE_POSTGRES=1 ./scripts/run-dev.sh   # PostgreSQL via Docker (prod parity)
-#   ./scripts/run-dev.sh stop         # stop dev servers (Docker containers stay up)
+#   cp .env.example .env   # first time only
+#   ./scripts/run-dev.sh         # start all services (Postgres via Docker)
+#   ./scripts/run-dev.sh stop    # stop dev servers (Docker containers stay up)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,7 +17,6 @@ REDIS_PORT=6379
 POSTGRES_PORT=5432
 REDIS_CONTAINER=teacher-workbench-redis
 DB_CONTAINER=teacher-workbench-db
-DB_FILE="$BACKEND_DIR/teacher_workbench.db"
 FRESH_DB=0
 
 if [[ -f "$ROOT/.env" ]]; then
@@ -25,11 +24,6 @@ if [[ -f "$ROOT/.env" ]]; then
   # shellcheck disable=SC1091
   source "$ROOT/.env"
   set +a
-fi
-
-USE_POSTGRES="${USE_POSTGRES:-0}"
-if [[ -n "${DATABASE_URL:-}" && "$DATABASE_URL" == postgresql* ]]; then
-  USE_POSTGRES=1
 fi
 
 port_pids() {
@@ -66,14 +60,14 @@ wait_for_port() {
   return 1
 }
 
-using_postgres() {
-  [[ "$USE_POSTGRES" == "1" ]]
-}
-
 ensure_postgres_url() {
   if [[ -n "${DATABASE_URL:-}" ]]; then
     export DATABASE_URL
     return 0
+  fi
+  if [[ ! -f "$ROOT/.env" ]]; then
+    echo "ERROR: copy .env.example to .env first (cp .env.example .env)" >&2
+    exit 1
   fi
   : "${POSTGRES_USER:?missing POSTGRES_USER — copy .env.example to .env}"
   : "${POSTGRES_PASSWORD:?missing POSTGRES_PASSWORD — copy .env.example to .env}"
@@ -103,7 +97,7 @@ PY
 
 ensure_postgres() {
   if ! docker info >/dev/null 2>&1; then
-    echo "ERROR: USE_POSTGRES=1 requires Docker (start Docker Desktop first)." >&2
+    echo "ERROR: local dev requires Docker for PostgreSQL (start Docker Desktop first)." >&2
     exit 1
   fi
   echo "==> Starting PostgreSQL (docker container $DB_CONTAINER)"
@@ -180,13 +174,7 @@ ensure_backend() {
     echo "==> Installing backend dependencies"
     "$VENV/bin/pip" install -r "$BACKEND_DIR/requirements.txt"
   fi
-  if using_postgres; then
-    ensure_postgres
-  elif [[ ! -f "$DB_FILE" ]]; then
-    echo "==> Seeding demo database"
-    (cd "$BACKEND_DIR" && "$VENV/bin/python" -m app.seed)
-    FRESH_DB=1
-  fi
+  ensure_postgres
 }
 
 ensure_frontend() {
@@ -211,10 +199,8 @@ start_dev() {
   ensure_frontend
   ensure_redis
 
+  ensure_postgres_url
   echo "==> Starting backend on http://127.0.0.1:$BACKEND_PORT (docs: /docs)"
-  if using_postgres; then
-    ensure_postgres_url
-  fi
   (cd "$BACKEND_DIR" && "$VENV/bin/uvicorn" app.main:app --port "$BACKEND_PORT" --reload) &
   BACKEND_PID=$!
 
@@ -236,11 +222,7 @@ start_dev() {
   echo "  Backend   http://127.0.0.1:$BACKEND_PORT"
   echo "  API docs  http://127.0.0.1:$BACKEND_PORT/docs"
   echo "  Redis     redis://127.0.0.1:$REDIS_PORT (docker: $REDIS_CONTAINER)"
-  if using_postgres; then
-    echo "  Database  PostgreSQL @ 127.0.0.1:$POSTGRES_PORT (docker: $DB_CONTAINER)"
-  else
-    echo "  Database  SQLite ($DB_FILE)"
-  fi
+  echo "  Database  PostgreSQL @ 127.0.0.1:$POSTGRES_PORT (docker: $DB_CONTAINER)"
   echo
   if [[ "$FRESH_DB" -eq 1 ]]; then
     echo "Demo login:  chen@school.edu / 123456"
