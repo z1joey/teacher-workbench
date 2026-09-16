@@ -49,7 +49,13 @@ services:
       - "8001:8001"
     environment:
       - PYTHONUNBUFFERED=1
-      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER:?missing - copy .env.example to .env}:${POSTGRES_PASSWORD:?missing - copy .env.example to .env}@db:5432/${POSTGRES_DB:?missing - copy .env.example to .env}
+      # database.py builds DATABASE_URL from POSTGRES_* with URL-encoding;
+      # do not interpolate the password raw into a URL here.
+      - POSTGRES_HOST=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=${POSTGRES_USER:?missing - copy .env.example to .env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?missing - copy .env.example to .env}
+      - POSTGRES_DB=${POSTGRES_DB:?missing - copy .env.example to .env}
       # 忘记密码验证码存 Redis；ALI_* 为阿里云 DirectMail 发信凭据（见 .env）
       - REDIS_URL=redis://redis:6379/0
       - ALI_ACCESS_KEY_ID=${ALI_ACCESS_KEY_ID:-}

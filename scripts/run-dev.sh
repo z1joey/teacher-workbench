@@ -72,7 +72,15 @@ ensure_postgres_url() {
   : "${POSTGRES_USER:?missing POSTGRES_USER — copy .env.example to .env}"
   : "${POSTGRES_PASSWORD:?missing POSTGRES_PASSWORD — copy .env.example to .env}"
   : "${POSTGRES_DB:?missing POSTGRES_DB — copy .env.example to .env}"
-  export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}"
+  export DATABASE_URL="$(
+    cd "$BACKEND_DIR" && \
+    POSTGRES_USER="$POSTGRES_USER" \
+    POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+    POSTGRES_DB="$POSTGRES_DB" \
+    POSTGRES_HOST="127.0.0.1" \
+    POSTGRES_PORT="$POSTGRES_PORT" \
+    "$VENV/bin/python" -c 'from app.database import resolve_database_url; print(resolve_database_url())'
+  )"
 }
 
 postgres_db_state() {
