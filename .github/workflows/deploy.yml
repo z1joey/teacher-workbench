@@ -156,7 +156,8 @@ jobs:
 
       - name: 迁移链双向冒烟（upgrade → downgrade → upgrade）
         env:
-          DATABASE_URL: postgresql+psycopg://tw:tw@postgres:5432/tw
+          # localhost 走端口映射，避免 GHA service 容器 DNS 偶发解析失败
+          DATABASE_URL: postgresql+psycopg://tw:tw@127.0.0.1:5432/tw
         run: |
           alembic upgrade head
           alembic downgrade base
@@ -223,6 +224,40 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
 
+      # -----------------------------------------------------------------------
+      # 从 GHA 缓存载入到本地 daemon 并打包：deploy job 在另一台 runner 上，
+      # 直接 pull 可能遇到 Hub 传播延迟或 manifest 尚未可见；artifact 传递更稳。
+      # -----------------------------------------------------------------------
+      - name: 载入镜像到本地并打包
+        env:
+          IMAGE_TAG: sha-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --file ./backend/Dockerfile \
+            --tag "${{ env.BACKEND_IMAGE }}:${IMAGE_TAG}" \
+            --load \
+            --cache-from type=gha,scope=backend \
+            ./backend
+          docker buildx build \
+            --file ./frontend/Dockerfile \
+            --tag "${{ env.FRONTEND_IMAGE }}:${IMAGE_TAG}" \
+            --load \
+            --cache-from type=gha,scope=frontend \
+            ./frontend
+          docker save \
+            "${{ env.BACKEND_IMAGE }}:${IMAGE_TAG}" \
+            "${{ env.FRONTEND_IMAGE }}:${IMAGE_TAG}" \
+            | gzip > teacher-workbench-images.tar.gz
+          du -sh teacher-workbench-images.tar.gz
+
+      - name: 上传镜像包 artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: deploy-images
+          path: teacher-workbench-images.tar.gz
+          retention-days: 1
+
   # ===========================================================================
   # Job 4: 部署到生产服务器
   # ===========================================================================
@@ -232,9 +267,15 @@ jobs:
     needs: build-and-push
     timeout-minutes: 20
     # 仅 main：push 自动部署；手动触发用于回滚（填 image_tag）或重新部署当前 commit。
-    # !cancelled()：回滚时测试与构建任务被跳过，本任务仍需执行。
+    # 构建成功才部署；回滚时 build-and-push 被跳过，但填了 image_tag 仍需执行。
     # production 环境分支策略已限定 main（受保护分支）；SERVER_*/POSTGRES_* 用环境级 Secrets。
-    if: "${{ !cancelled() && github.ref == 'refs/heads/main' }}"
+    if: >-
+      !cancelled() &&
+      github.ref == 'refs/heads/main' &&
+      (
+        needs.build-and-push.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' && inputs.image_tag != '')
+      )
     environment: production
 
     steps:
@@ -276,11 +317,18 @@ jobs:
           overwrite: true
 
       # -----------------------------------------------------------------------
-      # 在构建机侧拉取镜像并打包：服务器直连 Docker Hub 已被网络阻断
-      # （DNS 污染 + TCP 超时，2026-09-16 部署失败的根因），公共加速器
-      # 又代理不了个人仓库镜像。改由构建机拉取后经 scp 传给服务器 load。
+      # 正常部署：从 build-and-push 的 artifact 取镜像包（无需再 pull Hub）。
+      # 回滚（手动填 image_tag）：构建被跳过，改在 runner 上 pull 后打包。
+      # 服务器始终不直连 Docker Hub。
       # -----------------------------------------------------------------------
-      - name: 构建机拉取镜像并打包
+      - name: 下载构建产出的镜像包
+        if: github.event_name != 'workflow_dispatch' || inputs.image_tag == ''
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: deploy-images
+
+      - name: 回滚时从 Docker Hub 拉取并打包
+        if: github.event_name == 'workflow_dispatch' && inputs.image_tag != ''
         env:
           IMAGE_TAG: ${{ steps.meta.outputs.tag }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
