@@ -21,6 +21,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+      start_period: 30s
 
   redis:
     # 忘记密码验证码存储 + 限流计数；端口仅发布在回环地址供本地开发直连
@@ -74,18 +75,20 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
+      # Liveness only (/api/health/live). Readiness + DB is /api/health (deploy curl).
       # 127.0.0.1 on purpose — deterministic, avoids localhost resolving to ::1
       test:
         [
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health').read()",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health/live').read()",
         ]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 15s
+      retries: 8
+      # bootstrap_db (alembic + data fixes) runs before uvicorn; allow headroom
+      start_period: 90s
 
   frontend:
     build:

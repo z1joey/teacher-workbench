@@ -1,4 +1,10 @@
-"""Health endpoint must reflect database availability (deploy gate)."""
+"""Health endpoints: liveness for Docker, readiness for deploy gate."""
+
+
+def test_health_live_always_ok(client):
+    r = client.get("/api/health/live")
+    assert r.status_code == 200, r.text
+    assert r.json()["ok"] is True
 
 
 def test_health_ok_when_database_reachable(client):

@@ -51,6 +51,17 @@ app.include_router(data.router, prefix="/api", dependencies=[Depends(get_current
 app.include_router(admin.router, prefix="/api")
 
 
+@app.get("/api/health/live")
+def health_live():
+    """Process liveness — no database probe.
+
+    Docker HEALTHCHECK uses this so a container is not marked unhealthy while
+    ``bootstrap_db`` runs migrations before uvicorn binds, or during brief DB
+    reconnects. Deploy smoke tests use ``/api/health`` (readiness + DB).
+    """
+    return {"ok": True}
+
+
 @app.get("/api/health")
 def health():
     try:
