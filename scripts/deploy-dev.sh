@@ -95,8 +95,8 @@ POSTGRES_USER=$(q "$POSTGRES_USER") POSTGRES_PASSWORD=$(q "$POSTGRES_PASSWORD") 
 POSTGRES_DB=$(q "$POSTGRES_DB")"
 
 echo "==> ⑦ 滚动更新（--wait 等待容器通过自身 healthcheck）"
-sshcmd "cd '$REMOTE_DIR' && $ENV_PREFIX docker compose up -d --wait --wait-timeout 120 db redis"
-sshcmd "cd '$REMOTE_DIR' && $ENV_PREFIX docker compose up -d --wait --wait-timeout 300 --no-deps backend frontend"
+sshcmd "cd '$REMOTE_DIR' && $ENV_PREFIX docker compose up -d --wait --wait-timeout 180 db redis"
+sshcmd "cd '$REMOTE_DIR' && $ENV_PREFIX docker compose up -d --wait --wait-timeout 360 backend frontend"
 
 echo "==> ⑧ 服务状态"
 sshcmd "cd '$REMOTE_DIR' && $ENV_PREFIX docker compose ps"

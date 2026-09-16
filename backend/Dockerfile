@@ -33,9 +33,9 @@ COPY alembic/ ./alembic/
 # Expose backend port
 EXPOSE 8001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/api/health').read()"
+# Liveness only; deploy smoke uses /api/health (readiness + DB)
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health/live').read()"
 
 # Run Alembic to head, then start the server. Pre-release volumes must be
 # wiped (docker compose down -v) before first deploy on the v1 chain.

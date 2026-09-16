@@ -397,12 +397,13 @@ jobs:
             rm -f "$PROJECT_DIR/teacher-workbench-images.tar.gz"
 
             # 2. 滚动更新
-            #    - db 单独 up：配置未变化时不重建，避免每次部署重启数据库
-            #    - --wait 等待容器通过自身 healthcheck，不健康则本步骤失败
-            #    - --no-deps 只重建应用服务，不动 db
+            #    - db/redis 先 up 并 wait：数据面就绪后再动应用
+            #    - backend 保留 depends_on(db/redis healthy)，不用 --no-deps
+            #    - db 配置未变时 compose 不会重建 db 容器
+            #    - --wait 等 liveness healthcheck；DB 就绪由下方 curl /api/health 验证
             echo "🔄 更新服务..."
-            docker compose up -d --wait --wait-timeout 120 db redis
-            docker compose up -d --wait --wait-timeout 300 --no-deps backend frontend
+            docker compose up -d --wait --wait-timeout 180 db redis
+            docker compose up -d --wait --wait-timeout 360 backend frontend
 
             echo "📊 服务状态："
             docker compose ps
