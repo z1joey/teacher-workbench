@@ -154,9 +154,22 @@ jobs:
       - name: 安装依赖
         run: pip install -r requirements.txt
 
+      - name: 等待 PostgreSQL 就绪
+        run: |
+          for i in $(seq 1 30); do
+            if (echo > /dev/tcp/127.0.0.1/5432) 2>/dev/null; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "PostgreSQL not ready on 127.0.0.1:5432" >&2
+          exit 1
+
       - name: 迁移链双向冒烟（upgrade → downgrade → upgrade）
         env:
-          DATABASE_URL: postgresql+psycopg://tw:tw@postgres:5432/tw
+          # 用回环地址：部分 runner 上 service 主机名 postgres 偶发 DNS 解析失败
+          DATABASE_URL: postgresql+psycopg://tw:tw@127.0.0.1:5432/tw
         run: |
           alembic upgrade head
           alembic downgrade base
@@ -223,18 +236,51 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,scope=frontend,mode=max
 
+      # -----------------------------------------------------------------------
+      # 打包刚构建的镜像供部署 job 使用：避免 deploy job 再次从 Hub 拉取
+      # （构建被跳过时不应部署；回滚路径在 deploy job 内单独拉取）
+      # -----------------------------------------------------------------------
+      - name: 打包镜像供部署传输
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          set -euo pipefail
+          tag="sha-${GITHUB_SHA}"
+          backend="${DOCKERHUB_USERNAME}/teacher-workbench-backend:${tag}"
+          frontend="${DOCKERHUB_USERNAME}/teacher-workbench-frontend:${tag}"
+          for attempt in 1 2 3 4 5; do
+            if docker pull "$backend" && docker pull "$frontend"; then
+              break
+            fi
+            echo "Hub 镜像尚未可见，5s 后重试 (${attempt}/5)…"
+            sleep 5
+          done
+          docker save "$backend" "$frontend" | gzip > teacher-workbench-images.tar.gz
+          du -sh teacher-workbench-images.tar.gz
+
+      - name: 上传部署镜像包
+        uses: actions/upload-artifact@50769540e7f4f251b9abd8214dfffb09d744d3eed # v4.4.0
+        with:
+          name: deploy-images
+          path: teacher-workbench-images.tar.gz
+          retention-days: 1
+
   # ===========================================================================
-  # Job 4: 部署到生产服务器
+  # Job 5: 部署到生产服务器
   # ===========================================================================
   deploy:
     name: 部署到服务器（production）
     runs-on: ubuntu-latest
     needs: build-and-push
     timeout-minutes: 20
-    # 仅 main：push 自动部署；手动触发用于回滚（填 image_tag）或重新部署当前 commit。
-    # !cancelled()：回滚时测试与构建任务被跳过，本任务仍需执行。
-    # production 环境分支策略已限定 main（受保护分支）；SERVER_*/POSTGRES_* 用环境级 Secrets。
-    if: "${{ !cancelled() && github.ref == 'refs/heads/main' }}"
+    # 正常部署：build-and-push 成功；回滚：手动填 image_tag（跳过构建）。
+    # 测试失败导致 build 被跳过时，不得带着 !cancelled() 继续部署。
+    if: >-
+      !cancelled() &&
+      github.ref == 'refs/heads/main' && (
+        needs.build-and-push.result == 'success' ||
+        (github.event_name == 'workflow_dispatch' && inputs.image_tag != '')
+      )
     environment: production
 
     steps:
@@ -276,11 +322,24 @@ jobs:
           overwrite: true
 
       # -----------------------------------------------------------------------
-      # 在构建机侧拉取镜像并打包：服务器直连 Docker Hub 已被网络阻断
-      # （DNS 污染 + TCP 超时，2026-09-16 部署失败的根因），公共加速器
-      # 又代理不了个人仓库镜像。改由构建机拉取后经 scp 传给服务器 load。
+      # 镜像包来源：正常部署用 build job 产物；回滚时从 Hub 拉取既有标签。
+      # 服务器直连 Docker Hub 已被网络阻断，统一由 runner 打包后经 scp 传输。
       # -----------------------------------------------------------------------
-      - name: 构建机拉取镜像并打包
+      - name: 下载构建产物镜像包
+        if: needs.build-and-push.result == 'success'
+        uses: actions/download-artifact@fa0a91b85d4f2a9bc1bdb1b6e8a37537de6b1257 # v4.1.7
+        with:
+          name: deploy-images
+
+      - name: 登录 Docker Hub（回滚拉取镜像）
+        if: github.event_name == 'workflow_dispatch' && inputs.image_tag != ''
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 回滚时从 Docker Hub 拉取并打包
+        if: github.event_name == 'workflow_dispatch' && inputs.image_tag != ''
         env:
           IMAGE_TAG: ${{ steps.meta.outputs.tag }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
