@@ -1,9 +1,11 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from .bootstrap_db import ensure_schema
+from .database import engine
 from .deps import get_current_user
 from .routers import (
     admin,
@@ -51,4 +53,9 @@ app.include_router(admin.router, prefix="/api")
 
 @app.get("/api/health")
 def health():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(status_code=503, detail="database unavailable")
     return {"ok": True, "version": APP_VERSION, "beta": IS_BETA}

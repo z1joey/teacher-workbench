@@ -129,7 +129,7 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
 def login(body: LoginIn, db: Session = Depends(get_db)):
     email = normalize_email(body.email)
     person = db.query(Person).filter(Person.email == email).first()
-    if person is None or not verify_password(body.password, person.password_hash):
+    if person is None or not verify_password(body.password, person.password_hash or ""):
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
     token = create_session(db, person.id)
     db.commit()

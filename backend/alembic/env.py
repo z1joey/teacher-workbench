@@ -15,9 +15,16 @@ target_metadata = Base.metadata
 
 
 def _url() -> str:
-    # Deployment injects DATABASE_URL; tests override via Config.set_main_option
-    # AND clear the env var (see tests/test_role_migration.py).
-    return os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    # Deployment injects DATABASE_URL or POSTGRES_*; tests override via
+    # Config.set_main_option AND clear the env var (see test_role_migration).
+    if os.environ.get("DATABASE_URL"):
+        return os.environ["DATABASE_URL"]
+    try:
+        from app.database import resolve_database_url
+
+        return resolve_database_url()
+    except RuntimeError:
+        return config.get_main_option("sqlalchemy.url")
 
 
 def run_migrations_offline() -> None:
