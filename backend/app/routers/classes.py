@@ -26,6 +26,7 @@ from ..eventing import RECORD_EVENT_TYPES, create_event
 from ..models._common import utcnow
 from ..unassigned import ensure_unassigned_class, is_unassigned_class
 from ..workspace import (
+    archived_class_students,
     classes_query,
     require_class_in_workspace,
     require_student_in_workspace,
@@ -406,17 +407,7 @@ def get_class(
 
     # 归档班的名单 = 该班历届毕业生（学籍已关闭，current_students 为空）
     if c.archived:
-        roster = (
-            db.query(Person)
-            .join(Enrollment, Enrollment.person_id == Person.id)
-            .filter(
-                Enrollment.class_id == class_id,
-                Person.payload["graduated_at"].as_string().is_not(None),
-            )
-            .distinct()
-            .order_by(Person.payload["admission_no"].as_string())
-            .all()
-        )
+        roster = archived_class_students(db, class_id)
     else:
         roster = current_students(db, class_id, user)
     return {

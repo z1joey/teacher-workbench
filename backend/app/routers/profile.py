@@ -11,7 +11,7 @@ from ..payloads import validate_person_payload
 from ..routers.auth import normalize_phone, validate_phone_format
 from ..routers.students import AUTO_HOME_VISIT_TAG_NAME, _prune_unused_tags
 from ..unassigned import is_unassigned_class
-from ..workspace import classes_query, students_query
+from ..workspace import archived_class_students, classes_query, students_query
 
 router = APIRouter(tags=["profile"])
 
@@ -108,17 +108,7 @@ def get_profile(
         .order_by(Class.name)
         .all()
     ):
-        grads = (
-            db.query(Person)
-            .join(Enrollment, Enrollment.person_id == Person.id)
-            .filter(
-                Enrollment.class_id == c.id,
-                Person.payload["graduated_at"].as_string().is_not(None),
-            )
-            .distinct()
-            .order_by(Person.payload["admission_no"].as_string())
-            .all()
-        )
+        grads = archived_class_students(db, c.id)
         archived_classes.append(
             {
                 "id": str(c.id),
