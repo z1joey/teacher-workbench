@@ -21,7 +21,7 @@ const emit = defineEmits(["save", "cancel", "update:password"])
     <div class="form-grid">
       <div class="field" style="margin: 0">
         <span class="field__label">{{ t("admin.userRole") }}</span>
-        <select v-model="form.role" class="select" :disabled="user.id === selfId">
+        <select v-model="form.role" class="select select--sm" :disabled="user.id === selfId">
           <option value="teacher">{{ t("admin.roleTeacher") }}</option>
           <option value="admin">{{ t("admin.roleAdmin") }}</option>
         </select>

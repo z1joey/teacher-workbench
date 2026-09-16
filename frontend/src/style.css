@@ -1098,6 +1098,12 @@ mark.hl {
   padding: 0 var(--sp-2);
   font-size: var(--fs-sm);
 }
+.select--sm {
+  height: 28px;
+  padding: 0 26px 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  background-position: right 7px center;
+}
 .input--search {
   padding-left: 32px;
   padding-right: 30px;
