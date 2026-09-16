@@ -784,12 +784,37 @@ export function genderLabel(g) {
   return t(`gender.${g}`) === `gender.${g}` ? g : t(`gender.${g}`)
 }
 
+const ENROLLMENT_MONTH_RE = /^(\d{4})-(\d{2})$/
+export const ENROLLMENT_MIN_YEAR = 1900
+export const ENROLLMENT_MAX_YEAR = 2100
+
+/** 解析 YYYY-MM 入学月份；无效时返回 null。 */
+export function parseEnrollmentMonth(value) {
+  const raw = String(value || "").trim()
+  const m = ENROLLMENT_MONTH_RE.exec(raw)
+  if (!m) return null
+  const year = Number(m[1])
+  const month = Number(m[2])
+  if (year < ENROLLMENT_MIN_YEAR || year > ENROLLMENT_MAX_YEAR) return null
+  if (month < 1 || month > 12) return null
+  return { year, month }
+}
+
+/** 将年月组合为 YYYY-MM。 */
+export function buildEnrollmentMonth(year, month) {
+  const y = Number(year)
+  const m = Number(month)
+  if (!Number.isInteger(y) || !Number.isInteger(m)) return ""
+  if (y < ENROLLMENT_MIN_YEAR || y > ENROLLMENT_MAX_YEAR) return ""
+  if (m < 1 || m > 12) return ""
+  return `${y}-${String(m).padStart(2, "0")}`
+}
+
 /** 将 YYYY-MM 格式化为「2025年9月」；其他格式原样返回。 */
 export function formatEnrollmentMonth(value) {
-  const raw = String(value || "").trim()
-  const m = /^(\d{4})-(\d{2})$/.exec(raw)
-  if (m) return `${m[1]}年${Number(m[2])}月`
-  return raw
+  const parsed = parseEnrollmentMonth(value)
+  if (parsed) return `${parsed.year}年${parsed.month}月`
+  return String(value || "").trim()
 }
 
 /** 班级页顶栏面包屑：七年级 1 班 • 2025年9月 */

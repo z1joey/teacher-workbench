@@ -9,6 +9,7 @@ import Icon from "./Icon.vue"
 import PageHeader from "./PageHeader.vue"
 import AsyncState from "./AsyncState.vue"
 import FormField from "./FormField.vue"
+import EnrollmentMonthInput from "./EnrollmentMonthInput.vue"
 import LineChart from "./LineChart.vue"
 import SeatingBoard from "./SeatingBoard.vue"
 import SelectMenu from "./SelectMenu.vue"
@@ -414,7 +415,7 @@ function fmtPct(score, full) {
               <input v-model="editForm.name" class="input" type="text" maxlength="60" />
             </FormField>
             <FormField :label="t('classes.year')" :hint="t('classes.yearHint')">
-              <input v-model="editForm.academic_year" class="input" type="month" required />
+              <EnrollmentMonthInput v-model="editForm.academic_year" required />
             </FormField>
           </div>
 
