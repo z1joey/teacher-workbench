@@ -61,12 +61,24 @@ SQLite 文件 `backend/teacher_workbench.db`（或 drop 掉整个 schema），�
 
 > 注意：若修改后端端口，需同步修改 `frontend/vite.config.js` 里的代理目标。
 
-**（可选）本地后端连接 Docker 里的 PostgreSQL**：先按方式二把 `db` 服务跑起来，
-然后给后端设置连接串再启动（需先重装一次依赖以获得 psycopg 驱动）：
+**（推荐）本地 PostgreSQL 开发（与生产一致）**：复制 `.env` 后一键启动 Docker
+里的 Postgres + 本地前后端（首次会自动 Alembic 建表并灌演示数据）：
 
 ```bash
+cp .env.example .env
+USE_POSTGRES=1 ./scripts/run-dev.sh
+```
+
+**（可选）手动连接 Docker 里的 PostgreSQL**：先 `docker compose up -d db redis`，
+再设置连接串并启动后端（端口 **5432**，凭据与 `.env` 中 `POSTGRES_*` 一致）：
+
+```bash
+cd backend
 ./.venv/bin/pip install -r requirements.txt
-export DATABASE_URL=postgresql+psycopg://workbench:workbench@127.0.0.1:5433/workbench
+export DATABASE_URL=postgresql+psycopg://<POSTGRES_USER>:<POSTGRES_PASSWORD>@127.0.0.1:5432/<POSTGRES_DB>
+./.venv/bin/python -m app.bootstrap_db    # 首次或空库
+./.venv/bin/python -m app.seed            # 可选演示数据
+./.venv/bin/uvicorn app.main:app --port 8001 --reload
 ```
 
 ### 方式二：Docker Compose

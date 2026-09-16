@@ -2,8 +2,9 @@
 # Start (or stop) the local dev stack: Redis (docker) + FastAPI backend + Vite frontend.
 #
 # Usage:
-#   ./scripts/run-dev.sh         # first-run setup + start all services
-#   ./scripts/run-dev.sh stop    # stop the dev servers (Redis container stays up)
+#   ./scripts/run-dev.sh              # SQLite dev (default)
+#   USE_POSTGRES=1 ./scripts/run-dev.sh   # PostgreSQL via Docker (prod parity)
+#   ./scripts/run-dev.sh stop         # stop dev servers (Docker containers stay up)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,9 +14,23 @@ VENV="$BACKEND_DIR/.venv"
 BACKEND_PORT=8001
 FRONTEND_PORT=5173
 REDIS_PORT=6379
+POSTGRES_PORT=5432
 REDIS_CONTAINER=teacher-workbench-redis
+DB_CONTAINER=teacher-workbench-db
 DB_FILE="$BACKEND_DIR/teacher_workbench.db"
 FRESH_DB=0
+
+if [[ -f "$ROOT/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$ROOT/.env"
+  set +a
+fi
+
+USE_POSTGRES="${USE_POSTGRES:-0}"
+if [[ -n "${DATABASE_URL:-}" && "$DATABASE_URL" == postgresql* ]]; then
+  USE_POSTGRES=1
+fi
 
 port_pids() {
   local port="$1"
@@ -49,6 +64,65 @@ wait_for_port() {
     sleep 0.3
   done
   return 1
+}
+
+using_postgres() {
+  [[ "$USE_POSTGRES" == "1" ]]
+}
+
+ensure_postgres_url() {
+  if [[ -n "${DATABASE_URL:-}" ]]; then
+    export DATABASE_URL
+    return 0
+  fi
+  : "${POSTGRES_USER:?missing POSTGRES_USER — copy .env.example to .env}"
+  : "${POSTGRES_PASSWORD:?missing POSTGRES_PASSWORD — copy .env.example to .env}"
+  : "${POSTGRES_DB:?missing POSTGRES_DB — copy .env.example to .env}"
+  export DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}"
+}
+
+postgres_db_state() {
+  (cd "$BACKEND_DIR" && DATABASE_URL="$DATABASE_URL" "$VENV/bin/python" - <<'PY'
+from sqlalchemy import inspect, text
+
+from app.database import engine
+
+insp = inspect(engine)
+tables = insp.get_table_names()
+if not tables:
+    print("empty")
+elif not insp.has_table("person"):
+    print("empty")
+else:
+    with engine.connect() as conn:
+        count = conn.execute(text("SELECT COUNT(*) FROM person")).scalar_one()
+    print("empty" if count == 0 else "seeded")
+PY
+  )
+}
+
+ensure_postgres() {
+  if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: USE_POSTGRES=1 requires Docker (start Docker Desktop first)." >&2
+    exit 1
+  fi
+  echo "==> Starting PostgreSQL (docker container $DB_CONTAINER)"
+  docker compose -f "$ROOT/docker-compose.yml" up -d db
+  if ! wait_for_port "$POSTGRES_PORT" 60; then
+    echo "ERROR: PostgreSQL not ready on port $POSTGRES_PORT after 18s." >&2
+    exit 1
+  fi
+  ensure_postgres_url
+
+  local db_state
+  db_state="$(postgres_db_state)"
+  if [[ "$db_state" == "empty" ]]; then
+    echo "==> Bootstrapping PostgreSQL schema (Alembic)"
+    (cd "$BACKEND_DIR" && "$VENV/bin/python" -m app.bootstrap_db)
+    echo "==> Seeding demo database"
+    (cd "$BACKEND_DIR" && "$VENV/bin/python" -m app.seed)
+    FRESH_DB=1
+  fi
 }
 
 ensure_redis() {
@@ -92,6 +166,9 @@ stop_dev() {
   if [[ "$(docker container inspect -f '{{.State.Running}}' "$REDIS_CONTAINER" 2>/dev/null)" == "true" ]]; then
     echo "Redis container $REDIS_CONTAINER is still running (stop it with: docker stop $REDIS_CONTAINER)."
   fi
+  if [[ "$(docker container inspect -f '{{.State.Running}}' "$DB_CONTAINER" 2>/dev/null)" == "true" ]]; then
+    echo "PostgreSQL container $DB_CONTAINER is still running (stop it with: docker stop $DB_CONTAINER)."
+  fi
 }
 
 ensure_backend() {
@@ -103,7 +180,9 @@ ensure_backend() {
     echo "==> Installing backend dependencies"
     "$VENV/bin/pip" install -r "$BACKEND_DIR/requirements.txt"
   fi
-  if [[ ! -f "$DB_FILE" ]]; then
+  if using_postgres; then
+    ensure_postgres
+  elif [[ ! -f "$DB_FILE" ]]; then
     echo "==> Seeding demo database"
     (cd "$BACKEND_DIR" && "$VENV/bin/python" -m app.seed)
     FRESH_DB=1
@@ -133,6 +212,9 @@ start_dev() {
   ensure_redis
 
   echo "==> Starting backend on http://127.0.0.1:$BACKEND_PORT (docs: /docs)"
+  if using_postgres; then
+    ensure_postgres_url
+  fi
   (cd "$BACKEND_DIR" && "$VENV/bin/uvicorn" app.main:app --port "$BACKEND_PORT" --reload) &
   BACKEND_PID=$!
 
@@ -154,6 +236,11 @@ start_dev() {
   echo "  Backend   http://127.0.0.1:$BACKEND_PORT"
   echo "  API docs  http://127.0.0.1:$BACKEND_PORT/docs"
   echo "  Redis     redis://127.0.0.1:$REDIS_PORT (docker: $REDIS_CONTAINER)"
+  if using_postgres; then
+    echo "  Database  PostgreSQL @ 127.0.0.1:$POSTGRES_PORT (docker: $DB_CONTAINER)"
+  else
+    echo "  Database  SQLite ($DB_FILE)"
+  fi
   echo
   if [[ "$FRESH_DB" -eq 1 ]]; then
     echo "Demo login:  chen@school.edu / 123456"
@@ -171,7 +258,7 @@ case "${1:-start}" in
   start) start_dev ;;
   stop) stop_dev ;;
   -h|--help)
-    sed -n '2,6p' "$0" | sed 's/^# //'
+    sed -n '2,7p' "$0" | sed 's/^# //'
     ;;
   *)
     echo "Unknown command: $1 (try: start, stop)" >&2
